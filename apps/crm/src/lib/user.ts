@@ -18,7 +18,7 @@ export type CurrentUser = {
 };
 
 /** Mirrors ROLE_RANK in apps/api/src/plugins/auth.ts. */
-const ROLE_RANK: Record<string, number> = {
+export const ROLE_RANK: Record<string, number> = {
   VIEWER: 0,
   MARKETING: 1,
   AGENT: 2,
@@ -27,8 +27,28 @@ const ROLE_RANK: Record<string, number> = {
   SUPER_ADMIN: 5,
 };
 
+export const ALL_ROLES = [
+  "SUPER_ADMIN",
+  "ADMIN",
+  "MANAGER",
+  "AGENT",
+  "MARKETING",
+  "VIEWER",
+] as const;
+
 export function hasRole(role: string, minimum: string): boolean {
   return (ROLE_RANK[role] ?? -1) >= (ROLE_RANK[minimum] ?? Number.POSITIVE_INFINITY);
+}
+
+/** Strictly greater, matching the API: peers cannot manage each other. */
+export function outranks(actorRole: string, targetRole: string): boolean {
+  return (ROLE_RANK[actorRole] ?? -1) > (ROLE_RANK[targetRole] ?? Number.POSITIVE_INFINITY);
+}
+
+/** Roles an actor is permitted to assign, i.e. strictly below their own. */
+export function assignableRoles(actorRole: string): string[] {
+  const rank = ROLE_RANK[actorRole] ?? -1;
+  return ALL_ROLES.filter((role) => (ROLE_RANK[role] ?? -1) < rank);
 }
 
 export function displayName(user: Pick<CurrentUser, "firstName" | "lastName" | "email">): string {

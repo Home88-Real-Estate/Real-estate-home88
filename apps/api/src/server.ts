@@ -13,6 +13,7 @@ import { leadRoutes } from "./routes/leads";
 import { mediaRoutes } from "./routes/media";
 import { portalRoutes } from "./routes/portals";
 import { propertyRoutes } from "./routes/properties";
+import { userRoutes } from "./routes/users";
 
 export async function buildServer(): Promise<FastifyInstance> {
   const cfg = loadConfig();
@@ -86,6 +87,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(contactRoutes, { prefix: "/api" });
   await app.register(portalRoutes, { prefix: "/api" });
   await app.register(mediaRoutes, { prefix: "/api" });
+  await app.register(userRoutes, { prefix: "/api" });
 
   return app;
 }

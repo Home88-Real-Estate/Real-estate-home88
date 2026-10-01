@@ -1,6 +1,11 @@
-import { LEAD_STATUS_LABELS, PROPERTY_STATUS_LABELS, label } from "@home88/types";
+import {
+  LEAD_STATUS_LABELS,
+  PROPERTY_STATUS_LABELS,
+  USER_STATUS_LABELS,
+  label,
+} from "@home88/types";
 
-type Kind = "property" | "lead" | "portal";
+type Kind = "property" | "lead" | "portal" | "user";
 
 const PORTAL_LABELS: Record<string, string> = {
   NOT_PUBLISHED: "Not published",
@@ -50,6 +55,19 @@ function classFor(kind: Kind, value: string): string {
     }
   }
 
+  if (kind === "user") {
+    switch (value) {
+      case "ACTIVE":
+        return "badge--ok";
+      case "INVITED":
+        return "badge--info";
+      case "SUSPENDED":
+        return "badge--danger";
+      default:
+        return "badge--muted";
+    }
+  }
+
   switch (value) {
     case "PUBLISHED":
       return "badge--ok";
@@ -67,6 +85,7 @@ function classFor(kind: Kind, value: string): string {
 function labelFor(kind: Kind, value: string): string {
   if (kind === "property") return label(PROPERTY_STATUS_LABELS, value, "el");
   if (kind === "lead") return label(LEAD_STATUS_LABELS, value, "el");
+  if (kind === "user") return label(USER_STATUS_LABELS, value, "el");
   return PORTAL_LABELS[value] ?? value;
 }
 

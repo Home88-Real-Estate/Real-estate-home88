@@ -526,6 +526,62 @@ export const dmcaNoticeSchema = z.object({
   signature: requiredText(200, "Signature"),
 });
 
+// --- User management -------------------------------------------------------
+
+export const USER_ROLES = [
+  "SUPER_ADMIN", "ADMIN", "MANAGER", "AGENT", "MARKETING", "VIEWER",
+] as const;
+export const userRoleSchema = z.enum(USER_ROLES);
+
+export const USER_STATUSES = ["ACTIVE", "SUSPENDED", "INVITED"] as const;
+export const userStatusSchema = z.enum(USER_STATUSES);
+
+/** Admin creates a staff account with an initial password meeting policy. */
+export const userCreateSchema = z
+  .object({
+    email: z.string().trim().toLowerCase().email("Enter a valid email address.").max(254),
+    firstName: requiredText(80, "First name"),
+    lastName: requiredText(80, "Last name"),
+    phone: phoneSchema,
+    role: userRoleSchema.default("AGENT"),
+    password: passwordSchema,
+  })
+  .strict();
+
+export type UserCreateInput = z.infer<typeof userCreateSchema>;
+
+/** Admin edit. Email is immutable: it keys sessions, hashes and the audit trail. */
+export const userUpdateSchema = z
+  .object({
+    firstName: requiredText(80, "First name").optional(),
+    lastName: requiredText(80, "Last name").optional(),
+    phone: phoneSchema,
+    role: userRoleSchema.optional(),
+    status: userStatusSchema.optional(),
+  })
+  .strict();
+
+export type UserUpdateInput = z.infer<typeof userUpdateSchema>;
+
+/** Admin-initiated reset; revokes the target's other sessions. */
+export const userPasswordSchema = z
+  .object({
+    password: passwordSchema,
+  })
+  .strict();
+
+export type UserPasswordInput = z.infer<typeof userPasswordSchema>;
+
+/** A signed-in user changing their own password. */
+export const passwordChangeSchema = z
+  .object({
+    currentPassword: z.string().min(1).max(200),
+    newPassword: passwordSchema,
+  })
+  .strict();
+
+export type PasswordChangeInput = z.infer<typeof passwordChangeSchema>;
+
 /**
  * Rate-limit budget per action. Kept next to the schemas so a new endpoint
  * cannot be added without being given a limit.

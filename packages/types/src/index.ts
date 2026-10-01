@@ -92,6 +92,21 @@ export const LEAD_SOURCE_LABELS: Record<string, Localised> = {
   OTHER: { el: "Άλλο", en: "Other" },
 };
 
+export const USER_ROLE_LABELS: Record<string, Localised> = {
+  SUPER_ADMIN: { el: "Διαχειριστής συστήματος", en: "Super admin" },
+  ADMIN: { el: "Διαχειριστής", en: "Admin" },
+  MANAGER: { el: "Υπεύθυνος", en: "Manager" },
+  AGENT: { el: "Μεσίτης", en: "Agent" },
+  MARKETING: { el: "Marketing", en: "Marketing" },
+  VIEWER: { el: "Παρατηρητής", en: "Viewer" },
+};
+
+export const USER_STATUS_LABELS: Record<string, Localised> = {
+  ACTIVE: { el: "Ενεργός", en: "Active" },
+  SUSPENDED: { el: "Σε αναστολή", en: "Suspended" },
+  INVITED: { el: "Πρόσκληση", en: "Invited" },
+};
+
 export function label(
   map: Record<string, Localised>,
   key: string | null | undefined,

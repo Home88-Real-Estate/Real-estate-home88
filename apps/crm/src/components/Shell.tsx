@@ -5,13 +5,14 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 
 import { logoutAction } from "@/actions/auth";
-import { displayName, roleLabel, type CurrentUser } from "@/lib/user";
+import { displayName, hasRole, roleLabel, type CurrentUser } from "@/lib/user";
 
-const NAV = [
+const NAV: Array<{ href: string; label: string; min?: string }> = [
   { href: "/", label: "Dashboard" },
   { href: "/properties", label: "Properties" },
   { href: "/leads", label: "Leads" },
   { href: "/contacts", label: "Contacts" },
+  { href: "/users", label: "Users", min: "MANAGER" },
 ];
 
 export function Shell({ user, children }: { user: CurrentUser; children: React.ReactNode }) {
@@ -28,7 +29,7 @@ export function Shell({ user, children }: { user: CurrentUser; children: React.R
           HOME88 CRM
         </Link>
         <nav>
-          {NAV.map((item) => (
+          {NAV.filter((item) => !item.min || hasRole(user.role, item.min)).map((item) => (
             <Link
               key={item.href}
               href={item.href}
