@@ -46,6 +46,7 @@ export function SiteFooter() {
             <li><Link href="/properties?propertyType=APARTMENT">Κατοικίες</Link></li>
             <li><Link href="/properties?propertyType=SHOP">Επαγγελματικοί χώροι</Link></li>
             <li><Link href="/properties?propertyType=PLOT">Γη &amp; οικόπεδα</Link></li>
+            <li><Link href="/areas">Ανά περιοχή</Link></li>
             <li><Link href="/properties">Όλα τα ακίνητα</Link></li>
           </ul>
         </div>

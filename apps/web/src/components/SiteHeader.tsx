@@ -10,6 +10,7 @@ const NAV: NavItem[] = [
   { href: "/properties?listingType=SALE", label: "Πωλήσεις" },
   { href: "/properties?listingType=RENT", label: "Ενοικιάσεις" },
   { href: "/properties", label: "Ακίνητα", section: "/properties" },
+  { href: "/areas", label: "Περιοχές", section: "/areas" },
   { href: "/submit", label: "Ανάθεση", section: "/submit" },
   { href: "/request", label: "Ζήτηση", section: "/request" },
   { href: "/valuation", label: "Εκτίμηση", section: "/valuation" },
