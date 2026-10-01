@@ -11,6 +11,8 @@
     "packages/*"
   ],
   "scripts": {
+    "postinstall": "prisma generate --schema packages/database/prisma/schema.prisma",
+    "prebuild": "prisma generate --schema packages/database/prisma/schema.prisma",
     "build": "npm run build --workspaces --if-present",
     "dev": "npm run dev --workspaces --if-present --parallel",
     "typecheck": "npm run typecheck --workspaces --if-present",
