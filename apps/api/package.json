@@ -1,0 +1,28 @@
+{
+  "name": "@home88/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "tsx --test src/**/*.test.ts"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/cors": "^10.0.2",
+    "@home88/database": "*",
+    "@home88/types": "*",
+    "@home88/validation": "*",
+    "fastify": "^5.2.1",
+    "nodemailer": "^6.10.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/nodemailer": "^6.4.17",
+    "tsx": "^4.23.15",
+    "typescript": "^5.6.3"
+  }
+}

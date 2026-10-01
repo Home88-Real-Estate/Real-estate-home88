@@ -260,9 +260,14 @@ export const buyerRequestSchema = contactBaseSchema
   })
   .superRefine(requireAReachableChannel);
 
-/** CRM property editor. Superset of the submission schema. */
-export const propertyUpsertSchema = z
-  .object({
+/**
+ * CRM property editor. Superset of the submission schema.
+ *
+ * The object is kept separate from its refinement so a PATCH variant can be
+ * derived from it: `.superRefine()` returns a ZodEffects, which has no
+ * `.partial()`.
+ */
+const propertyUpsertBaseSchema = z.object({
     reference: z.string().trim().toUpperCase().regex(/^H88-\d{6}$/).optional(),
     listingType: listingTypeSchema,
     propertyType: propertyTypeSchema,
@@ -337,8 +342,9 @@ export const propertyUpsertSchema = z
 
     commissionRatePct: z.coerce.number().min(0).max(100).optional().nullable(),
     agentCommissionPct: z.coerce.number().min(0).max(100).optional().nullable(),
-  })
-  .superRefine((val, ctx) => {
+  });
+
+export const propertyUpsertSchema = propertyUpsertBaseSchema.superRefine((val, ctx) => {
     if (val.price == null && !val.priceOnRequest) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -373,6 +379,14 @@ export const propertyUpsertSchema = z
   });
 
 export type PropertyUpsertInput = z.infer<typeof propertyUpsertSchema>;
+
+/**
+ * PATCH body for the CRM editor: every field optional, no defaults applied.
+ * Cross-field rules are checked by the caller against the merged record, so a
+ * partial update is still validated as the final state it produces.
+ */
+export const propertyUpdateSchema = propertyUpsertBaseSchema.partial();
+export type PropertyUpdateInput = z.infer<typeof propertyUpdateSchema>;
 
 export const propertySearchSchema = z.object({
   listingType: listingTypeSchema.optional(),
