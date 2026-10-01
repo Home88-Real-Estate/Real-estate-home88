@@ -12,6 +12,7 @@ const NAV: NavItem[] = [
   { href: "/properties", label: "Ακίνητα", section: "/properties" },
   { href: "/submit", label: "Ανάθεση", section: "/submit" },
   { href: "/request", label: "Ζήτηση", section: "/request" },
+  { href: "/valuation", label: "Εκτίμηση", section: "/valuation" },
   { href: "/about", label: "Εταιρεία", section: "/about" },
   { href: "/contact", label: "Επικοινωνία", section: "/contact" },
 ];

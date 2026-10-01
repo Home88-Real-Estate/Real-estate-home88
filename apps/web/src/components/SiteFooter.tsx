@@ -55,6 +55,7 @@ export function SiteFooter() {
           <ul>
             <li><Link href="/submit">Ανάθεση ακινήτου</Link></li>
             <li><Link href="/request">Ζήτηση ακινήτου</Link></li>
+            <li><Link href="/valuation">Εκτίμηση ακινήτου</Link></li>
             <li><Link href="/about">Η εταιρεία</Link></li>
             <li><Link href="/contact">Επικοινωνία</Link></li>
           </ul>

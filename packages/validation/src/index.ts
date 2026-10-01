@@ -440,6 +440,50 @@ export const propertySearchSchema = z.object({
 
 export type PropertySearchInput = z.infer<typeof propertySearchSchema>;
 
+// --- Indicative valuation --------------------------------------------------
+
+/**
+ * Checkbox helper for GET forms: unchecked boxes are simply absent, checked
+ * boxes submit the given value. Only an explicit truthy token counts, so a
+ * hand-crafted `?parking=false` cannot be read as "has parking".
+ */
+const checkboxFlag = z.preprocess(
+  (v) => v === true || v === "true" || v === "on" || v === "1" || v === "yes",
+  z.boolean(),
+);
+
+/**
+ * Subject-property inputs for the indicative valuation engine. Deliberately
+ * contains no personal data — contact details are captured separately by the
+ * lead form only when the visitor asks for a formal appraisal.
+ */
+export const valuationInputSchema = z.object({
+  propertyType: propertyTypeSchema,
+  area: z
+    .union([z.number(), z.string()])
+    .transform((v) => (typeof v === "string" ? Number(v.replace(/[\s,]/g, "")) : v))
+    .refine((v) => Number.isFinite(v) && v >= 15 && v <= 10_000, "Enter a valid area."),
+  city: optionalText(120),
+  areaName: optionalText(120),
+  condition: z
+    .enum(["NEW_BUILD", "RENOVATED", "GOOD", "NEEDS_RENOVATION", "UNDER_CONSTRUCTION"])
+    .optional()
+    .default("GOOD"),
+  yearBuilt: yearSchema,
+  floor: z.coerce.number().int().min(-5).max(200).optional().nullable(),
+  totalFloors: z.coerce.number().int().min(1).max(200).optional().nullable(),
+  parking: checkboxFlag.optional(),
+  storage: checkboxFlag.optional(),
+  balcony: checkboxFlag.optional(),
+  garden: checkboxFlag.optional(),
+  pool: checkboxFlag.optional(),
+  seaView: checkboxFlag.optional(),
+  furnished: checkboxFlag.optional(),
+  hasSolar: checkboxFlag.optional(),
+});
+
+export type ValuationInputDto = z.infer<typeof valuationInputSchema>;
+
 // --- Property media --------------------------------------------------------
 
 export const mediaKindSchema = z.enum([
