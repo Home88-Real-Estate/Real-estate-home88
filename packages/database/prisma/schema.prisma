@@ -1,0 +1,1103 @@
+// ---------------------------------------------------------------------------
+// HOME88 — data model
+//
+// Design rules enforced here, not left to discipline:
+//   1. Nothing user-facing is keyed on a database id. Properties and leads get
+//      a human reference (H88-000001) from a counter table, so a public code is
+//      stable across environments and re-orders.
+//   2. Personal data is either auditable or deletable. Every table holding a
+//      name/email/phone carries a retention path (see ComplianceAudit doc in
+//      README) so an erasure request can find and purge it.
+//   3. Consent is a first-class row, not a boolean. It records what was agreed,
+//      to which version of which policy, when, and how to undo it.
+//   4. Commercial communication is impossible to send without a suppression
+//      check, because the suppression table is consulted by the mailer itself.
+// ---------------------------------------------------------------------------
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  MANAGER
+  AGENT
+  MARKETING
+  VIEWER
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  INVITED
+}
+
+enum ListingType {
+  SALE
+  RENT
+  /// Portal-only transaction type: the agency is seeking an assignment of the
+  /// existing contract, not a new sale or tenancy.
+  ASSIGNMENT
+}
+
+enum PropertyStatus {
+  DRAFT
+  ACTIVE
+  RESERVED
+  SOLD
+  RENTED
+  INACTIVE
+  ARCHIVED
+}
+
+enum PropertyType {
+  APARTMENT
+  MAISONETTE
+  HOUSE
+  VILLA
+  STUDIO
+  OFFICE
+  SHOP
+  WAREHOUSE
+  BUILDING
+  HOTEL
+  LAND
+  PLOT
+  PARKING
+  INDUSTRIAL
+  OTHER
+}
+
+enum PropertyCondition {
+  NEW_BUILD
+  RENOVATED
+  GOOD
+  NEEDS_RENOVATION
+  UNDER_CONSTRUCTION
+}
+
+enum EnergyClass {
+  A_PLUS
+  A
+  B
+  C
+  D
+  E
+  F
+  G
+  NOT_AVAILABLE
+}
+
+enum HeatingType {
+  CENTRAL
+  INDIVIDUAL
+  UNDERFLOOR
+  HEAT_PUMP
+  GAS
+  NONE
+  NOT_AVAILABLE
+}
+
+enum MediaKind {
+  PHOTO
+  FLOOR_PLAN
+  VIDEO
+  VIRTUAL_TOUR
+  DOCUMENT
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  VIEWING
+  OFFER
+  WON
+  LOST
+  NOT_INTERESTED
+}
+
+enum LeadSource {
+  WEBSITE
+  PROPERTY_ENQUIRY
+  PHONE
+  WHATSAPP
+  EMAIL
+  SPITOGATOS
+  XE_GR
+  PORTAL_OTHER
+  WALK_IN
+  REFERRAL
+  SOCIAL
+  IMPORT
+  OTHER
+}
+
+enum ContactRole {
+  BUYER
+  SELLER
+  LANDLORD
+  TENANT
+  OTHER
+}
+
+enum PreferredContactMethod {
+  PHONE
+  EMAIL
+  WHATSAPP
+  SMS
+  ANY
+}
+
+enum ViewingStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum OfferStatus {
+  SUBMITTED
+  COUNTERED
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
+  EXPIRED
+}
+
+enum TaskStatus {
+  OPEN
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum DocumentCategory {
+  CONTRACT
+  DEED
+  ID_VERIFICATION
+  TAX
+  INSPECTION
+  APPRAISAL
+  INVOICE
+  OTHER
+}
+
+enum PortalTransport {
+  /// Portal accepts a direct API call with our credentials.
+  API
+  /// Portal ingests an XML document we publish to a URL they poll or fetch.
+  XML_FEED
+  /// Portal ingests a CSV document.
+  CSV_FEED
+  /// We hand the listing to a human who posts it in the portal's UI.
+  MANUAL
+}
+
+enum PortalSyncState {
+  NOT_PUBLISHED
+  QUEUED
+  PUBLISHING
+  PUBLISHED
+  FAILED
+  REMOVED
+  OUTDATED
+}
+
+enum SyncAction {
+  PUBLISH
+  UPDATE
+  REMOVE
+  REPUBLISH
+  IMPORT_LEADS
+}
+
+enum ConsentPurpose {
+  /// Necessary for the service to operate (contract, enquiry handling).
+  NECESSARY
+  /// Analytics / measurement. Opt-in, revocable.
+  ANALYTICS
+  /// Marketing email. Opt-in, revocable, suppression-enforced.
+  MARKETING
+  /// Writing to the visitor about a specific property they asked about.
+  PROPERTY_ENQUIRY
+  /// Non-essential cookies such as session replay.
+  SESSION_REPLAY
+}
+
+enum SuppressionReason {
+  UNSUBSCRIBE
+  HARD_BOUNCE
+  COMPLAINT
+  MANUAL
+  SUPPRESSED_BY_ADMIN
+}
+
+enum DataRequestType {
+  ACCESS
+  RECTIFICATION
+  ERASURE
+  PORTABILITY
+  OBJECTION
+  RESTRICTION
+}
+
+enum DataRequestStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  REJECTED
+}
+
+enum DmcaStatus {
+  RECEIVED
+  UNDER_REVIEW
+  ACTIONED
+  COUNTER_NOTICE
+  CLOSED
+  REJECTED
+}
+
+enum AuditEntity {
+  PROPERTY
+  LEAD
+  CONTACT
+  USER
+  OFFER
+  VIEWING
+  TASK
+  DOCUMENT
+  PORTAL
+  PORTAL_LISTING
+  CONSENT
+  EMAIL
+  SETTINGS
+}
+
+// ---------------------------------------------------------------------------
+// Reference counters
+//
+// Postgres sequences cannot produce "H88-000001" without a function per
+// prefix, and they cannot be reseeded independently per environment. A counter
+// table is portable and makes the allocation transactional with the insert.
+// ---------------------------------------------------------------------------
+
+model ReferenceCounter {
+  id        String   @id @default(cuid())
+  scope     String   @unique
+  nextValue Int      @default(1)
+  updatedAt DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Identity & access
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  phone        String?
+  role         UserRole   @default(AGENT)
+  status       UserStatus @default(ACTIVE)
+
+  /// Set by the age gate at invite/creation time. Users of this CRM are staff,
+  /// so this is enforced rather than merely recorded.
+  dateOfBirth  DateTime?  @db.Date
+
+  avatarUrl       String?
+  locale          String  @default("el")
+
+  properties Property[] @relation("PropertyAgent")
+  ownedBy   Property[] @relation("PropertyCreator")
+  leads      Lead[]     @relation("LeadAssignee")
+  viewings   Viewing[]
+  tasks      Task[]     @relation("TaskAssignee")
+  notes      Note[]
+  offers     Offer[]    @relation("OfferAgent")
+  auditLogs  AuditLog[]
+  consents   ConsentRecord[]
+  createdBy  User?      @relation("UserCreatedBy", fields: [createdById], references: [id])
+  createdById String?
+  createdUsers User[]   @relation("UserCreatedBy")
+  deactivatedBy User?   @relation("UserDeactivatedBy", fields: [deactivatedById], references: [id])
+  deactivatedById String?
+  deactivatedUsers User[] @relation("UserDeactivatedBy")
+  deactivatedAt     DateTime?
+  deletionRequestedAt DateTime?
+  erasureCompletedAt DateTime?
+
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  sessions           Session[]
+  passwordResetTokens PasswordResetToken[]
+
+  @@index([role])
+  @@index([status])
+  @@index([email])
+  @@map("users")
+}
+
+model Session {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// SHA-256 of the opaque token that lives in the HttpOnly cookie. The raw
+  /// token is never stored, so a database leak cannot be replayed as a session.
+  tokenHash        String   @unique
+  ipAddress        String?
+  userAgent        String?
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  revokedReason    String?
+  createdAt        DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// People: owners, buyers, sellers, landlords, tenants
+// ---------------------------------------------------------------------------
+
+model Contact {
+  id        String @id @default(cuid())
+  reference String @unique
+
+  firstName String
+  lastName  String
+  company   String?
+
+  /// Held at rest encrypted; see apps/api for the envelope key. Never selected
+  /// into list views or logs.
+  emailEncrypted String?
+  emailHash      String?
+  phoneEncrypted String?
+  mobileEncrypted String?
+
+  roles     ContactRole[]
+  taxIdEncrypted String?
+  addressEncrypted String?
+
+  preferredContactMethod PreferredContactMethod @default(ANY)
+  preferredLocale        String  @default("el")
+
+  notes      Note[]
+  leads      Lead[]
+  viewings   Viewing[]
+  offers     Offer[]
+  properties Property[] @relation("PropertyOwner")
+  documents  Document[]
+
+  marketingOptOutAt  DateTime?
+  erasureRequestedAt DateTime?
+  retentionExpiresAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([emailHash])
+  @@index([lastName])
+  @@map("contacts")
+}
+
+// ---------------------------------------------------------------------------
+// Property
+// ---------------------------------------------------------------------------
+
+model Property {
+  id        String @id @default(cuid())
+  /// Public code, e.g. H88-000001. Allocated from ReferenceCounter('property').
+  reference String @unique
+
+  /// URL slug. Unique, and regenerated when the title changes.
+  slug      String @unique
+
+  listingType   ListingType
+  propertyType  PropertyType
+  status        PropertyStatus @default(DRAFT)
+  condition     PropertyCondition @default(GOOD)
+
+  titleEl String
+  titleEn String?
+
+  descriptionEl String
+  descriptionEn String?
+
+  price           Decimal? @db.Decimal(14, 2)
+  priceOnRequest  Boolean  @default(false)
+  /// Monthly price for RENT; total price for SALE. Lets offers sort correctly.
+  monthlyRent     Decimal? @db.Decimal(14, 2)
+
+  area         Decimal? @db.Decimal(10, 2)
+  plotArea     Decimal? @db.Decimal(10, 2)
+  builtArea    Decimal? @db.Decimal(10, 2)
+
+  bedrooms   Int?
+  bathrooms  Int?
+  wc         Int?
+  floor      Int?
+  totalFloors Int?
+
+  yearBuilt     Int?
+  yearRenovated Int?
+
+  heating     HeatingType @default(NOT_AVAILABLE)
+  energyClass EnergyClass  @default(NOT_AVAILABLE)
+  hasSolar    Boolean     @default(false)
+
+  parking     Boolean @default(false)
+  parkingSpaces Int?
+  storage     Boolean @default(false)
+  balcony     Boolean @default(false)
+  balconyArea Decimal? @db.Decimal(8, 2)
+  garden      Boolean @default(false)
+  pool        Boolean @default(false)
+  furnished   Boolean @default(false)
+  petsAllowed Boolean @default(false)
+  seaView     Boolean @default(false)
+  newConstruction Boolean @default(false)
+
+  region      String?
+  city        String?
+  areaName    String?
+  neighborhood String?
+  address     String?
+  postalCode  String?
+
+  latitude  Decimal? @db.Decimal(10, 7)
+  longitude Decimal? @db.Decimal(10, 7)
+
+  videoUrl      String?
+  virtualTourUrl String?
+
+  /// Surfaced on the website once true. Independent of PropertyStatus so a
+  /// listing can be hidden without being delisted from portals.
+  publishedOnWebsite Boolean @default(false)
+  publishedAt        DateTime?
+  featured           Boolean  @default(false)
+
+  agentId String?
+  agent   User?   @relation("PropertyAgent", fields: [agentId], references: [id], onDelete: SetNull)
+
+  ownerId String?
+  owner   Contact? @relation("PropertyOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
+  createdById String?
+  createdBy   User?   @relation("PropertyCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  media        PropertyMedia[]
+  leads        Lead[]
+  viewings     Viewing[]
+  offers       Offer[]
+  documents    Document[]
+  portalListings PortalListing[]
+  notes        Note[]
+  dmcaNotices  DmcaNotice[]
+  tasks        Task[]
+
+  /// Commission is stored as a rate, not a hard-coded percentage.
+  commissionRatePct Decimal? @db.Decimal(5, 2)
+  agentCommissionPct Decimal? @db.Decimal(5, 2)
+
+  /// Non-nullable retention anchor, used by the purge job.
+  retentionExpiresAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([listingType])
+  @@index([propertyType])
+  @@index([reference])
+  @@index([publishedOnWebsite, status])
+  @@index([city])
+  @@index([neighborhood])
+  @@index([price])
+  @@index([area])
+  @@index([bedrooms])
+  @@index([agentId])
+  @@index([ownerId])
+  @@index([createdAt])
+  @@map("properties")
+}
+
+model PropertyMedia {
+  id         String    @id @default(cuid())
+  propertyId String
+  property   Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  kind     MediaKind @default(PHOTO)
+
+  /// Object-storage key, never a public URL. A signed URL is generated per
+  /// request so a leaked link expires.
+  storageKey     String
+  originalName   String?
+  mimeType       String
+  byteSize       Int
+  width          Int?
+  height         Int?
+
+  altEl String?
+  altEn String?
+
+  sortOrder Int  @default(0)
+  isPrimary Boolean @default(false)
+
+  /// Moderation state. Nothing uploads straight to public-serving state.
+  status String @default("pending_review")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([propertyId, kind, sortOrder])
+  @@index([propertyId, isPrimary])
+  @@map("property_media")
+}
+
+// ---------------------------------------------------------------------------
+// Leads
+// ---------------------------------------------------------------------------
+
+model Lead {
+  id        String  @id @default(cuid())
+  /// Public code, e.g. H88-000184. Allocated from ReferenceCounter('lead').
+  reference String  @unique
+
+  firstName String
+  lastName  String?
+  email     String?
+  phone     String?
+  message   String?
+
+  status     LeadStatus @default(NEW)
+  source     LeadSource @default(WEBSITE)
+  /// Portal-side identifiers, so a lead can be traced back to its origin.
+  sourcePortalId String?
+  sourceListingId String?
+  sourceUrl       String?
+
+  preferredContactMethod PreferredContactMethod @default(ANY)
+  locale                 String  @default("el")
+
+  budgetMin  Decimal? @db.Decimal(14, 2)
+  budgetMax  Decimal? @db.Decimal(14, 2)
+
+  propertyId String?
+  property   Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  assignedToId String?
+  assignedTo   User?   @relation("LeadAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  notes    Note[]
+  viewings Viewing[]
+  offers   Offer[]
+  tasks    Task[]
+
+  /// Compliance state for this enquiry.
+  consentRecordId String?
+  marketingOptOutAt DateTime?
+  retentionExpiresAt DateTime?
+  erasureRequestedAt DateTime?
+
+  /// Verified at capture time by the server-side age gate. Stored as a boolean
+  /// decision, never a raw date of birth.
+  ageVerifiedAt       DateTime?
+  ageVerificationFail Boolean @default(false)
+
+  lastContactedAt DateTime?
+  nextActionAt    DateTime?
+  lostReason      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([source])
+  @@index([sourcePortalId])
+  @@index([assignedToId, status])
+  @@index([propertyId])
+  @@index([createdAt])
+  @@index([nextActionAt])
+  @@map("leads")
+}
+
+model Note {
+  id        String  @id @default(cuid())
+  body      String
+  isPrivate Boolean @default(false)
+
+  leadId    String?
+  lead      Lead?    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  propertyId String?
+  property   Property? @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([leadId])
+  @@index([propertyId])
+  @@map("notes")
+}
+
+model Viewing {
+  id         String        @id @default(cuid())
+  propertyId String
+  property   Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  leadId    String?
+  lead      Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  /// Snapshot of who attended, kept even if the linked contact is later erased.
+  clientName  String
+  clientPhone String?
+  clientEmail String?
+
+  startsAt   DateTime
+  endsAt     DateTime?
+  status     ViewingStatus @default(SCHEDULED)
+  feedback   String?
+  outcome    String?
+
+  agentId String
+  agent   User   @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  tasks Task[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([propertyId, startsAt])
+  @@index([agentId, startsAt])
+  @@index([status])
+  @@map("viewings")
+}
+
+model Offer {
+  id         String @id @default(cuid())
+  reference  String @unique
+
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  leadId    String?
+  lead      Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  amount     Decimal  @db.Decimal(14, 2)
+  status     OfferStatus @default(SUBMITTED)
+  conditions String?
+  expiresAt  DateTime?
+  notes      String?
+
+  agentId String?
+  agent   User?   @relation("OfferAgent", fields: [agentId], references: [id], onDelete: SetNull)
+
+  commissionAmount  Decimal? @db.Decimal(14, 2)
+  agentCommissionAmount Decimal? @db.Decimal(14, 2)
+  closedAt          DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([propertyId])
+  @@index([status])
+  @@index([leadId])
+  @@map("offers")
+}
+
+model Task {
+  id          String       @id @default(cuid())
+  title       String
+  description String?
+  status      TaskStatus   @default(OPEN)
+  priority    TaskPriority @default(NORMAL)
+
+  dueAt      DateTime?
+  completedAt DateTime?
+
+  assignedToId String?
+  assignedTo   User?   @relation("TaskAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  leadId    String?
+  lead      Lead?    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  propertyId String?
+  property   Property? @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  viewingId  String?
+  viewing    Viewing? @relation(fields: [viewingId], references: [id], onDelete: Cascade)
+
+  createdById String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([assignedToId, status])
+  @@index([dueAt])
+  @@index([status, priority])
+  @@map("tasks")
+}
+
+// ---------------------------------------------------------------------------
+// Documents
+//
+// Never a public bucket. Every read goes through a signed URL after an
+// authorisation check.
+// ---------------------------------------------------------------------------
+
+model Document {
+  id         String           @id @default(cuid())
+  propertyId String?
+  property   Property?        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  contactId  String?
+  contact    Contact?         @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  title      String
+  category   DocumentCategory @default(OTHER)
+  storageKey String
+  mimeType   String
+  byteSize   Int
+  checksum   String?
+
+  /// Documents containing personal data are removed with the person.
+  containsPersonalData Boolean @default(false)
+  retentionExpiresAt    DateTime?
+
+  uploadedById String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([propertyId])
+  @@index([contactId])
+  @@index([retentionExpiresAt])
+  @@map("documents")
+}
+
+// ---------------------------------------------------------------------------
+// Portal publishing
+//
+// A portal is a configuration row. How it is written to is a PortalAdapter, so
+// adding Spitogatos or XE.gr never touches the property code.
+// ---------------------------------------------------------------------------
+
+model Portal {
+  id          String          @id @default(cuid())
+  name        String
+  code        String          @unique
+  transport   PortalTransport @default(MANUAL)
+  enabled     Boolean         @default(false)
+
+  baseUrl        String?
+  feedUrl        String?
+  /// Opaque per-portal credentials, referenced by key in apps/api config.
+  /// Never stored as usable plaintext.
+  credentialsRef String?
+
+  /// Portals generally require an agent id on every listing.
+  defaultAgentExternalId String?
+
+  settings Json?
+
+  listings PortalListing[]
+  syncLogs PortalSyncLog[]
+  mappings PortalPropertyMapping[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([enabled])
+  @@map("portals")
+}
+
+model PortalListing {
+  id         String @id @default(cuid())
+  portalId   String
+  portal     Portal @relation(fields: [portalId], references: [id], onDelete: Cascade)
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  externalId    String?
+  externalUrl   String?
+  state         PortalSyncState @default(NOT_PUBLISHED)
+  lastSyncedAt  DateTime?
+  lastError     String?
+  retryCount    Int       @default(0)
+
+  /// Hash of the payload last sent, so an unchanged property is not re-pushed.
+  lastPayloadHash String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  syncLogs PortalSyncLog[]
+
+  @@unique([portalId, propertyId])
+  @@index([portalId, state])
+  @@index([propertyId])
+  @@map("portal_listings")
+}
+
+model PortalSyncLog {
+  id               String @id @default(cuid())
+  portalId         String
+  portal           Portal @relation(fields: [portalId], references: [id], onDelete: Cascade)
+  portalListingId  String?
+  portalListing    PortalListing? @relation(fields: [portalListingId], references: [id], onDelete: SetNull)
+  propertyId       String?
+
+  action    SyncAction
+  ok        Boolean
+  detail    String?
+  errorCode String?
+  durationMs Int?
+
+  actorId String?
+  createdAt DateTime @default(now())
+
+  @@index([portalId, createdAt])
+  @@index([portalListingId])
+  @@index([ok])
+  @@map("portal_sync_logs")
+}
+
+/// Correlates our property reference to a portal's own identifier, so a
+/// listing deleted on our side can still be removed on theirs.
+model PortalPropertyMapping {
+  id         String @id @default(cuid())
+  portalId   String
+  portal     Portal @relation(fields: [portalId], references: [id], onDelete: Cascade)
+  propertyId String
+
+  externalId    String
+  externalUrl   String?
+  lastConfirmed DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([portalId, propertyId])
+  @@unique([portalId, externalId])
+  @@index([propertyId])
+  @@map("portal_property_mappings")
+}
+
+// ---------------------------------------------------------------------------
+// Compliance
+// ---------------------------------------------------------------------------
+
+/// Every consent decision, granted or withdrawn. The privacy policy states the
+/// processor list; this table states what each individual actually agreed to.
+model ConsentRecord {
+  id String @id @default(cuid())
+
+  /// Hashed subject identifier. Raw email is not stored here.
+  subjectHash String
+  email       String?
+  userId      String?
+  user        User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  purpose      ConsentPurpose
+  granted      Boolean
+  policyVersion String
+
+  /// How the choice was captured.
+  source       String
+  ipAddress    String?
+  userAgent    String?
+
+  grantedAt DateTime?
+  revokedAt DateTime?
+  expiresAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([subjectHash, purpose])
+  @@index([email])
+  @@index([purpose, granted])
+  @@index([createdAt])
+  @@map("consent_records")
+}
+
+/// Checked by the mailer before every commercial send. Also populated from
+/// hard bounces and spam complaints.
+model EmailSuppression {
+  id           String @id @default(cuid())
+  email        String
+  emailHash    String @unique
+  reason       SuppressionReason
+  source       String?
+  /// When the original consent was withdrawn, for the 10-business-day record.
+  suppressedAt DateTime @default(now())
+  notes        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@index([reason])
+  @@map("email_suppressions")
+}
+
+/// GDPR / Greek data-subject requests, so requests are auditable rather than
+/// handled ad hoc in someone's inbox.
+model DataRequest {
+  id          String            @id @default(cuid())
+  reference   String            @unique
+  type        DataRequestType
+  status      DataRequestStatus @default(OPEN)
+
+  subjectName String
+  subjectEmail String
+  subjectHash String
+
+  /// Which tables were inspected and what was erased.
+  findings    Json?
+  completedAt DateTime?
+  dueAt       DateTime?
+  notes       String?
+
+  handledById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([subjectEmail])
+  @@index([status])
+  @@index([dueAt])
+  @@map("data_requests")
+}
+
+/// DMCA / copyright takedown notices for user-uploaded material.
+model DmcaNotice {
+  id        String @id @default(cuid())
+  reference String @unique
+
+  /// Copyright holder's details, retained as supplied in the notice.
+  claimantName    String
+  claimantEmail   String
+  claimantAddress String?
+
+  originalWorkUrl String?
+  workDescription String?
+
+  /// Our material under complaint.
+  infringingUrl    String?
+  propertyId       String?
+  property         Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  mediaId          String?
+  contactId        String?
+
+  goodFaithStatement String?
+  signature          String?
+
+  status   DmcaStatus @default(RECEIVED)
+  counterNoticeReceived Boolean @default(false)
+  actionTakenAt DateTime?
+  resolvedAt    DateTime?
+  notes         String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([propertyId])
+  @@index([createdAt])
+  @@map("dmca_notices")
+}
+
+/// Append-only. Property and lead history is written here so a status change
+/// cannot be made without leaving a record of who did it.
+model AuditLog {
+  id       String     @id @default(cuid())
+  entity   AuditEntity
+  entityId String
+
+  action   String
+  /// Field-level before/after, with personal fields redacted.
+  changes  Json?
+  actorId  String?
+  actor    User?     @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([actorId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+/// Every outbound message, so "was this person ever emailed" is answerable and
+/// an unsubscribe can be honoured against a specific send.
+model EmailLog {
+  id      String @id @default(cuid())
+  toEmail String
+  subject String
+
+  /// TRANSACTIONAL is exempt from marketing consent and suppression rules.
+  /// MARKETING is never sent without a current grant and a clear suppression list.
+  category String
+
+  template      String?
+  providerMessageId String?
+
+  /// Set when the recipient used the one-click unsubscribe endpoint.
+  unsubscribedAt DateTime?
+
+  consentRecordId String?
+  metadata Json?
+
+  sentAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([toEmail])
+  @@index([category])
+  @@index([createdAt])
+  @@map("email_logs")
+}

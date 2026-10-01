@@ -1,0 +1,61 @@
+# Local development infrastructure only.
+# Production runs on managed Postgres/Redis/S3 — see README.md.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: home88-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: home88
+      POSTGRES_PASSWORD: home88_local_dev_only
+      POSTGRES_DB: home88
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U home88 -d home88"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: home88-redis
+    restart: unless-stopped
+    # appendonly keeps portal publish queues across restarts
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: home88-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: home88_minio
+      MINIO_ROOT_PASSWORD: home88_minio_local_dev_only
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:

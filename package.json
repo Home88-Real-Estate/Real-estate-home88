@@ -1,0 +1,29 @@
+{
+  "name": "home88",
+  "version": "0.1.0",
+  "private": true,
+  "description": "HOME88 — real-estate platform: public website, CRM and portal publishing engine",
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "dev": "npm run dev --workspaces --if-present --parallel",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "db:generate": "npm run prisma:generate -w @home88/database",
+    "db:migrate": "npm run prisma:migrate -w @home88/database",
+    "db:push": "npm run prisma:push -w @home88/database",
+    "db:studio": "npm run prisma:studio -w @home88/database",
+    "db:validate": "npm run prisma:validate -w @home88/database",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
