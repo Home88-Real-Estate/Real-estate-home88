@@ -13,6 +13,7 @@
     "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^10.0.2",
     "@home88/database": "*",
+    "@home88/portals": "*",
     "@home88/types": "*",
     "@home88/validation": "*",
     "fastify": "^5.2.1",

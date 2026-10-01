@@ -9,6 +9,7 @@ import { authRoutes } from "./routes/auth";
 import { contactRoutes } from "./routes/contacts";
 import { healthRoutes } from "./routes/health";
 import { leadRoutes } from "./routes/leads";
+import { portalRoutes } from "./routes/portals";
 import { propertyRoutes } from "./routes/properties";
 
 export async function buildServer(): Promise<FastifyInstance> {
@@ -74,6 +75,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(propertyRoutes, { prefix: "/api" });
   await app.register(leadRoutes, { prefix: "/api" });
   await app.register(contactRoutes, { prefix: "/api" });
+  await app.register(portalRoutes, { prefix: "/api" });
 
   return app;
 }

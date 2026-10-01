@@ -30,6 +30,14 @@ const schema = z.object({
   // --- Database ------------------------------------------------------------
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required."),
 
+  // --- Media ---------------------------------------------------------------
+  /**
+   * Absolute base for public media in portal feeds. Blank falls back to
+   * `${SITE_URL}/media`, because a feed consumed by an external portal cannot
+   * use a root-relative URL.
+   */
+  MEDIA_BASE_URL: z.string().default(""),
+
   // --- Auth ----------------------------------------------------------------
   JWT_SECRET: z.string().default(""),
   SESSION_TTL_HOURS: z.coerce.number().int().min(1).max(24 * 30).default(12),
