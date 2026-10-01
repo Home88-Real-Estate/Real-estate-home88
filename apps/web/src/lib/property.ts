@@ -58,6 +58,8 @@ function toSummary(p: {
   area: unknown;
   bedrooms: number | null;
   bathrooms: number | null;
+  parking: boolean;
+  storage: boolean;
   energyClass: string;
   newConstruction: boolean;
   featured: boolean;
@@ -87,6 +89,8 @@ function toSummary(p: {
     area: num(p.area),
     bedrooms: p.bedrooms,
     bathrooms: p.bathrooms,
+    parking: p.parking,
+    storage: p.storage,
     energyClass: p.energyClass,
     isNew: p.newConstruction,
     isFeatured: p.featured,
@@ -121,6 +125,8 @@ const summarySelect = {
   area: true,
   bedrooms: true,
   bathrooms: true,
+  parking: true,
+  storage: true,
   energyClass: true,
   newConstruction: true,
   featured: true,

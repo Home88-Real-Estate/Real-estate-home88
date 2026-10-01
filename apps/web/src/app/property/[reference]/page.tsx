@@ -143,6 +143,13 @@ export default async function PropertyDetailPage({ params }: Props) {
     ["Θέρμανση", property.heating !== "NOT_AVAILABLE" ? property.heating : null],
   ];
 
+  const facts: string[] = [];
+  if (area) facts.push(area);
+  if (property.bedrooms != null) facts.push(`${property.bedrooms} υπνοδωμάτια`);
+  if (property.bathrooms != null) facts.push(`${property.bathrooms} μπάνια`);
+  if (property.floor != null) facts.push(`Όροφος ${property.floor}`);
+  if (property.parking) facts.push("Parking");
+
   const flags: Array<[string, boolean]> = [
     ["Parking", property.parking],
     ["Αποθήκη", property.storage],
@@ -191,11 +198,20 @@ export default async function PropertyDetailPage({ params }: Props) {
             <div className="row" style={{ justifyContent: "space-between" }}>
               <span className="pill">{property.reference}</span>
               <span className="pill">{label(LISTING_TYPE_LABELS, property.listingType, "el")}</span>
+              {property.status === "RESERVED" && <span className="pill">Κρατημένο</span>}
             </div>
 
             <h1 style={{ marginTop: 12 }}>{property.title}</h1>
             {property.titleSecondary && <p className="muted" style={{ marginTop: -6 }}>{property.titleSecondary}</p>}
             {place && <p className="muted">{place}</p>}
+
+            {facts.length > 0 && (
+              <div className="detail-facts">
+                {facts.map((f) => (
+                  <span key={f}>{f}</span>
+                ))}
+              </div>
+            )}
 
             <div style={{ fontSize: "1.7rem", fontWeight: 800, marginBlock: 12 }}>{price}</div>
 

@@ -29,6 +29,14 @@ export const COMPANY = {
   privacyEmail: optional("COMPANY_PRIVACY_EMAIL", "privacy@example.com"),
   dmcaEmail: optional("COMPANY_DMCA_EMAIL", "dmca@example.com"),
   /**
+   * Public contact details. All three are optional and every surface that shows
+   * them renders only when a value is configured, so a half-set deployment
+   * never prints "undefined" or invents a phone number.
+   */
+  phone: optional("COMPANY_PHONE"),
+  contactEmail: optional("COMPANY_CONTACT_EMAIL"),
+  hours: optional("COMPANY_HOURS"),
+  /**
    * Bumped whenever the privacy notice or cookie policy changes materially.
    * Consent records store the version the person agreed to, so a change means
    * we can tell whose consent is against an outdated text.

@@ -2,6 +2,8 @@ import Link from "next/link";
 import type { Locale, PublicPropertySummary } from "@home88/types";
 import { formatArea, formatPrice, label, LISTING_TYPE_LABELS, PROPERTY_TYPE_LABELS } from "@home88/types";
 
+import { FavoriteButton } from "./FavoriteButton";
+
 export function PropertyCard({
   property,
   locale = "el",
@@ -14,13 +16,24 @@ export function PropertyCard({
     .filter(Boolean)
     .join(", ");
 
+  const stats: string[] = [];
+  if (area) stats.push(area);
+  if (property.bedrooms) stats.push(`${property.bedrooms} υπν.`);
+  if (property.bathrooms) stats.push(`${property.bathrooms} μπ.`);
+  if (property.parking) stats.push("Parking");
+
   return (
     <article className="card">
-      <Link href={`/property/${property.reference}`} aria-label={property.title}>
-        <div className="card__media">
+      <div className="card__media">
+        <Link
+          href={`/property/${property.reference}`}
+          aria-label={property.title}
+          style={{ display: "block", height: "100%" }}
+        >
           <div className="badges">
             <span className="badge">{label(LISTING_TYPE_LABELS, property.listingType, locale)}</span>
             {property.isFeatured && <span className="badge badge--accent">Επιλεγμένο</span>}
+            {property.isNew && <span className="badge badge--accent">Νέο</span>}
             {property.status === "RESERVED" && <span className="badge badge--muted">Κρατημένο</span>}
           </div>
           {property.primaryImage ? (
@@ -46,8 +59,9 @@ export function PropertyCard({
               Χωρίς φωτογραφία
             </div>
           )}
-        </div>
-      </Link>
+        </Link>
+        <FavoriteButton reference={property.reference} />
+      </div>
 
       <div className="card__body">
         <div className="row" style={{ justifyContent: "space-between" }}>
@@ -61,11 +75,15 @@ export function PropertyCard({
           {property.title}
         </Link>
 
-        <div className="card__meta">
-          {[place || null, area, property.bedrooms ? `${property.bedrooms} υπνοδωμάτια` : null]
-            .filter(Boolean)
-            .join(" · ")}
-        </div>
+        {place && <div className="card__meta">{place}</div>}
+
+        {stats.length > 0 && (
+          <div className="card__stats">
+            {stats.map((s) => (
+              <span key={s}>{s}</span>
+            ))}
+          </div>
+        )}
 
         <div className="card__price">
           {formatPrice(property.price, property.priceOnRequest, property.listingType, locale)}

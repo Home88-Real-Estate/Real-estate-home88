@@ -138,6 +138,8 @@ export type PublicPropertySummary = {
   area: number | null;
   bedrooms: number | null;
   bathrooms: number | null;
+  parking: boolean;
+  storage: boolean;
   energyClass: string;
   isNew: boolean;
   isFeatured: boolean;

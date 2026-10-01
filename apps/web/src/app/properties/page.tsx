@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { PropertyCardGrid } from "@/components/PropertyCard";
+import { CategoryNav } from "@/components/CategoryNav";
 import { searchProperties, type SearchParams } from "@/lib/property";
 import { propertySearchSchema } from "@home88/validation";
 import { label, LISTING_TYPE_LABELS } from "@home88/types";
@@ -111,6 +112,60 @@ export async function generateMetadata({
   };
 }
 
+const TYPE_OPTIONS: Array<[string, string]> = [
+  ["", "Όλοι οι τύποι"],
+  ["APARTMENT", "Διαμέρισμα"],
+  ["MAISONETTE", "Μεζονέτα"],
+  ["HOUSE", "Μονοκατοικία"],
+  ["VILLA", "Βίλα"],
+  ["STUDIO", "Στούντιο"],
+  ["OFFICE", "Γραφείο"],
+  ["SHOP", "Κατάστημα"],
+  ["WAREHOUSE", "Αποθήκη"],
+  ["BUILDING", "Κτίριο"],
+  ["HOTEL", "Ξενοδοχείο"],
+  ["LAND", "Γη"],
+  ["PLOT", "Οικόπεδο"],
+  ["PARKING", "Parking"],
+  ["INDUSTRIAL", "Βιομηχανικό"],
+  ["OTHER", "Άλλο"],
+];
+
+const ENERGY_OPTIONS: Array<[string, string]> = [
+  ["", "Οποιαδήποτε"],
+  ["A_PLUS", "A+"],
+  ["A", "A"],
+  ["B", "B"],
+  ["C", "C"],
+  ["D", "D"],
+  ["E", "E"],
+  ["F", "F"],
+  ["G", "G"],
+  ["NOT_AVAILABLE", "Μη διαθέσιμη"],
+];
+
+const FEATURE_FLAGS: Array<[keyof SearchParams, string]> = [
+  ["parking", "Parking"],
+  ["pool", "Πισίνα"],
+  ["garden", "Κήπος"],
+  ["seaView", "Θέα θάλασσα"],
+  ["furnished", "Επιπλωμένο"],
+  ["petsAllowed", "Κατοικίδια"],
+  ["newConstruction", "Νέα κατασκευή"],
+];
+
+function categoryKey(propertyType: string | undefined): string | undefined {
+  if (propertyType === "APARTMENT" || propertyType === "MAISONETTE" || propertyType === "HOUSE" || propertyType === "VILLA" || propertyType === "STUDIO") {
+    return "APARTMENT";
+  }
+  if (propertyType === "SHOP" || propertyType === "OFFICE" || propertyType === "WAREHOUSE" || propertyType === "BUILDING" || propertyType === "HOTEL" || propertyType === "INDUSTRIAL") {
+    return "SHOP";
+  }
+  if (propertyType === "PLOT" || propertyType === "LAND") return "PLOT";
+  if (propertyType) return "OTHER";
+  return undefined;
+}
+
 export default async function PropertiesPage({
   searchParams,
 }: {
@@ -138,6 +193,14 @@ export default async function PropertiesPage({
       minArea: params.minArea,
       maxArea: params.maxArea,
       bedrooms: params.bedrooms,
+      energyClass: params.energyClass,
+      parking: params.parking ? "true" : undefined,
+      pool: params.pool ? "true" : undefined,
+      garden: params.garden ? "true" : undefined,
+      seaView: params.seaView ? "true" : undefined,
+      furnished: params.furnished ? "true" : undefined,
+      petsAllowed: params.petsAllowed ? "true" : undefined,
+      newConstruction: params.newConstruction ? "true" : undefined,
       q: params.q,
       sort: params.sort,
     })) {
@@ -149,85 +212,137 @@ export default async function PropertiesPage({
   }
 
   return (
-    <div className="wrap section">
-      <h1 style={{ marginBottom: 6 }}>{headingBits.join(" · ")}</h1>
-      <p className="muted">
-        {result.total === 0
-          ? "Δεν βρέθηκαν ακίνητα που να ταιριάζουν στα κριτήρια."
-          : `${result.total} ακίνητα`}
-      </p>
+    <>
+      <CategoryNav active={categoryKey(params.propertyType)} />
 
-      <form action="/properties" method="get" className="searchpanel" style={{ marginBottom: 24 }}>
-        <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
-          <div className="field">
-            <label htmlFor="f-listingType">Συναλλαγή</label>
-            <select id="f-listingType" name="listingType" className="select" defaultValue={params.listingType ?? ""}>
-              <option value="">Όλες</option>
-              <option value="SALE">Πώληση</option>
-              <option value="RENT">Ενοικίαση</option>
-              <option value="ASSIGNMENT">Ανάθεση</option>
-            </select>
-          </div>
+      <div className="wrap section">
+        <h1 style={{ marginBottom: 6 }}>{headingBits.join(" · ")}</h1>
+        <p className="muted">
+          {result.total === 0
+            ? "Δεν βρέθηκαν ακίνητα που να ταιριάζουν στα κριτήρια."
+            : `${result.total} ακίνητα`}
+        </p>
 
-          <div className="field">
-            <label htmlFor="f-propertyType">Τύπος</label>
-            <select id="f-propertyType" name="propertyType" className="select" defaultValue={params.propertyType ?? ""}>
-              <option value="">Όλοι</option>
-              {[
-                "APARTMENT","MAISONETTE","HOUSE","VILLA","STUDIO","OFFICE","SHOP",
-                "WAREHOUSE","BUILDING","HOTEL","LAND","PLOT","PARKING","INDUSTRIAL","OTHER",
-              ].map((t) => (
-                <option key={t} value={t}>{t}</option>
+        <form action="/properties" method="get" className="searchpanel" style={{ marginBottom: 28 }}>
+          {params.q && <input type="hidden" name="q" value={params.q} />}
+
+          <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
+            <legend style={{ fontWeight: 700, marginBottom: 12 }}>Βασικά</legend>
+            <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+              <div className="field">
+                <label htmlFor="f-listingType">Συναλλαγή</label>
+                <select id="f-listingType" name="listingType" className="select" defaultValue={params.listingType ?? ""}>
+                  <option value="">Όλες</option>
+                  <option value="SALE">Πώληση</option>
+                  <option value="RENT">Ενοικίαση</option>
+                  <option value="ASSIGNMENT">Ανάθεση</option>
+                </select>
+              </div>
+
+              <div className="field">
+                <label htmlFor="f-propertyType">Τύπος</label>
+                <select id="f-propertyType" name="propertyType" className="select" defaultValue={params.propertyType ?? ""}>
+                  {TYPE_OPTIONS.map(([value, text]) => (
+                    <option key={value} value={value}>{text}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="field">
+                <label htmlFor="f-city">Πόλη / Περιοχή</label>
+                <input id="f-city" name="city" className="input" defaultValue={params.city ?? ""} />
+              </div>
+
+              <div className="field">
+                <label htmlFor="f-minPrice">Τιμή από</label>
+                <input id="f-minPrice" name="minPrice" className="input" inputMode="numeric" defaultValue={params.minPrice ?? ""} />
+              </div>
+
+              <div className="field">
+                <label htmlFor="f-maxPrice">Τιμή έως</label>
+                <input id="f-maxPrice" name="maxPrice" className="input" inputMode="numeric" defaultValue={params.maxPrice ?? ""} />
+              </div>
+
+              <div className="field">
+                <label htmlFor="f-minArea">τ.μ. από</label>
+                <input id="f-minArea" name="minArea" className="input" inputMode="numeric" defaultValue={params.minArea ?? ""} />
+              </div>
+
+              <div className="field">
+                <label htmlFor="f-maxArea">τ.μ. έως</label>
+                <input id="f-maxArea" name="maxArea" className="input" inputMode="numeric" defaultValue={params.maxArea ?? ""} />
+              </div>
+
+              <div className="field">
+                <label htmlFor="f-bedrooms">Υπνοδωμάτια (min)</label>
+                <input id="f-bedrooms" name="bedrooms" className="input" inputMode="numeric" defaultValue={params.bedrooms ?? ""} />
+              </div>
+
+              <div className="field">
+                <label htmlFor="f-sort">Ταξινόμηση</label>
+                <select id="f-sort" name="sort" className="select" defaultValue={params.sort ?? "newest"}>
+                  <option value="newest">Νεότερα</option>
+                  <option value="price_asc">Τιμή: αύξουσα</option>
+                  <option value="price_desc">Τιμή: φθίνουσα</option>
+                  <option value="area_desc">τ.μ.: φθίνουσα</option>
+                  <option value="area_asc">τ.μ.: αύξουσα</option>
+                </select>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset style={{ border: 0, padding: 0, margin: "8px 0 0" }}>
+            <legend style={{ fontWeight: 700, marginBottom: 12 }}>Χαρακτηριστικά</legend>
+            <div className="row" style={{ gap: 18 }}>
+              {FEATURE_FLAGS.map(([key, text]) => (
+                <label className="check" key={key} style={{ margin: 0 }}>
+                  <input type="checkbox" name={key} value="true" defaultChecked={Boolean(params[key])} />
+                  <span>{text}</span>
+                </label>
               ))}
-            </select>
+            </div>
+          </fieldset>
+
+          <fieldset style={{ border: 0, padding: 0, margin: "8px 0 0" }}>
+            <legend style={{ fontWeight: 700, marginBottom: 12 }}>Επιπλέον</legend>
+            <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+              <div className="field">
+                <label htmlFor="f-energyClass">Ενεργειακή κλάση</label>
+                <select id="f-energyClass" name="energyClass" className="select" defaultValue={params.energyClass ?? ""}>
+                  {ENERGY_OPTIONS.map(([value, text]) => (
+                    <option key={value} value={value}>{text}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </fieldset>
+
+          <div className="row" style={{ marginTop: 8 }}>
+            <button type="submit" className="btn btn--primary">Εφαρμογή φίλτρων</button>
+            <Link href="/properties" className="btn btn--ghost btn--sm">Καθαρισμός</Link>
           </div>
+        </form>
 
-          <div className="field">
-            <label htmlFor="f-city">Πόλη / Περιοχή</label>
-            <input id="f-city" name="city" className="input" defaultValue={params.city ?? ""} />
-          </div>
+        <PropertyCardGrid properties={result.data} />
 
-          <div className="field">
-            <label htmlFor="f-minPrice">Τιμή από</label>
-            <input id="f-minPrice" name="minPrice" className="input" inputMode="numeric" defaultValue={params.minPrice ?? ""} />
-          </div>
-
-          <div className="field">
-            <label htmlFor="f-maxPrice">Τιμή έως</label>
-            <input id="f-maxPrice" name="maxPrice" className="input" inputMode="numeric" defaultValue={params.maxPrice ?? ""} />
-          </div>
-
-          <div className="field">
-            <label htmlFor="f-bedrooms">Υπνοδωμάτια (min)</label>
-            <input id="f-bedrooms" name="bedrooms" className="input" inputMode="numeric" defaultValue={params.bedrooms ?? ""} />
-          </div>
-        </div>
-
-        <div className="row" style={{ marginTop: 6 }}>
-          <button type="submit" className="btn btn--primary">Εφαρμογή φίλτρων</button>
-          <Link href="/properties" className="btn btn--ghost btn--sm">Καθαρισμός</Link>
-        </div>
-      </form>
-
-      <PropertyCardGrid properties={result.data} />
-
-      {result.pages > 1 && (
-        <nav className="row" style={{ marginTop: 28, justifyContent: "center" }} aria-label="Σελίδες">
-          {result.page > 1 && (
-            <Link href={pageHref(result.page - 1)} className="btn btn--outline btn--sm">
-              Προηγούμενη
-            </Link>
-          )}
-          <span className="muted" style={{ fontSize: "0.9rem" }}>
-            Σελίδα {result.page} από {result.pages}
-          </span>
-          {result.page < result.pages && (
-            <Link href={pageHref(result.page + 1)} className="btn btn--outline btn--sm">
-              Επόμενη
-            </Link>
-          )}
-        </nav>
-      )}
-    </div>
+        {result.pages > 1 && (
+          <nav className="row" style={{ marginTop: 28, justifyContent: "center" }} aria-label="Σελίδες">
+            {result.page > 1 && (
+              <Link href={pageHref(result.page - 1)} className="btn btn--outline btn--sm">
+                Προηγούμενη
+              </Link>
+            )}
+            <span className="muted" style={{ fontSize: "0.9rem" }}>
+              Σελίδα {result.page} από {result.pages}
+            </span>
+            {result.page < result.pages && (
+              <Link href={pageHref(result.page + 1)} className="btn btn--outline btn--sm">
+                Επόμενη
+              </Link>
+            )}
+          </nav>
+        )}
+      </div>
+    </>
   );
 }

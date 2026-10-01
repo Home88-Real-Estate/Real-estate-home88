@@ -8,31 +8,54 @@ export function SiteFooter() {
     <footer className="site-footer">
       <div className="wrap site-footer__inner">
         <div>
-          <div className="brand" style={{ marginBottom: 10 }}>
+          <div className="brand" style={{ marginBottom: 12 }}>
             {COMPANY.legalName}
+            <span className="brand__sub">Real Estate</span>
           </div>
-          <p className="muted" style={{ fontSize: "0.9rem", maxWidth: "42ch" }}>
-            Μεσιτικό γραφείο ακινήτων. Πωλήσεις, ενοικιάσεις και αναθέσεις σε όλη την Ελλάδα.
+          <p className="muted" style={{ fontSize: "0.9rem", maxWidth: "44ch" }}>
+            Μεσιτικό γραφείο ακινήτων. Πωλήσεις, ενοικιάσεις και αναθέσεις με
+            επαγγελματική παρουσίαση και προσωπική εξυπηρέτηση.
           </p>
           {COMPANY.postalAddress ? (
-            <address className="muted" style={{ fontSize: "0.86rem", fontStyle: "normal", whiteSpace: "pre-line" }}>
+            <address style={{ fontSize: "0.86rem", fontStyle: "normal", whiteSpace: "pre-line" }}>
               {COMPANY.postalAddress}
             </address>
-          ) : (
-            <p className="muted" style={{ fontSize: "0.82rem" }}>
-              Διεύθυνση έδρας: <em>δεν έχει ρυθμιστεί</em>
+          ) : null}
+          {COMPANY.phone ? (
+            <p style={{ margin: "8px 0 0" }}>
+              <a href={`tel:${COMPANY.phone.replace(/\s+/g, "")}`}>{COMPANY.phone}</a>
             </p>
-          )}
+          ) : null}
+          {COMPANY.contactEmail ? (
+            <p style={{ margin: 0 }}>
+              <a href={`mailto:${COMPANY.contactEmail}`}>{COMPANY.contactEmail}</a>
+            </p>
+          ) : null}
+          {COMPANY.hours ? (
+            <p className="muted" style={{ fontSize: "0.84rem", marginTop: 8 }}>
+              {COMPANY.hours}
+            </p>
+          ) : null}
         </div>
 
         <div>
-          <h3>Πλοήγηση</h3>
+          <h3>Ακίνητα</h3>
           <ul>
-            <li><Link href="/properties">Ακίνητα</Link></li>
             <li><Link href="/properties?listingType=SALE">Προς πώληση</Link></li>
             <li><Link href="/properties?listingType=RENT">Προς ενοικίαση</Link></li>
+            <li><Link href="/properties?propertyType=APARTMENT">Κατοικίες</Link></li>
+            <li><Link href="/properties?propertyType=SHOP">Επαγγελματικοί χώροι</Link></li>
+            <li><Link href="/properties?propertyType=PLOT">Γη &amp; οικόπεδα</Link></li>
+            <li><Link href="/properties">Όλα τα ακίνητα</Link></li>
+          </ul>
+        </div>
+
+        <div>
+          <h3>Υπηρεσίες</h3>
+          <ul>
             <li><Link href="/submit">Ανάθεση ακινήτου</Link></li>
             <li><Link href="/request">Ζήτηση ακινήτου</Link></li>
+            <li><Link href="/about">Η εταιρεία</Link></li>
             <li><Link href="/contact">Επικοινωνία</Link></li>
           </ul>
         </div>

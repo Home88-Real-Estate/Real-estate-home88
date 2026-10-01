@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 
 import { PropertyCardGrid } from "@/components/PropertyCard";
+import { CategoryNav } from "@/components/CategoryNav";
 import { listFeaturedProperties, listRecentProperties, countPublicProperties } from "@/lib/property";
 import { COMPANY } from "@/lib/config";
 
@@ -16,6 +17,32 @@ export const metadata: Metadata = {
 // that would then disagree with the sitemap.
 export const revalidate = 300;
 
+const TYPE_OPTIONS: Array<[string, string]> = [
+  ["", "Όλοι οι τύποι"],
+  ["APARTMENT", "Διαμέρισμα"],
+  ["MAISONETTE", "Μεζονέτα"],
+  ["HOUSE", "Μονοκατοικία"],
+  ["VILLA", "Βίλα"],
+  ["STUDIO", "Στούντιο"],
+  ["OFFICE", "Γραφείο"],
+  ["SHOP", "Κατάστημα"],
+  ["WAREHOUSE", "Αποθήκη"],
+  ["BUILDING", "Κτίριο"],
+  ["HOTEL", "Ξενοδοχείο"],
+  ["LAND", "Γη"],
+  ["PLOT", "Οικόπεδο"],
+  ["PARKING", "Parking"],
+  ["INDUSTRIAL", "Βιομηχανικό"],
+  ["OTHER", "Άλλο"],
+];
+
+const VALUES: Array<{ title: string; text: string; icon: string }> = [
+  { title: "Τοπική γνώση", text: "Εξειδίκευση στις περιοχές και τις τιμές της αγοράς.", icon: "◎" },
+  { title: "Επαγγελματική παρουσίαση", text: "Σύγχρονη προβολή και marketing κάθε ακινήτου.", icon: "▣" },
+  { title: "Προσωπική εξυπηρέτηση", text: "Υποστήριξη από την πρώτη επικοινωνία έως την ολοκλήρωση.", icon: "☏" },
+  { title: "Δίκτυο & συνεργασίες", text: "Πρόσβαση σε αγοραστές, ιδιοκτήτες και επενδυτές.", icon: "⇄" },
+];
+
 export default async function HomePage() {
   const [featured, recent, total] = await Promise.all([
     listFeaturedProperties("el", 3),
@@ -23,34 +50,39 @@ export default async function HomePage() {
     countPublicProperties(),
   ]);
 
+  const heroImage = featured[0]?.primaryImage ?? recent[0]?.primaryImage ?? null;
+
   return (
     <>
-      <section className="hero">
-        <div className="wrap">
+      <section
+        className="hero"
+        style={heroImage ? { backgroundImage: `url(${heroImage})` } : undefined}
+      >
+        <div className="wrap hero__inner">
+          <span className="hero__eyebrow">HOME88 Real Estate</span>
           <h1>Βρείτε το επόμενο ακίνητό σας</h1>
           <p className="lede">
-            {total > 0
-              ? `${total} ακίνητα διαθέσιμα προς πώληση και ενοικίαση.`
-              : "Πωλήσεις, ενοικιάσεις και αναθέσεις ακινήτων."}
+            Κατοικίες, επαγγελματικοί χώροι, γη και επενδυτικές ευκαιρίες με
+            επαγγελματική υποστήριξη σε κάθε βήμα.
           </p>
 
           {/*
             A plain GET form. It works with JavaScript disabled, it is
             crawlable, and it produces a shareable, server-rendered result URL.
           */}
-          <form className="searchpanel" action="/properties" method="get">
+          <form className="search-overlay" action="/properties" method="get">
             <div className="tabs" role="group" aria-label="Τύπος συναλλαγής">
-              <label className="check" style={{ margin: 0, alignItems: "center" }}>
+              <label>
                 <input type="radio" name="listingType" value="SALE" defaultChecked />
                 <span>Αγορά</span>
               </label>
-              <label className="check" style={{ margin: 0, alignItems: "center" }}>
+              <label>
                 <input type="radio" name="listingType" value="RENT" />
                 <span>Ενοικίαση</span>
               </label>
             </div>
 
-            <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
+            <div className="search-grid">
               <div className="field">
                 <label htmlFor="q">Περιοχή ή κωδικός</label>
                 <input
@@ -65,22 +97,11 @@ export default async function HomePage() {
               <div className="field">
                 <label htmlFor="propertyType">Τύπος ακινήτου</label>
                 <select id="propertyType" name="propertyType" className="select" defaultValue="">
-                  <option value="">Όλοι οι τύποι</option>
-                  <option value="APARTMENT">Διαμέρισμα</option>
-                  <option value="MAISONETTE">Μεζονέτα</option>
-                  <option value="HOUSE">Μονοκατοικία</option>
-                  <option value="VILLA">Βίλα</option>
-                  <option value="STUDIO">Στούντιο</option>
-                  <option value="OFFICE">Γραφείο</option>
-                  <option value="SHOP">Κατάστημα</option>
-                  <option value="WAREHOUSE">Αποθήκη</option>
-                  <option value="BUILDING">Κτίριο</option>
-                  <option value="HOTEL">Ξενοδοχείο</option>
-                  <option value="LAND">Γη</option>
-                  <option value="PLOT">Οικόπεδο</option>
-                  <option value="PARKING">Parking</option>
-                  <option value="INDUSTRIAL">Βιομηχανικό</option>
-                  <option value="OTHER">Άλλο</option>
+                  {TYPE_OPTIONS.map(([value, text]) => (
+                    <option key={value} value={value}>
+                      {text}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -95,90 +116,105 @@ export default async function HomePage() {
               </div>
             </div>
 
-            <button type="submit" className="btn btn--primary btn--block">
-              Αναζήτηση
-            </button>
+            <div className="row" style={{ marginTop: 16 }}>
+              <button type="submit" className="btn btn--primary btn--lg">
+                Αναζήτηση
+              </button>
+              <Link href="/properties" className="btn btn--onhero">
+                Προηγμένη αναζήτηση
+              </Link>
+            </div>
           </form>
+
+          {total > 0 && (
+            <p className="muted" style={{ color: "#bcd2e6", marginTop: 18, fontSize: "0.88rem" }}>
+              {total} ακίνητα διαθέσιμα αυτή τη στιγμή.
+            </p>
+          )}
         </div>
       </section>
 
+      <CategoryNav />
+
       <section className="section">
         <div className="wrap">
-          <div className="between">
-            <h2 style={{ margin: 0 }}>Προτεινόμενα ακίνητα</h2>
+          <div className="between section-head">
+            <div>
+              <h2 style={{ margin: 0 }}>Επιλεγμένα ακίνητα</h2>
+              <p className="muted" style={{ margin: "6px 0 0" }}>
+                Ξεχωριστές επιλογές από το χαρτοφυλάκιό μας.
+              </p>
+            </div>
             <Link href="/properties" className="btn btn--outline btn--sm">
               Όλα τα ακίνητα
             </Link>
           </div>
-          <div style={{ marginTop: 18 }}>
-            <PropertyCardGrid
-              properties={featured}
-              emptyMessage="Δεν έχουν οριστεί προτεινόμενα ακίνητα ακόμη."
-            />
-          </div>
+          <PropertyCardGrid
+            properties={featured}
+            emptyMessage="Δεν έχουν οριστεί προτεινόμενα ακίνητα ακόμη."
+          />
         </div>
       </section>
 
       <section className="section section--surface">
         <div className="wrap">
-          <h2>Κατηγορίες</h2>
-          <div className="grid grid--cards" style={{ marginTop: 18 }}>
-            <Link href="/properties?propertyType=APARTMENT" className="card" style={{ padding: 20 }}>
-              <h3 style={{ margin: 0 }}>Κατοικίες</h3>
-              <p className="muted" style={{ margin: "6px 0 0", fontSize: "0.9rem" }}>
-                Διαμερίσματα, μεζονέτες, μονοκατοικίες και βίλες.
-              </p>
-            </Link>
-            <Link href="/properties?propertyType=SHOP" className="card" style={{ padding: 20 }}>
-              <h3 style={{ margin: 0 }}>Επαγγελματικά</h3>
-              <p className="muted" style={{ margin: "6px 0 0", fontSize: "0.9rem" }}>
-                Καταστήματα, γραφεία, αποθήκες και κτίρια.
-              </p>
-            </Link>
-            <Link href="/properties?propertyType=PLOT" className="card" style={{ padding: 20 }}>
-              <h3 style={{ margin: 0 }}>Γη &amp; Οικόπεδα</h3>
-              <p className="muted" style={{ margin: "6px 0 0", fontSize: "0.9rem" }}>
-                Οικόπεδα, αγροτεμάχια και επενδυτικές εκτάσεις.
-              </p>
-            </Link>
+          <div className="section-head">
+            <h2 style={{ margin: 0 }}>Γιατί HOME88</h2>
+            <p className="muted" style={{ margin: "6px 0 0" }}>
+              Μια εταιρεία που γνωρίζει την αγορά και στηρίζει κάθε συναλλαγή.
+            </p>
+          </div>
+          <div className="value-grid">
+            {VALUES.map((v) => (
+              <div className="value" key={v.title}>
+                <div className="value__icon" aria-hidden="true">
+                  {v.icon}
+                </div>
+                <h3>{v.title}</h3>
+                <p>{v.text}</p>
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
       <section className="section">
         <div className="wrap">
-          <h2>Πρόσφατα ακίνητα</h2>
-          <div style={{ marginTop: 18 }}>
-            <PropertyCardGrid
-              properties={recent}
-              emptyMessage="Δεν υπάρχουν δημοσιευμένα ακίνητα ακόμη."
-            />
+          <div className="cta-band">
+            <h2>Θέλετε να πουλήσετε ή να ενοικιάσετε το ακίνητό σας;</h2>
+            <p>
+              Αφήστε τα στοιχεία του ακινήτου σας και ένας σύμβουλος της HOME88
+              θα επικοινωνήσει μαζί σας για εκτίμηση και στρατηγική προβολής.
+            </p>
+            <div className="row" style={{ marginTop: 18 }}>
+              <Link href="/submit" className="btn btn--onhero btn--lg">
+                Ζητήστε εκτίμηση
+              </Link>
+              <Link href="/request" className="btn btn--onhero">
+                Ζητώ ακίνητο
+              </Link>
+            </div>
           </div>
         </div>
       </section>
 
       <section className="section section--surface">
         <div className="wrap">
-          <h2>Γιατί εμάς</h2>
-          <div className="grid grid--2" style={{ marginTop: 18 }}>
-            <div className="notice">
-              <strong>Τοπική γνώση.</strong> Γνωρίζουμε τις τιμές και τις γειτονιές, όχι μόνο τον
-              κατάλογο.
+          <div className="between section-head">
+            <div>
+              <h2 style={{ margin: 0 }}>Πρόσφατα ακίνητα</h2>
+              <p className="muted" style={{ margin: "6px 0 0" }}>
+                Οι τελευταίες καταχωρίσεις που δημοσιεύτηκαν.
+              </p>
             </div>
-            <div className="notice">
-              <strong>Μία καταχώριση, παντού.</strong> Το ακίνητό σας δημοσιεύεται στην ιστοσελίδα
-              μας και στα συνεργαζόμενα δίκτυα από μία εγγραφή.
-            </div>
-          </div>
-
-          <div className="row" style={{ marginTop: 22 }}>
-            <Link href="/submit" className="btn btn--primary">
-              Ανάθεση ακινήτου
-            </Link>
-            <Link href="/request" className="btn btn--outline">
-              Ζητώ ακίνητο
+            <Link href="/properties" className="btn btn--outline btn--sm">
+              Προβολή όλων
             </Link>
           </div>
+          <PropertyCardGrid
+            properties={recent}
+            emptyMessage="Δεν υπάρχουν δημοσιευμένα ακίνητα ακόμη."
+          />
         </div>
       </section>
     </>

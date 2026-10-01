@@ -30,7 +30,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#0f5c4a",
+  themeColor: "#0b5394",
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
@@ -45,7 +45,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           Μετάβαση στο περιεχόμενο
         </a>
 
-        <SiteHeader />
+        <SiteHeader
+          legalName={COMPANY.legalName}
+          phone={COMPANY.phone}
+          hours={COMPANY.hours}
+        />
 
         <main id="main">{children}</main>
 
