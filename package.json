@@ -16,6 +16,7 @@
     "build": "npm run build --workspaces --if-present",
     "dev": "npm run dev --workspaces --if-present --parallel",
     "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "db:generate": "npm run prisma:generate -w @home88/database",
     "db:migrate": "npm run prisma:migrate -w @home88/database",
