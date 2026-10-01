@@ -1,0 +1,22 @@
+import Link from "next/link";
+
+import { saveProperty } from "@/actions/properties";
+import { PropertyForm } from "@/components/PropertyForm";
+import { requireRole } from "@/lib/session";
+
+export default async function NewPropertyPage() {
+  await requireRole("AGENT");
+
+  return (
+    <>
+      <div className="between" style={{ marginBottom: 18 }}>
+        <h1 style={{ margin: 0 }}>New property</h1>
+        <Link href="/properties" className="btn btn--outline btn--sm">
+          Back to list
+        </Link>
+      </div>
+
+      <PropertyForm action={saveProperty} submitLabel="Create property" />
+    </>
+  );
+}
