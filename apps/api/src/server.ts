@@ -1,5 +1,6 @@
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
+import multipart from "@fastify/multipart";
 import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
 import { ZodError } from "zod";
 import { loadConfig } from "./config";
@@ -9,6 +10,7 @@ import { authRoutes } from "./routes/auth";
 import { contactRoutes } from "./routes/contacts";
 import { healthRoutes } from "./routes/health";
 import { leadRoutes } from "./routes/leads";
+import { mediaRoutes } from "./routes/media";
 import { portalRoutes } from "./routes/portals";
 import { propertyRoutes } from "./routes/properties";
 
@@ -22,6 +24,13 @@ export async function buildServer(): Promise<FastifyInstance> {
 
   await app.register(cookie);
   await app.register(cors, { origin: [cfg.CRM_URL, cfg.SITE_URL], credentials: true });
+  await app.register(multipart, {
+    limits: {
+      fileSize: cfg.MAX_UPLOAD_BYTES,
+      files: 20,
+      fields: 20,
+    },
+  });
 
   /**
    * CSRF defence for cookie-authenticated writes. A browser sends Origin on
@@ -76,6 +85,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(leadRoutes, { prefix: "/api" });
   await app.register(contactRoutes, { prefix: "/api" });
   await app.register(portalRoutes, { prefix: "/api" });
+  await app.register(mediaRoutes, { prefix: "/api" });
 
   return app;
 }

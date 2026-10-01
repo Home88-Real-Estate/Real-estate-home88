@@ -22,6 +22,11 @@ export type ApiFetchInit = {
   method?: "GET" | "POST" | "PATCH" | "DELETE" | "PUT";
   /** Serialised as JSON and sent with a JSON content-type. */
   json?: unknown;
+  /**
+   * Multipart body. The content-type header is deliberately not set so fetch
+   * adds the boundary itself; setting it by hand breaks the upload.
+   */
+  form?: FormData;
   query?: Record<string, QueryValue>;
 };
 
@@ -47,12 +52,13 @@ export async function apiFetch<T>(path: string, init: ApiFetchInit = {}): Promis
   if (token) headers.set("cookie", `${SESSION_COOKIE_NAME}=${token}`);
   if (init.json !== undefined) headers.set("content-type", "application/json");
 
+  const hasBody = init.json !== undefined || init.form !== undefined;
   let response: Response;
   try {
     response = await fetch(buildUrl(path, init.query), {
-      method: init.method ?? (init.json !== undefined ? "POST" : "GET"),
+      method: init.method ?? (hasBody ? "POST" : "GET"),
       headers,
-      body: init.json !== undefined ? JSON.stringify(init.json) : undefined,
+      body: init.json !== undefined ? JSON.stringify(init.json) : init.form,
       cache: "no-store",
     });
   } catch {

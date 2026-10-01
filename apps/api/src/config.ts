@@ -12,6 +12,19 @@
 
 import { z } from "zod";
 
+/**
+ * `z.coerce.boolean()` treats any non-empty string — including "false" — as
+ * true, which would silently turn a force-path-style flag on. Accept only an
+ * explicit "true"/"false" and fall back to the supplied default when unset.
+ */
+const boolFromEnv = (defaultValue: boolean) =>
+  z
+    .string()
+    .optional()
+    .transform((value) =>
+      value === undefined || value === "" ? defaultValue : value.toLowerCase() === "true",
+    );
+
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 
@@ -37,6 +50,22 @@ const schema = z.object({
    * use a root-relative URL.
    */
   MEDIA_BASE_URL: z.string().default(""),
+
+  // --- Object storage ------------------------------------------------------
+  /**
+   * S3-compatible endpoint (MinIO locally, Cloudflare R2 or AWS in prod).
+   * Blank disables uploads, so a misconfigured deployment fails at the route
+   * with a clear message instead of half-writing rows with no object behind them.
+   */
+  S3_ENDPOINT: z.string().default(""),
+  S3_REGION: z.string().default("us-east-1"),
+  S3_ACCESS_KEY: z.string().default(""),
+  S3_SECRET_KEY: z.string().default(""),
+  S3_BUCKET: z.string().default("home88-properties"),
+  S3_FORCE_PATH_STYLE: boolFromEnv(true),
+  S3_SIGNED_URL_TTL: z.coerce.number().int().min(30).max(604800).default(900),
+  /** Hard ceiling enforced by the multipart plugin; 25 MB by default. */
+  MAX_UPLOAD_BYTES: z.coerce.number().int().min(1024).max(1024 * 1024 * 1024).default(26214400),
 
   // --- Auth ----------------------------------------------------------------
   JWT_SECRET: z.string().default(""),

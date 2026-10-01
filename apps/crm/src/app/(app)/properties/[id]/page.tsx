@@ -2,18 +2,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { ArchiveButton } from "@/components/ArchiveButton";
+import { MediaPanel } from "@/components/MediaPanel";
+import type { MediaItemData } from "@/components/MediaItem";
 import { StatusBadge } from "@/components/StatusBadge";
 import { apiFetch } from "@/lib/api";
 import { formatArea, formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { hasRole, requireRole } from "@/lib/session";
-
-type Media = {
-  id: string;
-  kind: string;
-  storageKey: string;
-  isPrimary: boolean;
-  altEl: string | null;
-};
 
 type PortalListing = {
   id: string;
@@ -60,7 +54,6 @@ type Property = {
   featured: boolean;
   createdAt: string;
   updatedAt: string;
-  media: Media[];
   agent: { id: string; firstName: string; lastName: string } | null;
   owner: { id: string; reference: string; firstName: string; lastName: string } | null;
   portalListings: PortalListing[];
@@ -91,13 +84,17 @@ export default async function PropertyDetailPage({
   const user = await requireRole("AGENT");
   const { id } = await params;
 
-  const result = await apiFetch<{ property: Property }>(`/api/properties/${id}`);
+  const [result, mediaResult] = await Promise.all([
+    apiFetch<{ property: Property }>(`/api/properties/${id}`),
+    apiFetch<{ media: MediaItemData[] }>(`/api/properties/${id}/media`),
+  ]);
   if (!result.ok) {
     if (result.status === 404) notFound();
     return <div className="notice notice--danger">{result.error.message}</div>;
   }
 
   const p = result.data.property;
+  const media = mediaResult.ok ? mediaResult.data.media : [];
   const features = p as unknown as Record<string, boolean>;
 
   return (
@@ -211,33 +208,11 @@ export default async function PropertyDetailPage({
         )}
       </div>
 
-      <div className="panel">
-        <h2>Media ({p.media.length})</h2>
-        {p.media.length === 0 ? (
-          <div className="empty">No media uploaded.</div>
-        ) : (
-          <div className="table-wrap">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Kind</th>
-                  <th>Storage key</th>
-                  <th>Primary</th>
-                </tr>
-              </thead>
-              <tbody>
-                {p.media.map((m) => (
-                  <tr key={m.id}>
-                    <td>{m.kind}</td>
-                    <td className="mono">{m.storageKey}</td>
-                    <td>{m.isPrimary ? "Yes" : "-"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      <MediaPanel
+        propertyId={id}
+        media={media}
+        canModerate={hasRole(user.role, "MANAGER")}
+      />
 
       <div className="panel">
         <h2>Portal listings</h2>

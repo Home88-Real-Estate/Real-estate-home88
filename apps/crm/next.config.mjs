@@ -10,6 +10,32 @@ const isDev = process.env.NODE_ENV !== "production";
 const scriptSrc = isDev ? "'self' 'unsafe-inline' 'unsafe-eval'" : "'self' 'unsafe-inline'";
 
 /**
+ * Media is served from object storage on its own origin, so `img-src` has to
+ * name it. Derive the origin from the configured base URL rather than hard-coding
+ * a bucket host; an invalid value just leaves the list closed.
+ */
+let mediaOrigin = "";
+try {
+  if (process.env.NEXT_PUBLIC_MEDIA_BASE_URL) {
+    mediaOrigin = new URL(process.env.NEXT_PUBLIC_MEDIA_BASE_URL).origin;
+  }
+} catch {
+  mediaOrigin = "";
+}
+
+const imgSrc = ["'self'", "data:", "blob:"];
+const mediaSrc = ["'self'", "blob:"];
+if (mediaOrigin) {
+  imgSrc.push(mediaOrigin);
+  mediaSrc.push(mediaOrigin);
+}
+if (isDev) {
+  // Local MinIO is plain HTTP; production never needs it.
+  imgSrc.push("http:");
+  mediaSrc.push("http:");
+}
+
+/**
  * The CRM is a backend-for-frontend: the browser only ever talks to this
  * origin, and the session cookie is forwarded to the API from the server. That
  * lets the CSP stay at `connect-src 'self'` with no API origin listed and keeps
@@ -20,15 +46,16 @@ const csp = [
   `script-src ${scriptSrc}`,
   "style-src 'self' 'unsafe-inline'",
   "font-src 'self'",
-  "img-src 'self' data: blob:",
+  `img-src ${imgSrc.join(" ")}`,
   "connect-src 'self'",
-  "media-src 'self'",
+  `media-src ${mediaSrc.join(" ")}`,
   "frame-src 'none'",
   "frame-ancestors 'none'",
   "form-action 'self'",
   "base-uri 'self'",
   "object-src 'none'",
-  "upgrade-insecure-requests",
+  // Upgrading in dev would rewrite the plain-HTTP MinIO URLs and break previews.
+  ...(isDev ? [] : ["upgrade-insecure-requests"]),
 ].join("; ");
 
 const nextConfig = {

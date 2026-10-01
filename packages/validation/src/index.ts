@@ -440,6 +440,51 @@ export const propertySearchSchema = z.object({
 
 export type PropertySearchInput = z.infer<typeof propertySearchSchema>;
 
+// --- Property media --------------------------------------------------------
+
+export const mediaKindSchema = z.enum([
+  "PHOTO", "FLOOR_PLAN", "VIDEO", "VIRTUAL_TOUR", "DOCUMENT",
+]);
+
+/**
+ * Moderation states for an uploaded file. `pending_review` is the only state a
+ * fresh upload may hold; a poster cannot approve their own image.
+ */
+export const MEDIA_STATUSES = ["pending_review", "approved", "rejected", "published"] as const;
+export const mediaStatusSchema = z.enum(MEDIA_STATUSES);
+
+/** Editable metadata for an existing media row. */
+export const mediaUpdateSchema = z
+  .object({
+    kind: mediaKindSchema.optional(),
+    altEl: optionalText(300),
+    altEn: optionalText(300),
+    sortOrder: z.coerce.number().int().min(0).max(10_000).optional(),
+    isPrimary: z.boolean().optional(),
+  })
+  .strict();
+
+export type MediaUpdateInput = z.infer<typeof mediaUpdateSchema>;
+
+/** Manager-only moderation decision. */
+export const mediaStatusChangeSchema = z
+  .object({
+    status: mediaStatusSchema,
+    reason: optionalText(500),
+  })
+  .strict();
+
+export type MediaStatusChangeInput = z.infer<typeof mediaStatusChangeSchema>;
+
+/** Reorder the gallery in one go; every id must belong to the property. */
+export const mediaReorderSchema = z
+  .object({
+    ids: z.array(z.string().min(1)).min(1).max(200),
+  })
+  .strict();
+
+export type MediaReorderInput = z.infer<typeof mediaReorderSchema>;
+
 /** CRM login. Credentials only; authorisation is separate. */
 export const loginSchema = z.object({
   email: z.string().trim().toLowerCase().email().max(254),
