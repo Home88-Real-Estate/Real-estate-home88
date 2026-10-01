@@ -23,6 +23,7 @@
     "db:push": "npm run prisma:push -w @home88/database",
     "db:studio": "npm run prisma:studio -w @home88/database",
     "db:validate": "npm run prisma:validate -w @home88/database",
+    "db:seed": "npm run seed -w @home88/api",
     "infra:up": "docker compose up -d",
     "infra:down": "docker compose down"
   },
