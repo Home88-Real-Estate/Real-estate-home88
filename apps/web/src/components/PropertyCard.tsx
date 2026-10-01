@@ -3,6 +3,7 @@ import type { Locale, PublicPropertySummary } from "@home88/types";
 import { formatArea, formatPrice, label, LISTING_TYPE_LABELS, PROPERTY_TYPE_LABELS } from "@home88/types";
 
 import { FavoriteButton } from "./FavoriteButton";
+import { CompareButton } from "./CompareButton";
 
 export function PropertyCard({
   property,
@@ -61,6 +62,7 @@ export function PropertyCard({
           )}
         </Link>
         <FavoriteButton reference={property.reference} />
+        <CompareButton reference={property.reference} />
       </div>
 
       <div className="card__body">

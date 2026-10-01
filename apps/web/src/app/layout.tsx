@@ -6,6 +6,7 @@ import "./globals.css";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
 import { ConsentBanner } from "@/components/ConsentBanner";
+import { CompareBar } from "@/components/CompareBar";
 import { CONSENT_COOKIE, needsDecision, parseConsent } from "@/lib/consent";
 import { COMPANY, SITE_URL } from "@/lib/config";
 
@@ -54,6 +55,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <main id="main">{children}</main>
 
         <SiteFooter />
+
+        <CompareBar />
 
         {/*
           The banner only appears before a choice is made. Its "Αποδοχή όλων"
