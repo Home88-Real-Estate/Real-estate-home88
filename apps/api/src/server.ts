@@ -1,6 +1,5 @@
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
-import multipart from "@fastify/multipart";
 import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
 import { ZodError } from "zod";
 import { loadConfig } from "./config";
@@ -27,13 +26,6 @@ export async function buildServer(): Promise<FastifyInstance> {
 
   await app.register(cookie);
   await app.register(cors, { origin: [cfg.CRM_URL, cfg.SITE_URL], credentials: true });
-  await app.register(multipart, {
-    limits: {
-      fileSize: cfg.MAX_UPLOAD_BYTES,
-      files: 20,
-      fields: 20,
-    },
-  });
 
   /**
    * CSRF defence for cookie-authenticated writes. A browser sends Origin on
@@ -83,6 +75,8 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   await app.register(healthRoutes);
+  // Same checks under /api, the prefix the CRM deployment exposes publicly.
+  await app.register(healthRoutes, { prefix: "/api" });
   await app.register(authRoutes, { prefix: "/api" });
   await app.register(accountRoutes, { prefix: "/api" });
   await app.register(invitationRoutes, { prefix: "/api" });

@@ -9,6 +9,8 @@ export type MediaItemData = {
   id: string;
   kind: string;
   url: string;
+  previewUrl?: string | null;
+  thumbnailUrl?: string | null;
   altEl: string | null;
   altEn: string | null;
   mimeType: string;
@@ -53,7 +55,7 @@ export function MediaItem({
         {isImage ? (
           // Signed/blob URLs are short-lived and external; next/image adds no value here.
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={item.url} alt={item.altEl ?? ""} />
+          <img src={item.thumbnailUrl ?? item.url} alt={item.altEl ?? ""} loading="lazy" />
         ) : (
           <span className="mono">{item.mimeType}</span>
         )}

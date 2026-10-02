@@ -23,12 +23,38 @@ try {
   mediaOrigin = "";
 }
 
+/**
+ * The object-storage origin the API signs URLs for. The browser uploads
+ * straight to it (connect-src) and loads not-yet-approved media from it via
+ * signed URLs (img-src). Derived from the same S3_* settings the in-process
+ * API uses, so it cannot drift from where uploads actually go.
+ */
+function storageOrigin() {
+  const bucket = process.env.S3_BUCKET || "";
+  const endpoint = process.env.S3_ENDPOINT || "";
+  try {
+    if (endpoint) {
+      const url = new URL(endpoint);
+      if (process.env.S3_FORCE_PATH_STYLE === "true" || !bucket) return url.origin;
+      return `${url.protocol}//${bucket}.${url.host}`;
+    }
+    if (bucket) return `https://${bucket}.s3.${process.env.S3_REGION || "us-east-1"}.amazonaws.com`;
+  } catch {
+    // An invalid endpoint leaves the policy closed rather than open.
+  }
+  return "";
+}
+const uploadOrigin = storageOrigin();
+
 const imgSrc = ["'self'", "data:", "blob:"];
 const mediaSrc = ["'self'", "blob:"];
-if (mediaOrigin) {
-  imgSrc.push(mediaOrigin);
-  mediaSrc.push(mediaOrigin);
+const connectSrc = ["'self'"];
+for (const origin of new Set([mediaOrigin, uploadOrigin])) {
+  if (!origin) continue;
+  imgSrc.push(origin);
+  mediaSrc.push(origin);
 }
+if (uploadOrigin) connectSrc.push(uploadOrigin);
 if (isDev) {
   // Local MinIO is plain HTTP; production never needs it.
   imgSrc.push("http:");
@@ -38,8 +64,8 @@ if (isDev) {
 /**
  * The CRM is a backend-for-frontend: the browser only ever talks to this
  * origin, and the session cookie is forwarded to the API from the server. That
- * lets the CSP stay at `connect-src 'self'` with no API origin listed and keeps
- * the session token out of client JavaScript entirely.
+ * lets the CSP's connect-src list no API origin (only object storage, for direct
+ * uploads) and keeps the session token out of client JavaScript entirely.
  */
 const csp = [
   "default-src 'self'",
@@ -47,7 +73,7 @@ const csp = [
   "style-src 'self' 'unsafe-inline'",
   "font-src 'self'",
   `img-src ${imgSrc.join(" ")}`,
-  "connect-src 'self'",
+  `connect-src ${connectSrc.join(" ")}`,
   `media-src ${mediaSrc.join(" ")}`,
   "frame-src 'none'",
   "frame-ancestors 'none'",
@@ -89,9 +115,41 @@ const nextConfig = {
    */
   basePath: process.env.NEXT_PUBLIC_CRM_BASE_PATH || "/crm",
 
-  transpilePackages: ["@home88/domain", "@home88/types", "@home88/ui"],
+  /**
+   * The API (apps/api) runs inside this deployment (src/lib/api-transport.ts),
+   * so its workspace packages are compiled here too.
+   */
+  transpilePackages: [
+    "@home88/api",
+    "@home88/database",
+    "@home88/domain",
+    "@home88/portals",
+    "@home88/types",
+    "@home88/ui",
+    "@home88/validation",
+  ],
+
+  /** Server libraries the API uses; loaded by Node at runtime, not bundled. */
+  serverExternalPackages: [
+    "fastify",
+    "@fastify/cookie",
+    "@fastify/cors",
+    "@prisma/client",
+    ".prisma/client",
+    "@aws-sdk/client-s3",
+    "@aws-sdk/s3-request-presigner",
+    "nodemailer",
+  ],
 
   outputFileTracingRoot: monorepoRoot,
+
+  /**
+   * Prisma's query engine is a native file that file tracing cannot discover
+   * from imports alone; ship it with every server function.
+   */
+  outputFileTracingIncludes: {
+    "/**": ["../../node_modules/.prisma/client/**"],
+  },
 
   experimental: {
     serverActions: { allowedOrigins: allowedActionOrigins },

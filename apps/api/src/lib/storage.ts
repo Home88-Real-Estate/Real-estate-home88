@@ -14,6 +14,7 @@
 import {
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
@@ -67,6 +68,65 @@ export async function signedGetUrl(key: string, ttlSeconds?: number): Promise<st
     new GetObjectCommand({ Bucket: cfg.S3_BUCKET, Key: key }),
     { expiresIn: ttlSeconds ?? cfg.S3_SIGNED_URL_TTL },
   );
+}
+
+/**
+ * A short-lived URL the browser uploads one file to directly, so large photos
+ * never pass through an API request. Content-Type is part of the signature,
+ * and so is Content-Length when `byteSize` is given: the client cannot swap
+ * the type or send a larger body than it declared. Unsized URLs are only for
+ * browser-made variants, whose size is checked when the upload is confirmed.
+ */
+export async function presignPut(
+  key: string,
+  contentType: string,
+  byteSize?: number,
+  ttlSeconds = 900,
+): Promise<{ url: string; headers: Record<string, string> }> {
+  const cfg = loadConfig();
+  const signed = new Set(["content-type", "cache-control"]);
+  if (byteSize !== undefined) signed.add("content-length");
+  const url = await getSignedUrl(
+    client(cfg),
+    new PutObjectCommand({
+      Bucket: cfg.S3_BUCKET,
+      Key: key,
+      ContentType: contentType,
+      ...(byteSize !== undefined ? { ContentLength: byteSize } : {}),
+      CacheControl: "public, max-age=31536000, immutable",
+    }),
+    { expiresIn: ttlSeconds, signableHeaders: signed },
+  );
+  return {
+    url,
+    headers: { "content-type": contentType, "cache-control": "public, max-age=31536000, immutable" },
+  };
+}
+
+/** Size and type of a stored object, or null when it does not exist. */
+export async function headObject(
+  key: string,
+): Promise<{ byteSize: number; contentType: string } | null> {
+  const cfg = loadConfig();
+  try {
+    const head = await client(cfg).send(new HeadObjectCommand({ Bucket: cfg.S3_BUCKET, Key: key }));
+    return { byteSize: head.ContentLength ?? 0, contentType: head.ContentType ?? "" };
+  } catch (error) {
+    const status = (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+    if (status === 404 || (error as { name?: string }).name === "NotFound") return null;
+    throw error;
+  }
+}
+
+/** The first `bytes` of an object: enough to sniff its type and dimensions. */
+export async function readObjectStart(key: string, bytes: number): Promise<Buffer> {
+  const cfg = loadConfig();
+  const result = await client(cfg).send(
+    new GetObjectCommand({ Bucket: cfg.S3_BUCKET, Key: key, Range: `bytes=0-${bytes - 1}` }),
+  );
+  const body = result.Body;
+  if (!body) return Buffer.alloc(0);
+  return Buffer.from(await body.transformToByteArray());
 }
 
 /** Stable, unauthenticated URL for objects a bucket serves publicly. */

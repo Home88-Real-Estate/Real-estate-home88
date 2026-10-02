@@ -16,7 +16,9 @@
 
 generator client {
   provider      = "prisma-client-js"
-  binaryTargets = ["native"]
+  /// "native" for local machines; rhel-openssl-3.0.x is Vercel's runtime
+  /// (Amazon Linux 2023), where the CRM deployment runs the API.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
@@ -641,8 +643,13 @@ model PropertyMedia {
   kind     MediaKind @default(PHOTO)
 
   /// Object-storage key, never a public URL. A signed URL is generated per
-  /// request so a leaked link expires.
-  storageKey     String
+  /// request so a leaked link expires. Unique: confirming the same upload
+  /// twice (a retry) never creates a second row.
+  storageKey     String  @unique
+  /// Browser-made web-sized JPEG (long edge ≤ 2048px) and thumbnail of a
+  /// photo, stored next to the original. Null for older rows and non-images.
+  previewKey     String?
+  thumbnailKey   String?
   originalName   String?
   mimeType       String
   byteSize       Int

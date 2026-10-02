@@ -1,69 +1,111 @@
 # Deployment
 
-Three deployables, one database:
+Two Vercel projects from one repository, one PostgreSQL database, one object
+storage bucket. No other servers.
 
-| App | What it is | Where it can run |
-|---|---|---|
-| `apps/web` | Public website (Next.js) | Vercel — today `https://realestate-home-88.vercel.app` |
-| `apps/crm` | Staff CRM (Next.js, served under `/crm`) | Vercel, as its own project |
-| `apps/api` | API (Fastify, long-running Node server) the CRM calls | Any host that keeps a Node process running (Render, Railway, Fly.io, a VPS). Not a static/serverless deploy as-is. |
-
-All three use the same PostgreSQL database (Supabase). Only the API writes CRM data.
-
-## The CRM on the website's own address (recommended)
-
-The website passes everything under `/crm` through to the CRM deployment, so
-staff sign in at `https://<website>/crm/login`. No extra domain or DNS record
-is needed, and the footer's "Σύνδεση συνεργατών" link points there automatically.
+| Vercel project | Root directory | Serves | Domain |
+|---|---|---|---|
+| HOME88 Web | `apps/web` | Public website | `home88.estate` (today `realestate-home-88.vercel.app`) |
+| HOME88 CRM | `apps/crm` | Staff CRM under `/crm` **and the API** under `/crm/api/*` and `/api/*` | `crm.home88.estate` |
 
 ```
-browser ──► realestate-home-88.vercel.app/crm/login
-                 │  (rewrite, apps/web/next.config.mjs)
-                 ▼
-            <crm project>.vercel.app/crm/login ──► API (API_URL) ──► Postgres
+browser ──► home88.estate ─────────────► apps/web ──► PostgreSQL (published listings, enquiries)
+   │
+   └──────► crm.home88.estate/crm/... ──► apps/crm ──► API in the same process ──► PostgreSQL
+                     │                                        │
+                     └──── photo bytes (signed PUT) ──────────┴──► object storage
 ```
 
-### 1. API
+## How the API runs inside the CRM
 
-Deploy `apps/api` (`npm ci` at the repo root, then `npm run db:deploy -w @home88/database` once per release, then `npm start -w @home88/api`). Environment:
+`apps/api` is unchanged business logic (Fastify routes, Prisma, auth). Two
+entry points share it:
 
-| Variable | Value |
-|---|---|
-| `DATABASE_URL` | HOME88 Supabase connection string (server secret) |
-| `NODE_ENV` | `production` |
-| `CRM_URL` | The website origin, e.g. `https://realestate-home-88.vercel.app` (password-reset links are built from it) |
-| `SITE_URL` | The website origin |
-| `CRM_BASE_PATH` | `/crm` |
-| `SMTP_*` | Mail server, so password links are delivered |
-| `PII_HASH_PEPPER`, `PII_ENCRYPTION_KEY` | Same values as the website |
+- `apps/api/src/index.ts`: standalone server for local development (`npm run dev`).
+- `apps/api/src/handler.ts`: builds the same app once per process and serves requests with Fastify's `inject`, with no open port.
 
-Then create the first administrator (see `docs/authentication.md`).
+The CRM calls it through `apps/crm/src/lib/api-transport.ts`. With `API_URL`
+empty (production), every call runs in-process; with `API_URL` set (local
+dev), it goes over HTTP to the standalone server. Public access to the API
+(portal feeds, health, the browser's upload calls) goes through
+`apps/crm/src/app/api/[...path]/route.ts`, at `/crm/api/<path>`. On Vercel,
+`apps/crm/vercel.json` also maps `/api/<path>` to it, and `/` to `/crm`.
 
-### 2. CRM (new Vercel project)
+Because of this, the CRM project holds the API's server-only secrets
+(`DATABASE_URL`, `JWT_SECRET`, `S3_*`, `SMTP_*`, `PII_*`). None of them is a
+`NEXT_PUBLIC_` variable, so none can reach the browser bundle.
 
-Import the same GitHub repository as a **new** Vercel project:
+## Photos and documents: direct-to-storage uploads
 
-- Root directory: `apps/crm`
-- Framework: Next.js (install/build commands: defaults)
-- Environment variables:
-  - `API_URL` = the API's URL from step 1 (server-only)
-  - `CRM_PUBLIC_ORIGINS` = `https://realestate-home-88.vercel.app` (add any custom domain later, comma-separated). Without it, forms that use server actions are rejected when reached through the website.
-  - `NEXT_PUBLIC_CRM_BASE_PATH` = `/crm`
+Vercel functions accept at most 4.5 MB per request, so file bytes never pass
+through the API:
 
-Note its production URL, e.g. `https://home88-crm.vercel.app`.
+1. The CRM asks `POST /api/properties/:id/media/uploads` for a signed PUT URL.
+   The API picks the key, checks the type and size, and signs Content-Type
+   and Content-Length, so the browser cannot upload a different type or a
+   larger file than it declared. The URL expires after 15 minutes.
+2. The browser PUTs the original straight to the bucket. For photos it also
+   uploads a 2048px web version and a 480px thumbnail, made in the browser,
+   so phones upload less and the website serves small images.
+3. The CRM calls `POST /api/properties/:id/media/confirm`. The API checks
+   that the object exists, its size and type, and that its bytes really are
+   that image, then records `PropertyMedia` (key, type, size, width, height,
+   variant keys) as `pending_review`. Confirm is idempotent per key, so a
+   retried confirm never creates a duplicate.
 
-### 3. Website (existing Vercel project)
+Every step retries with backoff, and the uploader waits for the connection to
+return when offline. It warns before the page is closed with uploads still
+pending. A queue that survives closing the page (IndexedDB) is part of the
+planned offline PWA phase.
 
-- Add `CRM_ORIGIN` = the CRM production URL from step 2.
-- Remove `NEXT_PUBLIC_CRM_URL` (it currently points at `crm.home88.estate`, which has no DNS record). `CRM_ORIGIN` takes precedence anyway.
-- Redeploy. `CRM_ORIGIN` is read at build time, so a redeploy is required.
+### Bucket CORS (required)
 
-Check: `https://realestate-home-88.vercel.app/crm/login` shows the HOME88 sign-in page.
+The bucket must accept browser PUTs from the CRM origin:
 
-## Alternative: a CRM subdomain
+```json
+[
+  {
+    "AllowedOrigins": ["https://crm.home88.estate"],
+    "AllowedMethods": ["PUT", "GET", "HEAD"],
+    "AllowedHeaders": ["content-type", "cache-control"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
 
-To use `crm.home88.estate` instead, add that domain to the CRM Vercel project,
-create the DNS record Vercel asks for (a CNAME for `crm`) wherever
-`home88.estate` DNS is managed, set `NEXT_PUBLIC_CRM_URL=https://crm.home88.estate`
-on the website and leave `CRM_ORIGIN` unset. Set the API's `CRM_URL` to the
-subdomain too.
+## Setting up the two projects
+
+### HOME88 CRM (root `apps/crm`)
+
+1. Vercel → Add New Project → this repository → Root Directory `apps/crm` → Framework Next.js. Build and install commands stay at their defaults.
+2. Environment variables: everything in `apps/crm/.env.example`. Leave `API_URL` empty. The required ones:
+   `DATABASE_URL`, `JWT_SECRET` (32+ characters), `CRM_URL=https://crm.home88.estate`,
+   `SITE_URL=https://home88.estate`, `S3_*`, `PII_HASH_PEPPER`, `PII_ENCRYPTION_KEY`, `SMTP_*`.
+3. Domains → add `crm.home88.estate`, then create the DNS record Vercel shows (a CNAME for `crm`) wherever `home88.estate`'s DNS is managed.
+4. Apply database migrations once per release from a trusted machine:
+   `DATABASE_URL=… npm run db:deploy -w @home88/database`.
+5. Create the first administrator (see `docs/authentication.md`).
+
+Check: `https://crm.home88.estate/api/health` returns `{"status":"ok",…}`.
+`/api/health/ready` reports whether the database answers, as up or down only:
+it never shows connection details.
+
+### HOME88 Web (root `apps/web`)
+
+- `NEXT_PUBLIC_SITE_URL` = the site's URL (note: `NEXT_PUBLIC_`, not `NEXT_SITE_URL`).
+- `DATABASE_URL`, `PII_HASH_PEPPER`, `PII_ENCRYPTION_KEY` (same values as the CRM).
+- `NEXT_PUBLIC_CRM_URL=https://crm.home88.estate` once that domain resolves, so the footer's «Σύνδεση Συνεργατών» goes to `https://crm.home88.estate/crm/login`. Redeploy after setting it (it is read at build time).
+
+Until the CRM domain exists, leave `NEXT_PUBLIC_CRM_URL` unset and set
+`CRM_ORIGIN` to the CRM project's `*.vercel.app` URL instead. The website then
+serves the CRM under its own `/crm`, and the footer links there. If you do
+that, add the website's origin to the CRM's `CRM_PUBLIC_ORIGINS`.
+
+## Limits to know
+
+- **Rate limits** for login and password reset are kept in memory per running
+  instance. On Vercel, instances come and go, so the limits are weaker than on
+  one long-lived server. A shared store (e.g. Redis) is the upgrade path.
+- **Database connections:** each instance opens its own Prisma connection
+  pool. Use Supabase's pooled connection string (port 6543, `?pgbouncer=true`)
+  for `DATABASE_URL` in both projects, and the direct one for running migrations.

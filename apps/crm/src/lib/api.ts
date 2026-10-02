@@ -7,10 +7,11 @@
  * needs no API origin and CORS is not in play.
  */
 
-import { cookies } from "next/headers";
+import { cookies, headers as requestHeaders } from "next/headers";
 import type { AppError } from "@home88/types";
 
-import { API_URL, SESSION_COOKIE_NAME } from "./config";
+import { apiUrl, callApi } from "./api-transport";
+import { SESSION_COOKIE_NAME } from "./config";
 
 export type ApiResult<T> =
   | { ok: true; data: T }
@@ -31,7 +32,7 @@ export type ApiFetchInit = {
 };
 
 function buildUrl(path: string, query?: Record<string, QueryValue>): string {
-  const url = `${API_URL}${path}`;
+  const url = apiUrl(path);
   if (!query) return url;
 
   const params = new URLSearchParams();
@@ -51,21 +52,25 @@ export async function apiFetch<T>(path: string, init: ApiFetchInit = {}): Promis
   headers.set("accept", "application/json");
   if (token) headers.set("cookie", `${SESSION_COOKIE_NAME}=${token}`);
   if (init.json !== undefined) headers.set("content-type", "application/json");
+  // The API rate-limits and audits by client IP; pass the visitor's through.
+  const forwardedFor = (await requestHeaders()).get("x-forwarded-for");
+  if (forwardedFor) headers.set("x-forwarded-for", forwardedFor);
 
   const hasBody = init.json !== undefined || init.form !== undefined;
   let response: Response;
   try {
-    response = await fetch(buildUrl(path, init.query), {
-      method: init.method ?? (hasBody ? "POST" : "GET"),
-      headers,
-      body: init.json !== undefined ? JSON.stringify(init.json) : init.form,
-      cache: "no-store",
-    });
+    response = await callApi(
+      new Request(buildUrl(path, init.query), {
+        method: init.method ?? (hasBody ? "POST" : "GET"),
+        headers,
+        body: init.json !== undefined ? JSON.stringify(init.json) : init.form,
+      }),
+    );
   } catch {
     return {
       ok: false,
       status: 0,
-      error: { code: "network_error", message: "Cannot reach the API. Is it running?" },
+      error: { code: "network_error", message: "Η υπηρεσία δεν είναι διαθέσιμη. Δοκιμάστε ξανά." },
     };
   }
 
