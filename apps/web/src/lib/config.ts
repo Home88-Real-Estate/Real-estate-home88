@@ -24,21 +24,25 @@ export const isProduction = process.env.NODE_ENV === "production";
 
 export const SITE_URL = optional("NEXT_PUBLIC_SITE_URL", "http://localhost:3000").replace(/\/+$/, "");
 
-/**
- * The internal CRM lives on its own origin (e.g. https://crm.home88.estate) and
- * is served under a base path. Only the public login URL is used here; the
- * public site never holds a CRM session.
- *
- * Production fails closed: with no NEXT_PUBLIC_CRM_URL configured, the staff
- * link is hidden rather than pointing at localhost (a placeholder that would
- * 404 or, worse, hit a developer machine).
- */
-export const CRM_URL = (() => {
-  const configured = process.env.NEXT_PUBLIC_CRM_URL?.trim();
-  if (configured) return configured.replace(/\/+$/, "");
-  return isProduction ? "" : "http://localhost:3100";
-})();
 export const CRM_BASE_PATH = optional("NEXT_PUBLIC_CRM_BASE_PATH", "/crm").replace(/\/+$/, "");
+
+/**
+ * Where the footer's staff sign-in link points. The public site never holds a
+ * CRM session; it only links to the login page.
+ *
+ *  1. CRM_ORIGIN set: the CRM is proxied onto this site under /crm (see
+ *     next.config.mjs), so the link is same-origin: /crm/login.
+ *  2. NEXT_PUBLIC_CRM_URL set: the CRM has its own origin
+ *     (e.g. https://crm.home88.estate) and the link goes there.
+ *  3. Neither: production hides the link rather than pointing at localhost (a
+ *     placeholder that would 404 or, worse, hit a developer machine).
+ */
+export const CRM_LOGIN_URL = (() => {
+  if (process.env.CRM_ORIGIN?.trim()) return `${CRM_BASE_PATH}/login`;
+  const configured = process.env.NEXT_PUBLIC_CRM_URL?.trim().replace(/\/+$/, "");
+  if (configured) return `${configured}${CRM_BASE_PATH}/login`;
+  return isProduction ? "" : `http://localhost:3100${CRM_BASE_PATH}/login`;
+})();
 
 export const COMPANY = {
   /** Shown in the privacy notice and the footer of every commercial email. */

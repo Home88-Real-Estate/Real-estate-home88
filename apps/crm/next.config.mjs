@@ -58,6 +58,24 @@ const csp = [
   ...(isDev ? [] : ["upgrade-insecure-requests"]),
 ].join("; ");
 
+/**
+ * When the public site proxies /crm to this deployment, the browser's Origin
+ * is the public site's while this server sees its own host. Next rejects
+ * server actions across that mismatch unless the public origin is allowed.
+ * CRM_PUBLIC_ORIGINS: comma-separated origins the CRM is reached through,
+ * e.g. "https://realestate-home-88.vercel.app,https://home88.estate".
+ */
+const allowedActionOrigins = (process.env.CRM_PUBLIC_ORIGINS ?? "")
+  .split(",")
+  .map((value) => {
+    try {
+      return new URL(value.trim()).host;
+    } catch {
+      return "";
+    }
+  })
+  .filter(Boolean);
+
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
@@ -74,6 +92,10 @@ const nextConfig = {
   transpilePackages: ["@home88/domain", "@home88/types", "@home88/ui"],
 
   outputFileTracingRoot: monorepoRoot,
+
+  experimental: {
+    serverActions: { allowedOrigins: allowedActionOrigins },
+  },
 
   async headers() {
     return [

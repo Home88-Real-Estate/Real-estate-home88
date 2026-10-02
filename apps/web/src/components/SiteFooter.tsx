@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { COMPANY, CRM_BASE_PATH, CRM_URL } from "@/lib/config";
+import { COMPANY, CRM_LOGIN_URL } from "@/lib/config";
 
 export function SiteFooter() {
   const year = new Date().getFullYear();
   // Hidden entirely when no CRM origin is configured (see lib/config.ts): a
   // production site must never send staff to a localhost placeholder.
-  const staffUrl = CRM_URL ? `${CRM_URL}${CRM_BASE_PATH}/login` : "";
+  const staffUrl = CRM_LOGIN_URL;
 
   return (
     <footer className="site-footer">
