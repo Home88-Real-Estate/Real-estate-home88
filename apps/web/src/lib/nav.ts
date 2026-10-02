@@ -1,16 +1,17 @@
 /**
  * Navigation route resolution.
  *
- * Πωλήσεις, Ενοικιάσεις and Ακίνητα all render the same `/properties` page;
- * they are nonetheless three distinct top-level destinations. The URL path and
- * the `listingType` query parameter together decide which one is active, so the
- * highlight must never be derived from the pathname alone.
+ * Several destinations render the same `/properties` page but are distinct
+ * menus; the URL path and the `listingType` query parameter together decide
+ * which one is active, so the highlight must never be derived from the
+ * pathname alone.
  *
  * Kept pure and framework-free so it can be unit-tested and shared by the
  * desktop and mobile navigation.
  */
 
 export type ActiveNavItem =
+  | "home"
   | "sales"
   | "rentals"
   | "properties"
@@ -21,25 +22,64 @@ export type ActiveNavItem =
   | "about"
   | "contact";
 
-export type NavItem = {
+export type NavLink = {
   href: string;
   label: string;
-  /** The resolved active-nav value that lights this item up. */
+  /** The resolved active-nav value that lights this destination up. */
   key: ActiveNavItem;
 };
 
+export type NavMenuGroup = {
+  heading: string;
+  /** When set, the group heading itself is a link. */
+  href?: string;
+  links: NavLink[];
+};
+
+export type NavItem = NavLink & {
+  /** A mega-menu shown on hover/focus of this item. */
+  menu?: NavMenuGroup[];
+};
+
+/** The Ακίνητα mega-menu: search shortcuts plus the assignment entry. */
+const PROPERTY_MENU: NavMenuGroup[] = [
+  {
+    heading: "Αναζήτηση ακινήτων",
+    href: "/properties",
+    links: [
+      { href: "/properties?listingType=SALE", label: "Προς πώληση", key: "sales" },
+      { href: "/properties?propertyType=APARTMENT", label: "Κατοικίες", key: "properties" },
+      { href: "/properties?propertyType=SHOP", label: "Επαγγελματικοί χώροι", key: "properties" },
+      { href: "/properties?propertyType=PLOT", label: "Γη", key: "properties" },
+      { href: "/properties?propertyType=OTHER", label: "Λοιπά", key: "properties" },
+      { href: "/properties?listingType=RENT", label: "Προς ενοικίαση", key: "rentals" },
+    ],
+  },
+  {
+    heading: "Ανάθεση",
+    links: [{ href: "/submit", label: "Ακίνητα", key: "submit" }],
+  },
+];
+
 /** Single source of truth for the public navigation. */
 export const NAV: NavItem[] = [
-  { href: "/properties?listingType=SALE", label: "Πωλήσεις", key: "sales" },
-  { href: "/properties?listingType=RENT", label: "Ενοικιάσεις", key: "rentals" },
-  { href: "/properties", label: "Ακίνητα", key: "properties" },
-  { href: "/areas", label: "Περιοχές", key: "areas" },
+  { href: "/", label: "Αρχική", key: "home" },
+  { href: "/properties", label: "Ακίνητα", key: "properties", menu: PROPERTY_MENU },
   { href: "/submit", label: "Ανάθεση", key: "submit" },
   { href: "/request", label: "Ζήτηση", key: "request" },
-  { href: "/valuation", label: "Εκτίμηση", key: "valuation" },
-  { href: "/about", label: "Εταιρεία", key: "about" },
+  { href: "/about", label: "Η εταιρεία", key: "about" },
   { href: "/contact", label: "Επικοινωνία", key: "contact" },
 ];
+
+/** Every link reachable from the navigation, including mega-menu leaves. */
+export function allNavLinks(): NavLink[] {
+  const links: NavLink[] = [];
+  for (const item of NAV) {
+    links.push(item);
+    for (const group of item.menu ?? []) links.push(...group.links);
+  }
+  return links;
+}
 
 /** Normalises `SALE`/`rent `/`sale` to a canonical value; anything else is null. */
 export function normalizeListingType(value: string | null | undefined): "SALE" | "RENT" | null {
@@ -67,8 +107,8 @@ type SearchParamsReader = { get(name: string): string | null } | null | undefine
  * Resolves which navigation item should be active for a path + query string.
  *
  * Precedence for the shared properties page: an explicit SALE or RENT
- * transaction wins over the generic Ακίνητα destination, so exactly one of the
- * three is ever active. Unrelated filters (area, price, …) are ignored.
+ * transaction wins over the generic Ακίνητα destination, so exactly one
+ * destination is ever active. Unrelated filters (area, price, …) are ignored.
  */
 export function resolveActiveNav(
   pathname: string | null | undefined,
@@ -84,6 +124,7 @@ export function resolveActiveNav(
     return "properties";
   }
 
+  if (path === "/") return "home";
   if (path === "/areas" || path.startsWith("/areas/")) return "areas";
   if (path === "/submit") return "submit";
   if (path === "/request") return "request";
@@ -91,4 +132,40 @@ export function resolveActiveNav(
   if (path === "/about") return "about";
   if (path === "/contact") return "contact";
   return null;
+}
+
+/**
+ * Section-level active state for a top-level item. The Ακίνητα parent stays
+ * highlighted for every properties URL (sale, rent or generic), since its
+ * children are the more specific destinations.
+ */
+export function isNavItemActive(item: NavItem, active: ActiveNavItem | null): boolean {
+  if (!active) return false;
+  if (item.key === "properties") {
+    return active === "properties" || active === "sales" || active === "rentals";
+  }
+  return item.key === active;
+}
+
+type QueryReader = { get(name: string): string | null } | null | undefined;
+
+/**
+ * Exact active state for any link (used for the mega-menu leaves): same path,
+ * and the same transaction/property filter. Ignores unrelated parameters.
+ */
+export function isNavLinkActive(
+  link: NavLink,
+  pathname: string | null | undefined,
+  searchParams?: QueryReader,
+): boolean {
+  const target = new URL(link.href, "https://nav.local");
+  if (normalizePath(pathname ?? "/") !== normalizePath(target.pathname)) return false;
+
+  const targetListing = normalizeListingType(target.searchParams.get("listingType"));
+  const currentListing = normalizeListingType(searchParams?.get("listingType"));
+  if (targetListing !== currentListing) return false;
+
+  const targetType = target.searchParams.get("propertyType");
+  const currentType = searchParams?.get("propertyType") ?? null;
+  return targetType === currentType;
 }

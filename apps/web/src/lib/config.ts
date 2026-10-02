@@ -47,13 +47,13 @@ export const COMPANY = {
   privacyEmail: optional("COMPANY_PRIVACY_EMAIL", "privacy@example.com"),
   dmcaEmail: optional("COMPANY_DMCA_EMAIL", "dmca@example.com"),
   /**
-   * Public contact details. All three are optional and every surface that shows
-   * them renders only when a value is configured, so a half-set deployment
-   * never prints "undefined" or invents a phone number.
+   * Public contact details. Phone and hours fall back to the published HOME88
+   * values so the header always shows them; contact email stays optional and
+   * only renders when configured.
    */
-  phone: optional("COMPANY_PHONE"),
+  phone: optional("COMPANY_PHONE", "2166003838"),
   contactEmail: optional("COMPANY_CONTACT_EMAIL"),
-  hours: optional("COMPANY_HOURS"),
+  hours: optional("COMPANY_HOURS", "Δευτέρα - Παρασκευή 09:00 - 17:00, Σάββατο 10:00 - 14:00"),
   /**
    * Bumped whenever the privacy notice or cookie policy changes materially.
    * Consent records store the version the person agreed to, so a change means
