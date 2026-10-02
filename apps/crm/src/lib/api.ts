@@ -10,7 +10,7 @@
 import { cookies, headers as requestHeaders } from "next/headers";
 import type { AppError } from "@home88/types";
 
-import { apiUrl, callApi } from "./api-transport";
+import { apiUrl, callApi, UNAVAILABLE_MESSAGE } from "./api-transport";
 import { SESSION_COOKIE_NAME } from "./config";
 
 export type ApiResult<T> =
@@ -57,22 +57,14 @@ export async function apiFetch<T>(path: string, init: ApiFetchInit = {}): Promis
   if (forwardedFor) headers.set("x-forwarded-for", forwardedFor);
 
   const hasBody = init.json !== undefined || init.form !== undefined;
-  let response: Response;
-  try {
-    response = await callApi(
-      new Request(buildUrl(path, init.query), {
-        method: init.method ?? (hasBody ? "POST" : "GET"),
-        headers,
-        body: init.json !== undefined ? JSON.stringify(init.json) : init.form,
-      }),
-    );
-  } catch {
-    return {
-      ok: false,
-      status: 0,
-      error: { code: "network_error", message: "Η υπηρεσία δεν είναι διαθέσιμη. Δοκιμάστε ξανά." },
-    };
-  }
+  // callApi never throws; an unreachable API arrives as a 503 with a message.
+  const response = await callApi(
+    new Request(buildUrl(path, init.query), {
+      method: init.method ?? (hasBody ? "POST" : "GET"),
+      headers,
+      body: init.json !== undefined ? JSON.stringify(init.json) : init.form,
+    }),
+  );
 
   const text = await response.text();
   let body: unknown = null;
@@ -86,10 +78,18 @@ export async function apiFetch<T>(path: string, init: ApiFetchInit = {}): Promis
 
   if (!response.ok) {
     const error = (body as { error?: AppError } | null)?.error;
+    // Server-side failures never show internal text to staff.
+    if (response.status >= 500) {
+      return {
+        ok: false,
+        status: response.status,
+        error: { code: error?.code ?? "unavailable", message: UNAVAILABLE_MESSAGE },
+      };
+    }
     return {
       ok: false,
       status: response.status,
-      error: error ?? { code: "error", message: `Request failed (${response.status}).` },
+      error: error ?? { code: "error", message: `Το αίτημα απέτυχε (${response.status}).` },
     };
   }
 

@@ -3,7 +3,7 @@ import cors from "@fastify/cors";
 import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
 import { ZodError } from "zod";
 import { loadConfig } from "./config";
-import { HttpError, isHttpError } from "./lib/errors";
+import { HttpError, isDatabaseUnavailable, isHttpError } from "./lib/errors";
 import { attachAuth } from "./plugins/auth";
 import { accountRoutes } from "./routes/account";
 import { authRoutes } from "./routes/auth";
@@ -55,6 +55,22 @@ export async function buildServer(): Promise<FastifyInstance> {
     }
     if (error instanceof ZodError) {
       reply.code(422).send({ error: { code: "validation_failed", message: "Invalid input." } });
+      return;
+    }
+
+    if (isDatabaseUnavailable(error)) {
+      // Name and code only: Prisma messages can echo the connection target.
+      const code = (error as { errorCode?: string; code?: string }).errorCode ?? error.code;
+      request.log.error({ err: { name: error.name, code } }, "database unavailable");
+      reply
+        .code(503)
+        .header("retry-after", "30")
+        .send({
+          error: {
+            code: "database_unavailable",
+            message: "Η υπηρεσία δεν είναι προσωρινά διαθέσιμη. Παρακαλούμε δοκιμάστε ξανά αργότερα.",
+          },
+        });
       return;
     }
 

@@ -44,3 +44,21 @@ export const validationFailed = (message: string, fields?: FieldErrors) =>
 export function isHttpError(error: unknown): error is HttpError {
   return error instanceof HttpError;
 }
+
+/** Prisma error codes that mean "the database cannot be reached/used right now". */
+const DATABASE_UNAVAILABLE_CODES = new Set(["P1000", "P1001", "P1002", "P1003", "P1008", "P1017", "P2024"]);
+
+/**
+ * True for errors meaning the database is unreachable or refusing connections
+ * (as opposed to a bug or bad input). Matched by name/code so this module does
+ * not depend on the Prisma runtime.
+ */
+export function isDatabaseUnavailable(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const e = error as { name?: unknown; code?: unknown; errorCode?: unknown };
+  if (e.name === "PrismaClientInitializationError") return true;
+  for (const code of [e.code, e.errorCode]) {
+    if (typeof code === "string" && DATABASE_UNAVAILABLE_CODES.has(code)) return true;
+  }
+  return false;
+}

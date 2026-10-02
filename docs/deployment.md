@@ -105,6 +105,32 @@ it never shows connection details.
   website's own `/crm` (rewrite); then add the website's origin to the CRM's
   `CRM_PUBLIC_ORIGINS`.
 
+## Is the CRM's API working?
+
+Open `https://<CRM domain>/crm/health/ready`. It answers whether the API
+inside the CRM starts and whether the database answers. If not, it names the
+environment variables to fix on the **CRM** Vercel project (names only, never
+values), for example:
+
+```json
+{ "status": "unavailable", "api": "down", "configuration": [{ "variable": "DATABASE_URL", "problem": "missing" }] }
+```
+
+| Readiness says | Fix on the CRM project |
+|---|---|
+| `DATABASE_URL` missing/invalid | Set the database connection string. |
+| `JWT_SECRET` missing/too_short | Set a random value of 32+ characters. |
+| `API_URL` unreachable | Delete `API_URL` (production runs the API inside the CRM). |
+| `"database": "down"` | The connection string is wrong, or the database is paused or unreachable. |
+
+Redeploy after changing variables. While any of these is wrong, sign-in and
+"forgot password" show «Η υπηρεσία δεν είναι προσωρινά διαθέσιμη» and answer
+503, and the function log says which variable to fix.
+
+Without `SMTP_HOST` the API runs in log-only mail mode: "forgot password"
+succeeds, but no email (and no link) is delivered. Set your first password with
+`npm run admin:create` and `ADMIN_PASSWORD` (see docs/authentication.md).
+
 ## Limits to know
 
 - **Rate limits** for login and password reset are kept in memory per running

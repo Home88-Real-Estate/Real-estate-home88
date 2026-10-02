@@ -11,7 +11,31 @@
 
 import type { FastifyInstance } from "fastify";
 
+import { configProblems } from "./config";
+import { db } from "./lib/prisma";
 import { buildServer } from "./server";
+
+const UNAVAILABLE_MESSAGE = "Η υπηρεσία δεν είναι προσωρινά διαθέσιμη. Παρακαλούμε δοκιμάστε ξανά αργότερα.";
+
+/** Error text with anything URL-shaped (e.g. a connection string) removed. */
+function safeDetail(error: unknown): string {
+  const text = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  return text.replace(/\w+:\/\/[^\s"']+/g, "<url>");
+}
+
+/**
+ * Explains a failed boot in the server log: which variables are missing or
+ * invalid (names only), or the scrubbed error when configuration is fine.
+ */
+function logBootFailure(error: unknown): void {
+  const problems = configProblems();
+  if (problems.length > 0) {
+    const list = problems.map((p) => `${p.variable} (${p.problem})`).join(", ");
+    console.error(`[home88:api] cannot start: fix these environment variables on this deployment: ${list}`);
+  } else {
+    console.error("[home88:api] cannot start:", safeDetail(error));
+  }
+}
 
 let appPromise: Promise<FastifyInstance> | null = null;
 
@@ -37,7 +61,19 @@ const SKIP_RESPONSE_HEADERS = new Set(["content-length", "transfer-encoding", "c
  * or `/health`); the origin part is ignored.
  */
 export async function handleApiRequest(request: Request): Promise<Response> {
-  const app = await api();
+  let app: FastifyInstance;
+  try {
+    app = await api();
+  } catch (error) {
+    // The API could not start (usually a missing or invalid environment
+    // variable). Say so in the log and answer with a controlled 503 instead
+    // of letting the caller turn an exception into a 502.
+    logBootFailure(error);
+    return Response.json(
+      { error: { code: "api_unavailable", message: UNAVAILABLE_MESSAGE } },
+      { status: 503, headers: { "retry-after": "30" } },
+    );
+  }
   const url = new URL(request.url);
 
   const headers: Record<string, string> = {};
@@ -69,4 +105,36 @@ export async function handleApiRequest(request: Request): Promise<Response> {
     status: result.statusCode,
     headers: responseHeaders,
   });
+}
+
+export type ApiReadiness = {
+  status: "ready" | "unavailable";
+  api: "up" | "down";
+  database: "up" | "down" | "unknown";
+  /** Names of environment variables that are missing or invalid; never values. */
+  configuration: Array<{ variable: string; problem: string }>;
+};
+
+/**
+ * Readiness of the in-process API: does it start, does the database answer,
+ * and, if not, which variables are wrong. Nothing secret is returned.
+ */
+export async function apiReadiness(): Promise<ApiReadiness> {
+  const configuration = configProblems();
+  if (configuration.length > 0) {
+    return { status: "unavailable", api: "down", database: "unknown", configuration };
+  }
+  try {
+    await api();
+  } catch (error) {
+    logBootFailure(error);
+    return { status: "unavailable", api: "down", database: "unknown", configuration };
+  }
+  try {
+    await db().$queryRaw`SELECT 1`;
+    return { status: "ready", api: "up", database: "up", configuration };
+  } catch (error) {
+    console.error("[home88:api] database check failed:", safeDetail(error));
+    return { status: "unavailable", api: "up", database: "down", configuration };
+  }
 }

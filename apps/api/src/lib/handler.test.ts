@@ -41,3 +41,28 @@ test("unknown routes are a JSON 404, and the CSRF origin check still runs", asyn
   );
   assert.equal(foreign.status, 403);
 });
+
+test("forgot-password: malformed email is a validation error, not a crash", async () => {
+  const response = await handleApiRequest(
+    new Request("http://crm.test/api/auth/forgot-password", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "not-an-email" }),
+    }),
+  );
+  assert.ok(response.status === 400 || response.status === 422, `status ${response.status}`);
+});
+
+test("forgot-password: an unreachable database is a controlled 503", async () => {
+  const response = await handleApiRequest(
+    new Request("http://crm.test/api/auth/forgot-password", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forwarded-for": "203.0.113.9" },
+      body: JSON.stringify({ email: "someone@example.com" }),
+    }),
+  );
+  assert.equal(response.status, 503);
+  const body = (await response.json()) as { error: { code: string; message: string } };
+  assert.equal(body.error.code, "database_unavailable");
+  assert.ok(!JSON.stringify(body).includes("127.0.0.1"), "no connection details leak");
+});

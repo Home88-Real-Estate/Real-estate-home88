@@ -38,24 +38,15 @@ async function forward(
   const method = request.method.toUpperCase();
   const body = method === "GET" || method === "HEAD" ? undefined : await request.arrayBuffer();
 
-  try {
-    return await callApi(
-      new Request(apiUrl(`/api/${path.map(encodeURIComponent).join("/")}${search}`), {
-        method,
-        headers,
-        body,
-      }),
-    );
-  } catch (error) {
-    // Logged server-side with any connection string scrubbed; the client gets
-    // a generic message, never internal details.
-    const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-    console.error("[crm] API dispatch failed:", detail.replace(/\w+:\/\/[^\s"']+/g, "<url>"));
-    return Response.json(
-      { error: { code: "unavailable", message: "Η υπηρεσία δεν είναι διαθέσιμη." } },
-      { status: 503 },
-    );
-  }
+  // callApi never throws: failures are logged without secrets and answered
+  // with a generic 503.
+  return callApi(
+    new Request(apiUrl(`/api/${path.map(encodeURIComponent).join("/")}${search}`), {
+      method,
+      headers,
+      body,
+    }),
+  );
 }
 
 export const GET = forward;

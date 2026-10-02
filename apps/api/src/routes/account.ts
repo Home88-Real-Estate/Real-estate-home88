@@ -63,8 +63,11 @@ async function notify(
       template,
       metadata: { kind: "account_security" },
     });
-  } catch {
-    // Swallow: the security operation stands on its own.
+  } catch (error) {
+    // The security operation stands on its own; the failure is logged without
+    // the recipient, the link or any token.
+    const name = error instanceof Error ? error.name : "Error";
+    console.error(`[home88:api] ${template} email could not be sent (${name}).`);
   }
 }
 

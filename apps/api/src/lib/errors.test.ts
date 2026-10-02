@@ -41,3 +41,13 @@ test("HttpError is a real Error subclass", () => {
   assert.equal(error.message, "I am a teapot");
   assert.equal(error.name, "HttpError");
 });
+
+test("isDatabaseUnavailable recognises connection failures only", async () => {
+  const { isDatabaseUnavailable } = await import("./errors");
+  assert.equal(isDatabaseUnavailable({ name: "PrismaClientInitializationError" }), true);
+  assert.equal(isDatabaseUnavailable({ name: "PrismaClientKnownRequestError", code: "P1001" }), true);
+  assert.equal(isDatabaseUnavailable({ name: "X", errorCode: "P1017" }), true);
+  assert.equal(isDatabaseUnavailable({ name: "PrismaClientKnownRequestError", code: "P2002" }), false);
+  assert.equal(isDatabaseUnavailable(new Error("boom")), false);
+  assert.equal(isDatabaseUnavailable(null), false);
+});
