@@ -29,54 +29,56 @@ export type NavLink = {
   key: ActiveNavItem;
 };
 
-export type NavMenuGroup = {
-  heading: string;
-  /** When set, the group heading itself is a link. */
-  href?: string;
+/** An optional inline icon the header renders before a top-level label. */
+export type NavIconName = "properties";
+
+/**
+ * A dropdown attached to a top-level item: one highlighted heading that links
+ * to the section landing page, then the section's leaf links. Πωλήσεις and
+ * Ενοικιάσεις are leaves here, never top-level items of their own.
+ */
+export type NavMenu = {
+  heading: NavLink;
   links: NavLink[];
 };
 
 export type NavItem = NavLink & {
-  /** A mega-menu shown on hover/focus of this item. */
-  menu?: NavMenuGroup[];
+  icon?: NavIconName;
+  /** Shown on hover (desktop) or tap (mobile) of this item. */
+  menu?: NavMenu;
 };
 
-/** The Ακίνητα mega-menu: search shortcuts plus the assignment entry. */
-const PROPERTY_MENU: NavMenuGroup[] = [
-  {
-    heading: "Αναζήτηση ακινήτων",
-    href: "/properties",
-    links: [
-      { href: "/properties?listingType=SALE", label: "Προς πώληση", key: "sales" },
-      { href: "/properties?propertyType=APARTMENT", label: "Κατοικίες", key: "properties" },
-      { href: "/properties?propertyType=SHOP", label: "Επαγγελματικοί χώροι", key: "properties" },
-      { href: "/properties?propertyType=PLOT", label: "Γη", key: "properties" },
-      { href: "/properties?propertyType=OTHER", label: "Λοιπά", key: "properties" },
-      { href: "/properties?listingType=RENT", label: "Προς ενοικίαση", key: "rentals" },
-    ],
-  },
-  {
-    heading: "Ανάθεση",
-    links: [{ href: "/submit", label: "Ακίνητα", key: "submit" }],
-  },
-];
+/** The Ακίνητα dropdown: the section landing page plus each transaction. */
+export const PROPERTY_MENU: NavMenu = {
+  heading: { href: "/properties", label: "Αναζήτηση ακινήτων", key: "properties" },
+  links: [
+    { href: "/properties?listingType=SALE", label: "Προς πώληση", key: "sales" },
+    { href: "/properties?listingType=RENT", label: "Προς ενοικίαση", key: "rentals" },
+  ],
+};
 
 /** Single source of truth for the public navigation. */
 export const NAV: NavItem[] = [
   { href: "/", label: "Αρχική", key: "home" },
-  { href: "/properties", label: "Ακίνητα", key: "properties", menu: PROPERTY_MENU },
+  {
+    href: "/properties",
+    label: "Ακίνητα",
+    key: "properties",
+    icon: "properties",
+    menu: PROPERTY_MENU,
+  },
   { href: "/submit", label: "Ανάθεση", key: "submit" },
   { href: "/request", label: "Ζήτηση", key: "request" },
   { href: "/about", label: "Η εταιρεία", key: "about" },
   { href: "/contact", label: "Επικοινωνία", key: "contact" },
 ];
 
-/** Every link reachable from the navigation, including mega-menu leaves. */
+/** Every link reachable from the navigation, including dropdown leaves. */
 export function allNavLinks(): NavLink[] {
   const links: NavLink[] = [];
   for (const item of NAV) {
     links.push(item);
-    for (const group of item.menu ?? []) links.push(...group.links);
+    if (item.menu) links.push(item.menu.heading, ...item.menu.links);
   }
   return links;
 }

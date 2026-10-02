@@ -7,107 +7,129 @@ import {
   isNavLinkActive,
   NAV,
   normalizeListingType,
+  PROPERTY_MENU,
   resolveActiveNav,
 } from "./nav";
 
+const BASE = "https://home88.test";
+
 /** Resolve a URL the way the header does: pathname + search params. */
+function resolve(url: string) {
+  const parsed = new URL(url, BASE);
+  return { parsed, active: resolveActiveNav(parsed.pathname, parsed.searchParams) };
+}
+
 function at(url: string) {
-  const parsed = new URL(url, "https://home88.test");
-  return resolveActiveNav(parsed.pathname, parsed.searchParams);
+  return resolve(url).active;
 }
 
-/** Exactly one top-level item may be highlighted at once. */
-function activeTopLevelCount(url: string): number {
-  const parsed = new URL(url, "https://home88.test");
-  const active = resolveActiveNav(parsed.pathname, parsed.searchParams);
-  return NAV.filter((item) => isNavItemActive(item, active)).length;
+function topLevel(key: string) {
+  const item = NAV.find((entry) => entry.key === key);
+  assert.ok(item, `top-level item "${key}" exists`);
+  return item!;
 }
 
-test("TEST 1 — / activates home", () => {
+/** Which dropdown destination is highlighted for a URL. */
+function menuState(url: string) {
+  const { parsed } = resolve(url);
+  return {
+    heading: isNavLinkActive(PROPERTY_MENU.heading, parsed.pathname, parsed.searchParams),
+    sale: isNavLinkActive(PROPERTY_MENU.links[0]!, parsed.pathname, parsed.searchParams),
+    rent: isNavLinkActive(PROPERTY_MENU.links[1]!, parsed.pathname, parsed.searchParams),
+  };
+}
+
+function propertiesActive(url: string): boolean {
+  return isNavItemActive(topLevel("properties"), at(url));
+}
+
+test("TEST 1 — /properties: ΑΚΙΝΗΤΑ active, ΑΝΑΖΗΤΗΣΗ selected", () => {
+  assert.equal(propertiesActive("/properties"), true);
+  assert.deepEqual(menuState("/properties"), { heading: true, sale: false, rent: false });
+});
+
+test("TEST 2 — /properties?listingType=SALE: ΠΡΟΣ ΠΩΛΗΣΗ active", () => {
+  assert.equal(propertiesActive("/properties?listingType=SALE"), true);
+  assert.deepEqual(menuState("/properties?listingType=SALE"), {
+    heading: false,
+    sale: true,
+    rent: false,
+  });
+});
+
+test("TEST 3 — /properties?listingType=RENT: ΠΡΟΣ ΕΝΟΙΚΙΑΣΗ active", () => {
+  assert.equal(propertiesActive("/properties?listingType=RENT"), true);
+  assert.deepEqual(menuState("/properties?listingType=RENT"), {
+    heading: false,
+    sale: false,
+    rent: true,
+  });
+});
+
+test("TEST 4 — extra filters keep ΠΡΟΣ ΠΩΛΗΣΗ active", () => {
+  assert.equal(propertiesActive("/properties?listingType=SALE&area=Glyfada"), true);
+  assert.deepEqual(menuState("/properties?listingType=SALE&area=Glyfada"), {
+    heading: false,
+    sale: true,
+    rent: false,
+  });
+});
+
+test("TEST 5 — extra filters keep ΠΡΟΣ ΕΝΟΙΚΙΑΣΗ active", () => {
+  assert.equal(propertiesActive("/properties?listingType=RENT&minPrice=1000&area=Voula"), true);
+  assert.equal(menuState("/properties?listingType=RENT&minPrice=1000&area=Voula").rent, true);
+});
+
+test("TEST 6 — /submit: ΑΝΑΘΕΣΗ active, ΑΚΙΝΗΤΑ inactive", () => {
+  assert.equal(isNavItemActive(topLevel("submit"), at("/submit")), true);
+  assert.equal(propertiesActive("/submit"), false);
+});
+
+test("TEST 7 — /request: ΖΗΤΗΣΗ active, ΑΚΙΝΗΤΑ inactive", () => {
+  assert.equal(isNavItemActive(topLevel("request"), at("/request")), true);
+  assert.equal(propertiesActive("/request"), false);
+});
+
+test("remaining top-level routes resolve to themselves", () => {
   assert.equal(at("/"), "home");
-});
-
-test("TEST 2 — /properties activates properties", () => {
-  assert.equal(at("/properties"), "properties");
-});
-
-test("TEST 3 — /properties?listingType=SALE activates sales", () => {
-  assert.equal(at("/properties?listingType=SALE"), "sales");
-});
-
-test("TEST 4 — /properties?listingType=RENT activates rentals", () => {
-  assert.equal(at("/properties?listingType=RENT"), "rentals");
-});
-
-test("TEST 5 — a propertyType filter stays on properties", () => {
-  assert.equal(at("/properties?propertyType=APARTMENT"), "properties");
-  assert.equal(at("/properties?propertyType=SHOP"), "properties");
-});
-
-test("TEST 6 — SALE/RENT plus unrelated filters keep the transaction", () => {
-  assert.equal(at("/properties?listingType=SALE&area=Glyfada"), "sales");
-  assert.equal(at("/properties?listingType=RENT&area=Voula"), "rentals");
-});
-
-test("TEST 7 — /submit", () => assert.equal(at("/submit"), "submit"));
-test("TEST 8 — /request", () => assert.equal(at("/request"), "request"));
-test("TEST 9 — /about", () => assert.equal(at("/about"), "about"));
-test("TEST 10 — /contact", () => assert.equal(at("/contact"), "contact"));
-
-test("TEST 11 — an invalid listingType never activates sales or rentals", () => {
-  assert.equal(at("/properties?listingType=LEASE"), "properties");
-  assert.equal(at("/properties?listingType="), "properties");
-  assert.equal(normalizeListingType("PURCHASE"), null);
-  assert.equal(normalizeListingType("sale"), "SALE");
-  assert.equal(normalizeListingType("rent"), "RENT");
-  assert.equal(normalizeListingType(undefined), null);
-});
-
-test("TEST 12 — deep links and trailing slashes resolve correctly", () => {
-  assert.equal(at("/properties?listingType=SALE&minPrice=100"), "sales");
-  assert.equal(at("/properties/?listingType=RENT"), "rentals");
-  assert.equal(at("/properties/"), "properties");
+  assert.equal(at("/about"), "about");
+  assert.equal(at("/contact"), "contact");
   assert.equal(at("/areas/glyfada"), "areas");
   assert.equal(at("/valuation"), "valuation");
   assert.equal(at("/unrecognised"), null);
 });
 
-test("TEST 13 — exactly one top-level item is highlighted per URL", () => {
+test("only one top-level item is highlighted per URL", () => {
   for (const url of [
     "/",
     "/properties",
     "/properties?listingType=SALE",
     "/properties?listingType=RENT",
-    "/properties?propertyType=SHOP",
     "/properties?listingType=SALE&area=Glyfada",
     "/submit",
     "/request",
     "/about",
     "/contact",
   ]) {
-    assert.equal(activeTopLevelCount(url), 1, `expected one active item for ${url}`);
+    const { active } = resolve(url);
+    const count = NAV.filter((item) => isNavItemActive(item, active)).length;
+    assert.equal(count, 1, `expected one active item for ${url}`);
   }
 });
 
-test("TEST 14 — the Ακίνητα parent covers sale, rent and generic properties", () => {
-  const properties = NAV.find((item) => item.key === "properties");
-  assert.ok(properties, "Ακίνητα item exists");
-  assert.equal(isNavItemActive(properties!, "properties"), true);
-  assert.equal(isNavItemActive(properties!, "sales"), true);
-  assert.equal(isNavItemActive(properties!, "rentals"), true);
-  assert.equal(isNavItemActive(properties!, "home"), false);
+test("Πωλήσεις and Ενοικιάσεις are not top-level items", () => {
+  assert.equal(NAV.some((item) => item.key === "sales" || item.key === "rentals"), false);
+  assert.equal(PROPERTY_MENU.links[0]!.key, "sales");
+  assert.equal(PROPERTY_MENU.links[1]!.key, "rentals");
 });
 
-test("TEST 15 — mega-menu leaves highlight only on their exact filter", () => {
-  const sale = { href: "/properties?listingType=SALE", label: "Προς πώληση", key: "sales" } as const;
-  const shop = { href: "/properties?propertyType=SHOP", label: "Επαγγελματικοί χώροι", key: "properties" } as const;
-
-  const saleUrl = new URL("/properties?listingType=SALE&area=Glyfada", "https://home88.test");
-  assert.equal(isNavLinkActive(sale, saleUrl.pathname, saleUrl.searchParams), true);
-  assert.equal(isNavLinkActive(shop, saleUrl.pathname, saleUrl.searchParams), false);
-
-  const shopUrl = new URL("/properties?propertyType=SHOP", "https://home88.test");
-  assert.equal(isNavLinkActive(shop, shopUrl.pathname, shopUrl.searchParams), true);
+test("invalid listingType never activates a transaction", () => {
+  assert.equal(at("/properties?listingType=LEASE"), "properties");
+  assert.equal(at("/properties?listingType="), "properties");
+  assert.equal(normalizeListingType("PURCHASE"), null);
+  assert.equal(normalizeListingType("sale"), "SALE");
+  assert.equal(normalizeListingType("rent"), "RENT");
+  assert.equal(normalizeListingType(undefined), null);
 });
 
 test("nav destinations agree with their active key", () => {

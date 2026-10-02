@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { COMPANY, CRM_BASE_PATH, CRM_URL } from "@/lib/config";
+import { COMPANY, CRM_LOGIN_URL } from "@/lib/config";
 
 export function SiteFooter() {
   const year = new Date().getFullYear();
-  // Hidden entirely when no CRM origin is configured (see lib/config.ts): a
-  // production site must never send staff to a localhost placeholder.
-  const staffUrl = CRM_URL ? `${CRM_URL}${CRM_BASE_PATH}/login` : "";
+  // Staff-only door to the internal CRM. Hidden entirely when no CRM origin is
+  // configured (see lib/config.ts): production fails closed rather than sending
+  // staff to a localhost placeholder.
+  const staffUrl = CRM_LOGIN_URL;
 
   return (
     <footer className="site-footer">
@@ -77,6 +78,23 @@ export function SiteFooter() {
             <li><Link href="/unsubscribe">Διαγραφή από ενημερώσεις</Link></li>
           </ul>
         </div>
+
+        <div>
+          <h3>Συνεργάτες</h3>
+          <ul>
+            {/*
+              Staff/business access only — never a customer account. The footer
+              link reaches the CRM login page; authorisation stays server-side.
+            */}
+            {staffUrl ? (
+              <li>
+                <a href={staffUrl} rel="nofollow">
+                  Σύνδεση Συνεργατών
+                </a>
+              </li>
+            ) : null}
+          </ul>
+        </div>
       </div>
 
       <div className="wrap legal-note">
@@ -87,14 +105,6 @@ export function SiteFooter() {
           <span>
             Απόρρητο: <a href={`mailto:${COMPANY.privacyEmail}`}>{COMPANY.privacyEmail}</a>
           </span>
-        </div>
-        <div style={{ marginTop: 12 }}>
-          {/* Staff-only door to the internal CRM. Not in the main nav. */}
-          {staffUrl ? (
-            <a className="btn btn--onhero btn--sm" href={staffUrl} rel="nofollow">
-              Σύνδεση συνεργατών
-            </a>
-          ) : null}
         </div>
       </div>
     </footer>

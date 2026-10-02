@@ -40,6 +40,19 @@ export const CRM_URL = (() => {
 })();
 export const CRM_BASE_PATH = optional("NEXT_PUBLIC_CRM_BASE_PATH", "/crm").replace(/\/+$/, "");
 
+/**
+ * Builds the staff sign-in URL from the CRM origin and base path. Kept pure so
+ * the footer link and its tests share one source of truth; an empty origin (a
+ * production deployment with no CRM configured) deliberately yields no link.
+ */
+export function crmLoginUrl(origin: string, basePath: string): string {
+  if (!origin) return "";
+  return `${origin.replace(/\/+$/, "")}${basePath.replace(/\/+$/, "")}/login`;
+}
+
+/** The one staff sign-in URL used by the footer; empty when unconfigured. */
+export const CRM_LOGIN_URL = crmLoginUrl(CRM_URL, CRM_BASE_PATH);
+
 export const COMPANY = {
   /** Shown in the privacy notice and the footer of every commercial email. */
   legalName: optional("COMPANY_LEGAL_NAME", "HOME88"),
