@@ -6,6 +6,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime, personName } from "@/lib/format";
 import { hasRole, requireRole } from "@/lib/session";
+import { CRM_BASE_PATH } from "@/lib/paths";
 
 type UserRow = {
   id: string;
@@ -66,7 +67,7 @@ export default async function UsersPage({
         )}
       </div>
 
-      <form className="filters" method="get" action="/users">
+      <form className="filters" method="get" action={`${CRM_BASE_PATH}/users`}>
         <div className="field">
           <label htmlFor="q">Search</label>
           <input id="q" name="q" className="input" defaultValue={q} placeholder="Name, email, phone" />

@@ -5,6 +5,7 @@ import { Pagination } from "@/components/Pagination";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime, personName } from "@/lib/format";
 import { requireRole } from "@/lib/session";
+import { CRM_BASE_PATH } from "@/lib/paths";
 
 type ContactRow = {
   id: string;
@@ -57,7 +58,7 @@ export default async function ContactsPage({
     <>
       <h1>Contacts</h1>
 
-      <form className="filters" method="get" action="/contacts">
+      <form className="filters" method="get" action={`${CRM_BASE_PATH}/contacts`}>
         <div className="field">
           <label htmlFor="q">Search</label>
           <input id="q" name="q" className="input" defaultValue={q} placeholder="Name, company, reference" />

@@ -34,8 +34,8 @@ export function ForgotPasswordForm() {
         {state.fields?.email?.[0] && <span className="error">{state.fields.email[0]}</span>}
       </div>
 
-      <button type="submit" className="btn btn--primary" style={{ width: "100%" }} disabled={pending}>
-        {pending ? "Αποστολή..." : "ΑΠΟΣΤΟΛΗ ΟΔΗΓΙΩΝ"}
+      <button type="submit" className="btn btn--primary btn--block btn--lg" disabled={pending}>
+        {pending ? "Αποστολή…" : "Αποστολή συνδέσμου"}
       </button>
     </form>
   );

@@ -597,6 +597,7 @@ model Property {
   @@index([agentId])
   @@index([ownerId])
   @@index([createdAt])
+  @@index([updatedAt])
   @@map("properties")
 }
 
@@ -614,6 +615,7 @@ model PropertyStatusHistory {
   createdAt  DateTime        @default(now())
 
   @@index([propertyId, createdAt])
+  @@index([toStatus, createdAt])
   @@map("property_status_history")
 }
 
@@ -670,6 +672,7 @@ model PropertyMedia {
 
   @@index([propertyId, kind, sortOrder])
   @@index([propertyId, isPrimary])
+  @@index([status])
   @@map("property_media")
 }
 
@@ -740,6 +743,7 @@ model Lead {
   @@index([propertyId])
   @@index([createdAt])
   @@index([nextActionAt])
+  @@index([assignedToId, createdAt])
   @@map("leads")
 }
 
@@ -798,6 +802,8 @@ model Viewing {
   @@index([propertyId, startsAt])
   @@index([agentId, startsAt])
   @@index([status])
+  @@index([status, startsAt])
+  @@index([startsAt])
   @@map("viewings")
 }
 
@@ -832,6 +838,8 @@ model Offer {
   @@index([propertyId])
   @@index([status])
   @@index([leadId])
+  @@index([createdAt])
+  @@index([agentId, createdAt])
   @@map("offers")
 }
 
@@ -961,6 +969,7 @@ model PortalListing {
   @@unique([portalId, propertyId])
   @@index([portalId, state])
   @@index([propertyId])
+  @@index([state])
   @@map("portal_listings")
 }
 

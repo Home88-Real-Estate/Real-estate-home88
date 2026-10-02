@@ -5,7 +5,7 @@
  * posting to the API directly.
  */
 
-import { PROPERTY_STATUSES } from "@home88/domain";
+import { LEAD_CHANNELS, PROPERTY_CATEGORIES, PROPERTY_STATUSES } from "@home88/domain";
 import { z } from "zod";
 import { ageGateSchema } from "./age-gate";
 
@@ -399,6 +399,12 @@ export const propertySearchSchema = z.object({
   listingType: listingTypeSchema.optional(),
   propertyType: propertyTypeSchema.optional(),
   status: propertyStatusSchema.optional(),
+  /** Residential / commercial / land / other (see @home88/domain catalog). */
+  category: z.enum(PROPERTY_CATEGORIES).optional(),
+  /** CURRENT = everything but archived; PUBLIC = on the market. */
+  statusGroup: z.enum(["CURRENT", "PUBLIC"]).optional(),
+  /** Only the signed-in user's properties (assigned or created). */
+  mine: z.enum(["1", "true"]).optional(),
 
   city: optionalText(120),
   areaName: optionalText(120),
@@ -535,6 +541,9 @@ export const mediaReorderSchema = z
   .strict();
 
 export type MediaReorderInput = z.infer<typeof mediaReorderSchema>;
+
+/** Lead list filter by channel (website / portal / direct). */
+export const leadChannelSchema = z.enum(LEAD_CHANNELS);
 
 /** Ask for a signed URL to upload one file straight to object storage. */
 export const mediaUploadRequestSchema = z.object({
