@@ -1,4 +1,5 @@
 import { combineHashes, propertyContentHash } from "../hash";
+import { feedStatus } from "../eligibility";
 import { mediaOfKind } from "../media";
 import type {
   AdapterPayload,
@@ -89,7 +90,7 @@ function build(property: PortalProperty, context: BuildContext): AdapterPayload 
     element("slug", property.slug),
     element("transaction", transactionLabel(property)),
     element("type", property.propertyType.toLowerCase()),
-    element("status", property.status.toLowerCase()),
+    element("status", feedStatus(property.status)),
     element("condition", property.condition.toLowerCase()),
     element("title", property.titleEl, { language: "el" }),
     element("title", property.titleEn ?? "", { language: "en" }),

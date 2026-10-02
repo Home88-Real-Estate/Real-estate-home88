@@ -54,6 +54,9 @@ enum ListingType {
 enum PropertyStatus {
   DRAFT
   ACTIVE
+  /// An offer is being negotiated; still marketed. Transitions are checked by
+  /// @home88/domain (property-lifecycle.ts), never set directly by a client.
+  UNDER_OFFER
   RESERVED
   SOLD
   RENTED
@@ -314,7 +317,15 @@ model ReferenceCounter {
 model User {
   id           String     @id @default(cuid())
   email        String     @unique
-  passwordHash String
+  /// scrypt hash of the user's password. Null until the person sets one
+  /// through the reset/invitation flow (e.g. the bootstrapped first admin):
+  /// a null hash never authenticates.
+  passwordHash String?
+  /// The user's id in an external identity provider (the Supabase Auth
+  /// `auth.users.id` of the same person), when one exists. Recorded so the
+  /// same identity can never be mapped to two staff records. CRM sign-in does
+  /// not use it: credentials are this table's own.
+  authUid      String?    @unique @db.Uuid
   firstName    String
   lastName     String
   phone        String?
@@ -353,6 +364,8 @@ model User {
 
   sessions           Session[]
   passwordResetTokens PasswordResetToken[]
+  propertyStatusChanges PropertyStatusHistory[]
+  propertyPriceChanges  PropertyPriceHistory[]
   invitationsSent    Invitation[]         @relation("InvitationInviter")
 
   @@index([role])
@@ -556,6 +569,8 @@ model Property {
   notes        Note[]
   dmcaNotices  DmcaNotice[]
   tasks        Task[]
+  statusHistory PropertyStatusHistory[]
+  priceHistory  PropertyPriceHistory[]
 
   /// Commission is stored as a rate, not a hard-coded percentage.
   commissionRatePct Decimal? @db.Decimal(5, 2)
@@ -581,6 +596,41 @@ model Property {
   @@index([ownerId])
   @@index([createdAt])
   @@map("properties")
+}
+
+/// Every status transition, written in the same transaction as the change.
+/// `fromStatus` is null only for a property's creation.
+model PropertyStatusHistory {
+  id         String          @id @default(cuid())
+  propertyId String
+  property   Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  fromStatus PropertyStatus?
+  toStatus   PropertyStatus
+  reason     String?
+  actorId    String?
+  actor      User?           @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  createdAt  DateTime        @default(now())
+
+  @@index([propertyId, createdAt])
+  @@map("property_status_history")
+}
+
+/// Asking price / monthly rent changes. Prices are never overwritten without
+/// a row here, so reductions and time-at-price can be reported.
+model PropertyPriceHistory {
+  id              String   @id @default(cuid())
+  propertyId      String
+  property        Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  fromPrice       Decimal? @db.Decimal(14, 2)
+  toPrice         Decimal? @db.Decimal(14, 2)
+  fromMonthlyRent Decimal? @db.Decimal(14, 2)
+  toMonthlyRent   Decimal? @db.Decimal(14, 2)
+  actorId         String?
+  actor           User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+
+  @@index([propertyId, createdAt])
+  @@map("property_price_history")
 }
 
 model PropertyMedia {

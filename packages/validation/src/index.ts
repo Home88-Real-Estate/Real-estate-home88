@@ -5,6 +5,7 @@
  * posting to the API directly.
  */
 
+import { PROPERTY_STATUSES } from "@home88/domain";
 import { z } from "zod";
 import { ageGateSchema } from "./age-gate";
 
@@ -58,9 +59,8 @@ export const propertyTypeSchema = z.enum([
   "APARTMENT", "MAISONETTE", "HOUSE", "VILLA", "STUDIO", "OFFICE", "SHOP",
   "WAREHOUSE", "BUILDING", "HOTEL", "LAND", "PLOT", "PARKING", "INDUSTRIAL", "OTHER",
 ]);
-export const propertyStatusSchema = z.enum([
-  "DRAFT", "ACTIVE", "RESERVED", "SOLD", "RENTED", "INACTIVE", "ARCHIVED",
-]);
+/** The status list is owned by the lifecycle in @home88/domain. */
+export const propertyStatusSchema = z.enum(PROPERTY_STATUSES);
 
 /** Money as a string or number, normalised. Guards against NaN reaching SQL. */
 const moneySchema = z
@@ -387,6 +387,13 @@ export type PropertyUpsertInput = z.infer<typeof propertyUpsertSchema>;
  */
 export const propertyUpdateSchema = propertyUpsertBaseSchema.partial();
 export type PropertyUpdateInput = z.infer<typeof propertyUpdateSchema>;
+
+/** A requested status transition; whether it is allowed is decided by the API. */
+export const propertyStatusChangeSchema = z.object({
+  status: propertyStatusSchema,
+  reason: optionalText(500),
+});
+export type PropertyStatusChangeInput = z.infer<typeof propertyStatusChangeSchema>;
 
 export const propertySearchSchema = z.object({
   listingType: listingTypeSchema.optional(),

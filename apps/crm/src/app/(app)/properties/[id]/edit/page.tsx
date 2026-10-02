@@ -16,13 +16,23 @@ export default async function EditPropertyPage({
   await requireRole("AGENT");
   const { id } = await params;
 
-  const result = await apiFetch<{ property: PropertyDetail }>(`/api/properties/${id}`);
+  const result = await apiFetch<{ property: PropertyDetail; canEdit: boolean }>(
+    `/api/properties/${id}`,
+  );
   if (!result.ok) {
     if (result.status === 404) notFound();
     return <div className="notice notice--danger">{result.error.message}</div>;
   }
 
   const property = result.data.property;
+  if (!result.data.canEdit) {
+    return (
+      <div className="notice notice--danger">
+        Μόνο ο ανατεθειμένος σύμβουλος, ο δημιουργός ή ένας manager μπορεί να επεξεργαστεί αυτό το
+        ακίνητο. <Link href={`/properties/${id}`}>Επιστροφή</Link>
+      </div>
+    );
+  }
 
   return (
     <>

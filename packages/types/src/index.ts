@@ -58,10 +58,11 @@ export const PROPERTY_TYPE_LABELS: Record<string, Localised> = {
 export const PROPERTY_STATUS_LABELS: Record<string, Localised> = {
   DRAFT: { el: "Πρόχειρο", en: "Draft" },
   ACTIVE: { el: "Ενεργό", en: "Active" },
+  UNDER_OFFER: { el: "Υπό προσφορά", en: "Under offer" },
   RESERVED: { el: "Κρατημένο", en: "Reserved" },
   SOLD: { el: "Πωλήθηκε", en: "Sold" },
   RENTED: { el: "Νοικιάστηκε", en: "Rented" },
-  INACTIVE: { el: "Ανενεργό", en: "Inactive" },
+  INACTIVE: { el: "Αποσυρμένο", en: "Withdrawn" },
   ARCHIVED: { el: "Αρχειοθετημένο", en: "Archived" },
 };
 

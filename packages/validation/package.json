@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@home88/domain": "*",
     "zod": "^3.23.8"
   },
   "devDependencies": {

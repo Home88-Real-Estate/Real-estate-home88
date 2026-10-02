@@ -41,3 +41,18 @@ export function verifyPassword(password: string, stored: string): boolean {
   const derived = scryptSync(password, salt, KEYLEN, { N: n, r: 8, p: 1, maxmem: MAXMEM });
   return derived.length === expected.length && timingSafeEqual(derived, expected);
 }
+
+/**
+ * Checks a sign-in attempt against a stored hash that may be absent (an
+ * account whose owner has not set a password yet). scrypt still runs against
+ * `timingHash` in that case, so a passwordless account answers in the same
+ * time as a wrong password, and it never authenticates.
+ */
+export function verifyStoredPassword(
+  password: string,
+  stored: string | null | undefined,
+  timingHash: string,
+): boolean {
+  const ok = verifyPassword(password, stored ?? timingHash);
+  return Boolean(stored) && ok;
+}

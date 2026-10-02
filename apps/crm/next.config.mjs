@@ -71,7 +71,7 @@ const nextConfig = {
    */
   basePath: process.env.NEXT_PUBLIC_CRM_BASE_PATH || "/crm",
 
-  transpilePackages: ["@home88/types", "@home88/ui"],
+  transpilePackages: ["@home88/domain", "@home88/types", "@home88/ui"],
 
   outputFileTracingRoot: monorepoRoot,
 

@@ -21,6 +21,7 @@ function classFor(kind: Kind, value: string): string {
   if (kind === "property") {
     switch (value) {
       case "ACTIVE":
+      case "UNDER_OFFER":
       case "RESERVED":
         return "badge--ok";
       case "SOLD":

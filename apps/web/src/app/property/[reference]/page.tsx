@@ -84,7 +84,9 @@ export default async function PropertyDetailPage({ params }: Props) {
             price: property.price,
             priceCurrency: "EUR",
             availability:
-              property.status === "ACTIVE" || property.status === "RESERVED"
+              property.status === "ACTIVE" ||
+              property.status === "UNDER_OFFER" ||
+              property.status === "RESERVED"
                 ? "https://schema.org/InStock"
                 : "https://schema.org/OutOfStock",
           },
@@ -198,6 +200,7 @@ export default async function PropertyDetailPage({ params }: Props) {
             <div className="row" style={{ justifyContent: "space-between" }}>
               <span className="pill">{property.reference}</span>
               <span className="pill">{label(LISTING_TYPE_LABELS, property.listingType, "el")}</span>
+              {property.status === "UNDER_OFFER" && <span className="pill">Υπό προσφορά</span>}
               {property.status === "RESERVED" && <span className="pill">Κρατημένο</span>}
             </div>
 

@@ -7,6 +7,7 @@
  * "not enough data" message instead of a made-up number.
  */
 
+import { PUBLIC_PROPERTY_STATUSES } from "@home88/domain";
 import type { Prisma } from "@home88/database";
 import {
   estimateValuation,
@@ -18,8 +19,8 @@ import {
 
 import { safeQuery } from "./db";
 
-/** Mirrors the public listing policy: only live listings are comparable. */
-const PUBLIC_STATUSES = ["ACTIVE", "RESERVED"] as const;
+/** Only these statuses are ever visible on the public site (owned by @home88/domain). */
+const PUBLIC_STATUSES = PUBLIC_PROPERTY_STATUSES;
 
 function num(v: unknown): number | null {
   if (v == null) return null;

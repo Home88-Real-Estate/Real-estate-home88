@@ -1,18 +1,83 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Prisma } from "@home88/database";
 import {
+  availableTransitions,
+  can,
+  checkTransition,
+  PERMISSIONS,
+  type Actor,
+  type PropertyStatus,
+} from "@home88/domain";
+import {
   propertySearchSchema,
+  propertyStatusChangeSchema,
   propertyUpdateSchema,
   propertyUpsertSchema,
   type PropertySearchInput,
   type PropertyUpsertInput,
 } from "@home88/validation";
 import { writeAudit, diffFields } from "../lib/audit";
-import { notFound } from "../lib/errors";
+import { badRequest, conflict, forbidden, notFound } from "../lib/errors";
 import { clientIp, parseInput, userAgent } from "../lib/http";
+import { priceChange } from "../lib/price-history";
 import { db } from "../lib/prisma";
 import { allocateReference, slugify } from "../lib/references";
 import { requireRole } from "../plugins/auth";
+
+/** A new property starts as a draft, or goes straight to the market. */
+const CREATABLE_STATUSES: readonly string[] = ["DRAFT", "ACTIVE"];
+
+/**
+ * Moves a property to `to` if the lifecycle and the actor's permissions allow
+ * it, recording the status history row and the audit entry in the same
+ * transaction. Re-reads the row inside the transaction, so two people acting
+ * at once cannot both move it from the same starting status.
+ */
+async function transitionStatus(
+  request: FastifyRequest,
+  actor: Actor,
+  id: string,
+  to: PropertyStatus,
+  reason: string | null,
+) {
+  return db().$transaction(
+    async (tx) => {
+      const existing = await tx.property.findUnique({
+        where: { id },
+        select: { id: true, status: true, listingType: true, agentId: true, createdById: true },
+      });
+      if (!existing) throw notFound("Property not found.");
+
+      const check = checkTransition(actor, existing, to);
+      if (!check.ok) {
+        throw check.code === "FORBIDDEN" ? forbidden(check.message) : conflict(check.message);
+      }
+
+      const updated = await tx.property.update({
+        where: { id },
+        // An archived listing is taken off the website as well.
+        data: { status: to, ...(to === "ARCHIVED" ? { publishedOnWebsite: false } : {}) },
+      });
+      await tx.propertyStatusHistory.create({
+        data: { propertyId: id, fromStatus: existing.status, toStatus: to, reason, actorId: actor.id },
+      });
+      await writeAudit(
+        {
+          entity: "PROPERTY",
+          entityId: id,
+          action: to === "ARCHIVED" ? "archive" : "status_change",
+          actorId: actor.id,
+          ipAddress: clientIp(request),
+          userAgent: userAgent(request),
+          changes: { status: { from: existing.status, to }, ...(reason ? { reason } : {}) },
+        },
+        tx,
+      );
+      return updated;
+    },
+    { isolationLevel: "Serializable" },
+  );
+}
 
 function num(v: unknown): number | null {
   if (v === null || v === undefined) return null;
@@ -259,12 +324,69 @@ export async function propertyRoutes(app: FastifyInstance): Promise<void> {
       },
     });
     if (!property) throw notFound("Property not found.");
+    const actor = request.auth!.user;
+    return {
+      property,
+      // Hints for the UI only; the status endpoint re-checks every request.
+      allowedTransitions: availableTransitions(actor, property),
+      canEdit: can(actor, PERMISSIONS.PROPERTY_UPDATE, property),
+    };
+  });
+
+  app.get("/properties/:id/history", { preHandler: requireRole("AGENT") }, async (request) => {
+    const { id } = request.params as { id: string };
+    const exists = await db().property.findUnique({ where: { id }, select: { id: true } });
+    if (!exists) throw notFound("Property not found.");
+
+    const actorSelect = { select: { id: true, firstName: true, lastName: true } } as const;
+    const [statuses, prices] = await Promise.all([
+      db().propertyStatusHistory.findMany({
+        where: { propertyId: id },
+        orderBy: { createdAt: "desc" },
+        take: 200,
+        select: {
+          id: true,
+          fromStatus: true,
+          toStatus: true,
+          reason: true,
+          createdAt: true,
+          actor: actorSelect,
+        },
+      }),
+      db().propertyPriceHistory.findMany({
+        where: { propertyId: id },
+        orderBy: { createdAt: "desc" },
+        take: 200,
+        select: {
+          id: true,
+          fromPrice: true,
+          toPrice: true,
+          fromMonthlyRent: true,
+          toMonthlyRent: true,
+          createdAt: true,
+          actor: actorSelect,
+        },
+      }),
+    ]);
+    return { statuses, prices };
+  });
+
+  app.post("/properties/:id/status", { preHandler: requireRole("AGENT") }, async (request) => {
+    const actor = request.auth!.user;
+    const { id } = request.params as { id: string };
+    const body = parseInput(propertyStatusChangeSchema, request.body);
+    const property = await transitionStatus(request, actor, id, body.status, body.reason || null);
     return { property };
   });
 
   app.post("/properties", { preHandler: requireRole("AGENT") }, async (request, reply) => {
     const actor = request.auth!.user;
     const input = parseInput(propertyUpsertSchema, request.body);
+    if (!CREATABLE_STATUSES.includes(input.status)) {
+      throw badRequest("A new property starts as DRAFT or ACTIVE.", {
+        status: ["Ένα νέο ακίνητο ξεκινά ως Πρόχειρο ή Ενεργό."],
+      });
+    }
 
     const property = await db().$transaction(
       async (tx) => {
@@ -293,6 +415,19 @@ export async function propertyRoutes(app: FastifyInstance): Promise<void> {
           },
           tx,
         );
+        await tx.propertyStatusHistory.create({
+          data: { propertyId: created.id, fromStatus: null, toStatus: input.status, actorId: actor.id },
+        });
+        if (input.price != null || input.monthlyRent != null) {
+          await tx.propertyPriceHistory.create({
+            data: {
+              propertyId: created.id,
+              toPrice: input.price ?? null,
+              toMonthlyRent: input.monthlyRent ?? null,
+              actorId: actor.id,
+            },
+          });
+        }
         return created;
       },
       { isolationLevel: "Serializable" },
@@ -308,12 +443,21 @@ export async function propertyRoutes(app: FastifyInstance): Promise<void> {
 
     const existing = await db().property.findUnique({ where: { id } });
     if (!existing) throw notFound("Property not found.");
+    if (!can(actor, PERMISSIONS.PROPERTY_UPDATE, existing)) {
+      throw forbidden("Only the assigned agent, the creator or a manager can edit this property.");
+    }
 
     const patch = parseInput(propertyUpdateSchema, request.body) as Record<string, unknown>;
     const before = toComparable(existing as unknown as Record<string, unknown>);
     const merged = { ...before, ...withoutUndefined(patch) };
     const input = parseInput(propertyUpsertSchema, merged);
     const after = toComparable(input as unknown as Record<string, unknown>);
+    if (input.status !== existing.status) {
+      throw badRequest("Status is changed through POST /properties/:id/status.", {
+        status: ["Η κατάσταση αλλάζει από τις ενέργειες κατάστασης του ακινήτου."],
+      });
+    }
+    const priced = priceChange(existing, input);
 
     const now = new Date();
     const property = await db().$transaction(
@@ -340,6 +484,11 @@ export async function propertyRoutes(app: FastifyInstance): Promise<void> {
           },
           tx,
         );
+        if (priced) {
+          await tx.propertyPriceHistory.create({
+            data: { propertyId: id, ...priced, actorId: actor.id },
+          });
+        }
         return updated;
       },
       { isolationLevel: "Serializable" },
@@ -348,34 +497,11 @@ export async function propertyRoutes(app: FastifyInstance): Promise<void> {
     return { property };
   });
 
+  // Archive rather than delete: leads, offers and viewings reference the row.
   app.delete("/properties/:id", { preHandler: requireRole("ADMIN") }, async (request) => {
     const actor = request.auth!.user;
     const { id } = request.params as { id: string };
-
-    const existing = await db().property.findUnique({ where: { id } });
-    if (!existing) throw notFound("Property not found.");
-
-    // Archive rather than delete: leads, offers and viewings reference the row.
-    const property = await db().$transaction(async (tx) => {
-      const updated = await tx.property.update({
-        where: { id },
-        data: { status: "ARCHIVED", publishedOnWebsite: false },
-      });
-      await writeAudit(
-        {
-          entity: "PROPERTY",
-          entityId: id,
-          action: "archive",
-          actorId: actor.id,
-          ipAddress: clientIp(request),
-          userAgent: userAgent(request),
-          changes: { status: { from: existing.status, to: "ARCHIVED" } },
-        },
-        tx,
-      );
-      return updated;
-    });
-
+    const property = await transitionStatus(request, actor, id, "ARCHIVED", null);
     return { property };
   });
 }

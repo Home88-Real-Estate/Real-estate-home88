@@ -26,10 +26,11 @@ const STATUS_OPTIONS = [
   ["", "All statuses"],
   ["DRAFT", "Draft"],
   ["ACTIVE", "Active"],
+  ["UNDER_OFFER", "Under offer"],
   ["RESERVED", "Reserved"],
   ["SOLD", "Sold"],
   ["RENTED", "Rented"],
-  ["INACTIVE", "Inactive"],
+  ["INACTIVE", "Withdrawn"],
   ["ARCHIVED", "Archived"],
 ] as const;
 

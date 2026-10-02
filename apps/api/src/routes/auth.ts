@@ -4,7 +4,7 @@ import { loadConfig } from "../config";
 import { writeAudit } from "../lib/audit";
 import { forbidden, tooManyRequests, unauthorized } from "../lib/errors";
 import { clientIp, parseInput, userAgent } from "../lib/http";
-import { hashPassword, verifyPassword } from "../lib/passwords";
+import { hashPassword, verifyStoredPassword } from "../lib/passwords";
 import { db } from "../lib/prisma";
 import { consume } from "../lib/rate-limit";
 import { createSession, revokeSessionToken, SESSION_COOKIE_NAME } from "../lib/sessions";
@@ -57,9 +57,12 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       : undefined);
 
     const user = await db().user.findUnique({ where: { email: body.email } });
-    const ok = verifyPassword(
+    // A missing user and a user with no password yet both fail in the same
+    // time as a wrong password; neither can ever authenticate.
+    const ok = verifyStoredPassword(
       body.password,
-      user?.passwordHash ?? getDummyHash(cfg.PASSWORD_HASH_ROUNDS),
+      user?.passwordHash,
+      getDummyHash(cfg.PASSWORD_HASH_ROUNDS),
     );
     if (!user || !ok) throw unauthorized("Incorrect email or password.");
     if (user.status !== "ACTIVE") throw forbidden("This account is not active.");

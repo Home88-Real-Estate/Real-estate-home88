@@ -1,4 +1,5 @@
 import { combineHashes, propertyContentHash } from "../hash";
+import { feedStatus } from "../eligibility";
 import { mediaOfKind } from "../media";
 import type {
   AdapterPayload,
@@ -76,7 +77,7 @@ function rowRecord(property: PortalProperty, context: BuildContext): Record<XeGr
     reference: property.reference,
     transaction: property.listingType.toLowerCase(),
     category: property.propertyType.toLowerCase(),
-    status: property.status.toLowerCase(),
+    status: feedStatus(property.status),
     condition: property.condition.toLowerCase(),
     title_el: property.titleEl,
     title_en: property.titleEn ?? "",

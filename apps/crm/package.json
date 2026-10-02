@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@home88/domain": "*",
     "@home88/types": "*",
     "@home88/ui": "*",
     "next": "^15.1.6",

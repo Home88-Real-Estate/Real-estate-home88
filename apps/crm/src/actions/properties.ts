@@ -33,12 +33,27 @@ export async function saveProperty(
   redirect(`/properties/${savedId}`);
 }
 
-/** Archive (soft delete). The API route requires ADMIN. */
-export async function archiveProperty(formData: FormData): Promise<void> {
+/**
+ * Ask the API to move a property to another status. The API decides whether
+ * the move is allowed (lifecycle + permissions) and records the history.
+ */
+export async function changePropertyStatus(
+  _previous: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
   const id = str(formData, "id");
-  if (id) {
-    await apiFetch(`/api/properties/${id}`, { method: "DELETE" });
+  const status = str(formData, "status");
+  if (!id || !status) return { ok: false, message: "Λείπει το ακίνητο ή η κατάσταση." };
+
+  const result = await apiFetch<SavedProperty>(`/api/properties/${id}/status`, {
+    method: "POST",
+    json: { status, reason: str(formData, "reason") },
+  });
+  if (!result.ok) {
+    return { ok: false, message: result.error.message, fields: result.error.fields };
   }
+
   revalidatePath("/properties");
-  redirect("/properties");
+  revalidatePath(`/properties/${id}`);
+  return { ok: true, message: "Η κατάσταση ενημερώθηκε." };
 }
