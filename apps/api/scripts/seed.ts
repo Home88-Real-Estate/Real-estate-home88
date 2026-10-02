@@ -243,6 +243,21 @@ async function main(): Promise<void> {
     else skipped += 1;
   };
 
+  // Demo data (and its demo SUPER_ADMIN) must never reach a real database.
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Refusing to seed demo data with NODE_ENV=production.");
+  }
+  const realAdmin = await prisma.user.findFirst({
+    where: { role: "SUPER_ADMIN", email: { not: ADMIN_EMAIL } },
+    select: { id: true },
+  });
+  if (realAdmin) {
+    throw new Error(
+      "Refusing to seed: this database already has a non-demo SUPER_ADMIN, so it is " +
+        "not a development database. Demo data is for local/dev databases only.",
+    );
+  }
+
   console.log(`Seeding HOME88 into ${new URL(DATABASE_URL!).host} ...`);
 
   const admin = await upsertUser({

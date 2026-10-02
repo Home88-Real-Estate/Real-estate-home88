@@ -88,7 +88,9 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     const user = await db().user.findUnique({ where: { id: actor.id } });
     if (!user) throw unauthorized();
 
-    if (!verifyPassword(body.currentPassword, user.passwordHash)) {
+    // No password set yet: there is nothing to confirm, so this route cannot
+    // be used; the reset link is how a first password is chosen.
+    if (!user.passwordHash || !verifyPassword(body.currentPassword, user.passwordHash)) {
       throw badRequest("Ο τρέχων κωδικός δεν είναι σωστός.", {
         currentPassword: ["Ο τρέχων κωδικός δεν είναι σωστός."],
       });

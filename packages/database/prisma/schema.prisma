@@ -314,7 +314,15 @@ model ReferenceCounter {
 model User {
   id           String     @id @default(cuid())
   email        String     @unique
-  passwordHash String
+  /// scrypt hash of the user's password. Null until the person sets one
+  /// through the reset/invitation flow (e.g. the bootstrapped first admin):
+  /// a null hash never authenticates.
+  passwordHash String?
+  /// The user's id in an external identity provider (the Supabase Auth
+  /// `auth.users.id` of the same person), when one exists. Recorded so the
+  /// same identity can never be mapped to two staff records. CRM sign-in does
+  /// not use it: credentials are this table's own.
+  authUid      String?    @unique @db.Uuid
   firstName    String
   lastName     String
   phone        String?
