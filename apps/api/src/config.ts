@@ -111,6 +111,29 @@ export type ApiConfig = z.infer<typeof schema>;
 
 let cached: ApiConfig | null = null;
 
+export type ConfigProblem = { variable: string; problem: "missing" | "too_short" | "invalid" };
+
+/**
+ * What keeps the API from starting, by variable name only: never a value, so
+ * the result is safe to log and to show on a readiness check.
+ */
+export function configProblems(env: NodeJS.ProcessEnv = process.env): ConfigProblem[] {
+  const problems: ConfigProblem[] = [];
+  const parsed = schema.safeParse(env);
+  if (!parsed.success) {
+    for (const issue of parsed.error.issues) {
+      const variable = issue.path.join(".") || "(root)";
+      const missing = env[variable] === undefined || env[variable] === "";
+      problems.push({ variable, problem: missing ? "missing" : "invalid" });
+    }
+    return problems;
+  }
+  if (parsed.data.NODE_ENV === "production" && parsed.data.JWT_SECRET.length < 32) {
+    problems.push({ variable: "JWT_SECRET", problem: parsed.data.JWT_SECRET ? "too_short" : "missing" });
+  }
+  return problems;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   if (cached) return cached;
 

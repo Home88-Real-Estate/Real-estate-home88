@@ -13,21 +13,14 @@ import { apiUrl, callApi } from "@/lib/api-transport";
 export async function POST(request: Request): Promise<NextResponse> {
   const body = await request.text();
 
-  let upstream: Response;
-  try {
-    const headers = new Headers({ "content-type": "application/json", accept: "application/json" });
-    // Login is rate-limited per client IP and audited with it.
-    for (const name of ["x-forwarded-for", "user-agent"]) {
-      const value = request.headers.get(name);
-      if (value) headers.set(name, value);
-    }
-    upstream = await callApi(new Request(apiUrl("/api/auth/login"), { method: "POST", headers, body }));
-  } catch {
-    return NextResponse.json(
-      { error: { code: "network_error", message: "Η υπηρεσία δεν είναι διαθέσιμη. Δοκιμάστε ξανά." } },
-      { status: 502 },
-    );
+  const headers = new Headers({ "content-type": "application/json", accept: "application/json" });
+  // Login is rate-limited per client IP and audited with it.
+  for (const name of ["x-forwarded-for", "user-agent"]) {
+    const value = request.headers.get(name);
+    if (value) headers.set(name, value);
   }
+  // callApi never throws; an unreachable API arrives as a logged 503.
+  const upstream = await callApi(new Request(apiUrl("/api/auth/login"), { method: "POST", headers, body }));
 
   const text = await upstream.text();
   const response = new NextResponse(text, {

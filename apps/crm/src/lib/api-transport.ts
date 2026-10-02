@@ -20,8 +20,44 @@ export function apiUrl(pathAndQuery: string): string {
   return `${API_URL || IN_PROCESS_ORIGIN}${pathAndQuery}`;
 }
 
+export const UNAVAILABLE_MESSAGE =
+  "Η υπηρεσία δεν είναι προσωρινά διαθέσιμη. Παρακαλούμε δοκιμάστε ξανά αργότερα.";
+
+/** Error text with anything URL-shaped (e.g. a connection string) removed. */
+export function safeDetail(error: unknown): string {
+  const text = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  return text.replace(/\w+:\/\/[^\s"']+/g, "<url>");
+}
+
+function unavailable(): Response {
+  return Response.json(
+    { error: { code: "api_unavailable", message: UNAVAILABLE_MESSAGE } },
+    { status: 503, headers: { "retry-after": "30" } },
+  );
+}
+
+/**
+ * Sends one request to the API. Never throws: when the API cannot be reached
+ * the reason is logged (without secrets) and the caller gets a controlled 503.
+ */
 export async function callApi(request: Request): Promise<Response> {
-  if (API_URL) return fetch(request, { cache: "no-store" });
-  const { handleApiRequest } = await import("@home88/api/handler");
-  return handleApiRequest(request);
+  if (API_URL) {
+    try {
+      return await fetch(request, { cache: "no-store" });
+    } catch (error) {
+      console.error(
+        "[crm] API_URL is set but the API cannot be reached. In production leave API_URL unset " +
+          "(the API runs inside the CRM).",
+        safeDetail(error),
+      );
+      return unavailable();
+    }
+  }
+  try {
+    const { handleApiRequest } = await import("@home88/api/handler");
+    return await handleApiRequest(request);
+  } catch (error) {
+    console.error("[crm] in-process API failed:", safeDetail(error));
+    return unavailable();
+  }
 }
