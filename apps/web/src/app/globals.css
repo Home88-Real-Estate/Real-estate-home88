@@ -20,7 +20,9 @@
   --home88-blue: #0b5394;
   --home88-blue-dark: #053755;
   --home88-blue-light: #168bbe;
+  --home88-blue-pale: #eef5fa;
   --home88-bg: #f5f8fb;
+  --home88-off-white: #f7f9fb;
   --home88-grey: #f5f5f5;
   --home88-ink: #333333;
   --home88-muted: #777777;
@@ -55,6 +57,19 @@
   --font-display: var(--font-sans);
 
   --wrap: 1280px;
+
+  /* Spacing scale. Sections and gaps reference these instead of ad-hoc
+     pixel values, so vertical rhythm stays consistent across pages. */
+  --space-1: 8px;
+  --space-2: 12px;
+  --space-3: 16px;
+  --space-4: 24px;
+  --space-5: 32px;
+  --space-6: 48px;
+  --space-7: 64px;
+  --space-8: 80px;
+  --space-9: 96px;
+  --space-10: 120px;
 }
 
 *,
@@ -169,13 +184,19 @@ p { margin: 0 0 1em; }
   .topbar__hours { display: inline; }
 }
 
+/* Logo | nav | phone. A three-column grid keeps the menu optically centred
+   between the logo and the phone block instead of leaving it pushed to the
+   left with a wide empty white area on the right. */
 .header-main {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  padding-block: 16px;
+  gap: 14px;
+  padding-block: 12px;
 }
+.brand { justify-self: start; }
+.header-main > .nav { justify-self: center; }
+.header-actions { justify-self: end; }
 .brand {
   display: inline-flex;
   align-items: baseline;
@@ -489,65 +510,116 @@ p { margin: 0 0 1em; }
 .center { text-align: center; }
 
 /* --- hero ------------------------------------------------------------------ */
+/* The hero photograph is the only decorative image: it carries the atmosphere
+   and must stay legible on top of it. The copy and the search panel are
+   separate HTML layers so the image is never cropped, recoloured or baked
+   with text. */
 .hero {
   position: relative;
   color: #fff;
   background-color: var(--home88-blue-dark);
+  background-repeat: no-repeat;
   background-size: cover;
-  background-position: center;
+  /* Focal point is a variable so each breakpoint can keep the subject in
+     frame without touching the image file. */
+  background-position: var(--hero-position, 62% center);
   isolation: isolate;
+  display: flex;
+  align-items: center;
 }
+
+/* Left-weighted cinematic overlay: the copy side is darkened enough for white
+   text at AA, while the right of the photograph stays bright and inviting. */
 .hero::before {
   content: "";
   position: absolute;
   inset: 0;
   z-index: -1;
   background: linear-gradient(
-    180deg,
-    rgba(5, 55, 85, 0.72) 0%,
-    rgba(5, 55, 85, 0.55) 45%,
-    rgba(5, 55, 85, 0.82) 100%
+    90deg,
+    rgba(3, 34, 65, 0.9) 0%,
+    rgba(3, 34, 65, 0.74) 32%,
+    rgba(3, 34, 65, 0.34) 62%,
+    rgba(3, 34, 65, 0.08) 100%
   );
 }
-.hero__inner { padding-block: clamp(56px, 9vw, 128px) clamp(40px, 6vw, 84px); }
+
+.hero__inner { padding-block: clamp(44px, 7vw, 76px) clamp(56px, 7vw, 96px); width: 100%; }
+
+/* Narrow screens stack the copy and the search panel, so a horizontal ramp
+   would leave the lower half unreadable: switch to a vertical one there. */
+@media (max-width: 899px) {
+  .hero {
+    background-position: var(--hero-position-mobile, 55% center);
+  }
+  .hero::before {
+    background: linear-gradient(
+      180deg,
+      rgba(3, 34, 65, 0.9) 0%,
+      rgba(3, 34, 65, 0.78) 42%,
+      rgba(3, 34, 65, 0.62) 100%
+    );
+  }
+}
+
+/* Desktop gets more breathing room because the hero also carries the floating
+   search panel, and 72vh keeps the whole section above the fold on a laptop. */
+@media (min-width: 900px) {
+  .hero { min-height: 72vh; min-height: 72dvh; }
+  .hero__inner { padding-block: clamp(72px, 8vw, 118px) clamp(96px, 9vw, 132px); }
+}
+
 .hero__eyebrow {
   display: inline-block;
   font-size: 0.76rem;
   font-weight: 700;
-  letter-spacing: 0.24em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--home88-blue-light);
-  margin-bottom: 14px;
+  color: #cfe4f6;
+  margin-bottom: 0;
 }
-.hero h1 { color: #fff; max-width: 18ch; }
-.hero .lede {
-  font-size: clamp(1rem, 0.95rem + 0.4vw, 1.2rem);
-  max-width: 60ch;
-  color: #e4eef7;
+/* Thin brand rule under the eyebrow, as a separate element so it is never
+   part of the text node. */
+.hero__rule {
+  display: block;
+  width: 64px;
+  height: 2px;
+  background: var(--home88-blue-light);
+  margin: var(--space-3) 0 var(--space-4);
 }
 
-/* Search card that floats over the hero image. */
+.hero h1 {
+  color: #fff;
+  max-width: 17ch;
+  /* First line light, emphasised line heavier: a two-beat headline. */
+  font-weight: 400;
+  text-wrap: balance;
+}
+.hero h1 strong { font-weight: 700; }
+.hero .lede {
+  font-size: clamp(1rem, 0.95rem + 0.4vw, 1.2rem);
+  max-width: 52ch;
+  color: #e4eef7;
+  margin-bottom: 0;
+}
+
+/* Search card that floats over the hero image. Opaque white so the labels and
+   inputs keep full contrast over the photograph. */
 .search-overlay {
-  margin-top: 30px;
-  max-width: 1080px;
-  background: rgba(5, 55, 85, 0.86);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: var(--radius-lg);
-  padding: 20px;
-  backdrop-filter: blur(3px);
+  margin-top: clamp(24px, 3vw, 38px);
+  max-width: 1120px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  padding: clamp(16px, 1.6vw, 22px);
   box-shadow: var(--shadow-lg);
+  color: var(--ink);
 }
-.search-overlay .field > label { color: #dbe8f4; }
-.search-overlay .input,
-.search-overlay .select {
-  background: #ffffff;
-  border-color: transparent;
-}
-.search-overlay .tabs {
-  background: rgba(255, 255, 255, 0.12);
-}
-.search-overlay .tabs button { color: #dbe8f4; }
-.search-overlay .tabs button[aria-pressed="true"] { background: #ffffff; color: var(--brand); }
+.search-overlay .field { margin-bottom: 0; }
+/* Dark ink, not --ink-muted: at 0.86rem the muted grey lands at 4.4:1 on the
+   white panel, just under the AA threshold for normal text. */
+.search-overlay .field > label { color: var(--ink); }
+.search-overlay .btn--lg { flex: none; }
 .search-grid {
   display: grid;
   gap: 14px;
@@ -555,6 +627,18 @@ p { margin: 0 0 1em; }
 }
 @media (min-width: 700px) {
   .search-grid { grid-template-columns: 1.4fr 1fr 1fr 1fr; }
+}
+.search-overlay__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: var(--space-4);
+}
+.hero__count {
+  color: #cfe0ef;
+  margin: var(--space-3) 0 0;
+  font-size: 0.88rem;
 }
 
 /* Plain white search card used on content pages. */

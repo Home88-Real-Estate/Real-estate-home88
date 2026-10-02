@@ -72,7 +72,9 @@ export default async function HomePage() {
 
   // The branded landing background is the hero, independent of inventory, so
   // the homepage never falls back to a bare colour or a slow-loading photo.
-  const heroImage = "/images/hero-background.png";
+  // The file is served untouched; the darkening ramp and the copy are separate
+  // layers in CSS (see `.hero::before`).
+  const heroImage = "/images/home88-landing-background.png";
 
   return (
     <>
@@ -81,8 +83,13 @@ export default async function HomePage() {
         style={heroImage ? { backgroundImage: `url(${heroImage})` } : undefined}
       >
         <div className="wrap hero__inner">
-          <span className="hero__eyebrow">HOME88 Real Estate</span>
-          <h1>Βρείτε το επόμενο ακίνητό σας</h1>
+          <span className="hero__eyebrow">Πωλήσεις · Ενοικιάσεις · Αναθέσεις</span>
+          <span className="hero__rule" aria-hidden="true" />
+          <h1>
+            Βρείτε το επόμενο
+            <br />
+            <strong>ακίνητό σας</strong>
+          </h1>
           <p className="lede">
             Κατοικίες, επαγγελματικοί χώροι, γη και επενδυτικές ευκαιρίες με
             επαγγελματική υποστήριξη σε κάθε βήμα.
@@ -138,20 +145,18 @@ export default async function HomePage() {
               </div>
             </div>
 
-            <div className="row" style={{ marginTop: 16 }}>
+            <div className="search-overlay__actions">
               <button type="submit" className="btn btn--primary btn--lg">
                 Αναζήτηση
               </button>
-              <Link href="/properties" className="btn btn--onhero">
+              <Link href="/properties" className="btn btn--outline">
                 Προηγμένη αναζήτηση
               </Link>
             </div>
           </form>
 
           {total > 0 && (
-            <p className="muted" style={{ color: "#bcd2e6", marginTop: 18, fontSize: "0.88rem" }}>
-              {total} ακίνητα διαθέσιμα αυτή τη στιγμή.
-            </p>
+            <p className="hero__count">{total} ακίνητα διαθέσιμα αυτή τη στιγμή.</p>
           )}
         </div>
       </section>
