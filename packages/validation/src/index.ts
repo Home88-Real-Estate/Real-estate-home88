@@ -536,6 +536,29 @@ export const mediaReorderSchema = z
 
 export type MediaReorderInput = z.infer<typeof mediaReorderSchema>;
 
+/** Ask for a signed URL to upload one file straight to object storage. */
+export const mediaUploadRequestSchema = z.object({
+  fileName: z.string().trim().min(1).max(255),
+  mimeType: z.string().trim().toLowerCase().max(100),
+  byteSize: z.coerce.number().int().positive(),
+  kind: mediaKindSchema.optional(),
+  /** The browser also uploads a web-sized preview and a thumbnail (photos). */
+  withVariants: z.boolean().optional().default(false),
+});
+export type MediaUploadRequestInput = z.infer<typeof mediaUploadRequestSchema>;
+
+/** Record an uploaded file. Safe to repeat: the same key is recorded once. */
+export const mediaConfirmSchema = z.object({
+  storageKey: z.string().trim().min(1).max(500),
+  fileName: z.string().trim().max(255).optional(),
+  kind: mediaKindSchema.optional(),
+  altEl: optionalText(300),
+  altEn: optionalText(300),
+  hasPreview: z.boolean().optional().default(false),
+  hasThumbnail: z.boolean().optional().default(false),
+});
+export type MediaConfirmInput = z.infer<typeof mediaConfirmSchema>;
+
 /** CRM login. Credentials only; authorisation is separate. */
 export const loginSchema = z.object({
   email: z.string().trim().toLowerCase().email().max(254),

@@ -12,8 +12,8 @@ exist yet; the CRM must say so (“Σύντομα”) rather than pretend.
      │ reads published listings              │ server components + server actions
      │ writes enquiries (capture.ts)         │ forward the session cookie
      ▼                                       ▼
- PostgreSQL ◄──────────── apps/api  (Fastify, the only CRM writer)
-     ▲                         │
+ PostgreSQL ◄──────────── apps/api  (Fastify, the only CRM writer; in production it
+     ▲                         │        runs inside the CRM deployment, docs/deployment.md)
      │                         ├── packages/domain      business rules (pure)
  object storage (S3/MinIO)     ├── packages/validation  Zod schemas, shared client/server
      photos, documents         ├── packages/portals     portal adapters + feeds

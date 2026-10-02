@@ -281,6 +281,12 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
   font: inherit;
   background: var(--paper);
 }
+.upload-list { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 6px; }
+.upload-list li { display: grid; grid-template-columns: minmax(0, 1fr) 140px auto; gap: 10px; align-items: center; font-size: 0.84rem; }
+.upload-list__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upload-list progress { width: 100%; }
+.upload-list li[data-state="failed"] { color: var(--danger); }
+@media (max-width: 640px) { .upload-list li { grid-template-columns: 1fr; } }
 .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
 .media-card {
   border: 1px solid var(--line);

@@ -10,7 +10,12 @@ function trimSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
-export const API_URL = trimSlash(process.env.API_URL ?? "http://localhost:4000");
+/**
+ * Origin of a separately running API, or empty to run the API in-process (the
+ * production setup; see lib/api-transport.ts). Local development sets it to
+ * http://localhost:4000 in apps/crm/.env.local.
+ */
+export const API_URL = trimSlash(process.env.API_URL?.trim() ?? "");
 
 /** Must match SESSION_COOKIE_NAME on the API (default "h88_session"). */
 export const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME ?? "h88_session";

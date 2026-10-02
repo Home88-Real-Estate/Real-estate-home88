@@ -20,6 +20,8 @@ const PUBLIC_STATUSES = PUBLIC_PROPERTY_STATUSES;
 
 type MediaRow = {
   storageKey: string;
+  /** Browser-made web-sized version; shown instead of the original when present. */
+  previewKey: string | null;
   kind: string;
   altEl: string | null;
   altEn: string | null;
@@ -95,13 +97,14 @@ function toSummary(p: {
     energyClass: p.energyClass,
     isNew: p.newConstruction,
     isFeatured: p.featured,
-    primaryImage: primary ? mediaUrl(primary.storageKey) : null,
+    primaryImage: primary ? mediaUrl(primary.previewKey ?? primary.storageKey) : null,
     imageCount: publicMedia.length,
   };
 }
 
 const mediaSelect = {
   storageKey: true,
+  previewKey: true,
   kind: true,
   altEl: true,
   altEn: true,
@@ -350,7 +353,7 @@ export async function getPropertyByReference(
         videoUrl: p.videoUrl ?? null,
         virtualTourUrl: p.virtualTourUrl ?? null,
         images: publicMedia.map((m) => ({
-          url: mediaUrl(m.storageKey),
+          url: mediaUrl(m.previewKey ?? m.storageKey),
           alt: pickAlt(m, locale),
           kind: m.kind,
         })),

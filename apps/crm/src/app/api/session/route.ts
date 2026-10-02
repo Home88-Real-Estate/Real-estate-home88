@@ -8,21 +8,23 @@
 
 import { NextResponse } from "next/server";
 
-import { API_URL } from "@/lib/config";
+import { apiUrl, callApi } from "@/lib/api-transport";
 
 export async function POST(request: Request): Promise<NextResponse> {
   const body = await request.text();
 
   let upstream: Response;
   try {
-    upstream = await fetch(`${API_URL}/api/auth/login`, {
-      method: "POST",
-      headers: { "content-type": "application/json", accept: "application/json" },
-      body,
-    });
+    const headers = new Headers({ "content-type": "application/json", accept: "application/json" });
+    // Login is rate-limited per client IP and audited with it.
+    for (const name of ["x-forwarded-for", "user-agent"]) {
+      const value = request.headers.get(name);
+      if (value) headers.set(name, value);
+    }
+    upstream = await callApi(new Request(apiUrl("/api/auth/login"), { method: "POST", headers, body }));
   } catch {
     return NextResponse.json(
-      { error: { code: "network_error", message: "Cannot reach the API. Is it running?" } },
+      { error: { code: "network_error", message: "Η υπηρεσία δεν είναι διαθέσιμη. Δοκιμάστε ξανά." } },
       { status: 502 },
     );
   }

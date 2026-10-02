@@ -73,7 +73,7 @@ const schema = z.object({
   S3_BUCKET: z.string().default("home88-properties"),
   S3_FORCE_PATH_STYLE: boolFromEnv(true),
   S3_SIGNED_URL_TTL: z.coerce.number().int().min(30).max(604800).default(900),
-  /** Hard ceiling enforced by the multipart plugin; 25 MB by default. */
+  /** Largest file a signed direct upload may declare; 25 MB by default. */
   MAX_UPLOAD_BYTES: z.coerce.number().int().min(1024).max(1024 * 1024 * 1024).default(26214400),
 
   // --- Auth ----------------------------------------------------------------

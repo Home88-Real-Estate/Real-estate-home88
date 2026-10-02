@@ -9,34 +9,6 @@ function refresh(propertyId: string): void {
   revalidatePath(`/properties/${propertyId}`);
 }
 
-/** Upload one or more files. They arrive on the API as `pending_review`. */
-export async function uploadMedia(
-  _previous: ActionState,
-  formData: FormData,
-): Promise<ActionState> {
-  const propertyId = str(formData, "propertyId");
-  if (!propertyId) return { ok: false, message: "Missing property." };
-
-  const files = formData
-    .getAll("file")
-    .filter((entry): entry is File => entry instanceof File && entry.size > 0);
-  if (files.length === 0) return { ok: false, message: "Choose at least one file." };
-
-  const body = new FormData();
-  for (const file of files) body.append("file", file);
-  const kind = str(formData, "kind");
-  if (kind) body.set("kind", kind);
-
-  const result = await apiFetch(`/api/properties/${propertyId}/media`, {
-    method: "POST",
-    form: body,
-  });
-  if (!result.ok) return { ok: false, message: result.error.message, fields: result.error.fields };
-
-  refresh(propertyId);
-  return { ok: true, message: `${files.length} file(s) uploaded for review.` };
-}
-
 /** Edit alt text, kind or primary flag. */
 export async function updateMedia(
   _previous: ActionState,
