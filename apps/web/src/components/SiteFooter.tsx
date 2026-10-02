@@ -3,9 +3,7 @@ import { COMPANY, CRM_LOGIN_URL } from "@/lib/config";
 
 export function SiteFooter() {
   const year = new Date().getFullYear();
-  // Staff-only door to the internal CRM. Hidden entirely when no CRM origin is
-  // configured (see lib/config.ts): production fails closed rather than sending
-  // staff to a localhost placeholder.
+  // Staff-only door to the internal CRM (see CRM_LOGIN_URL in lib/config.ts).
   const staffUrl = CRM_LOGIN_URL;
 
   return (

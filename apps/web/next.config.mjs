@@ -45,6 +45,22 @@ const csp = [
   "upgrade-insecure-requests",
 ].join("; ");
 
+/**
+ * The staff CRM can be served on this site's own origin under /crm: requests
+ * are passed through to the CRM deployment named by CRM_ORIGIN (server-only,
+ * e.g. https://home88-crm.vercel.app). The CRM is built with basePath /crm, so
+ * its pages, assets and API routes all live under that prefix and need no
+ * other change. Unset, nothing is proxied.
+ */
+const crmBasePath = (process.env.NEXT_PUBLIC_CRM_BASE_PATH || "/crm").replace(/\/+$/, "");
+let crmOrigin = "";
+try {
+  if (process.env.CRM_ORIGIN) crmOrigin = new URL(process.env.CRM_ORIGIN).origin;
+} catch {
+  crmOrigin = "";
+}
+const crmSegment = crmBasePath.replace(/^\//, "");
+
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
@@ -69,10 +85,20 @@ const nextConfig = {
     ],
   },
 
+  async rewrites() {
+    if (!crmOrigin) return [];
+    return [
+      { source: crmBasePath, destination: `${crmOrigin}${crmBasePath}` },
+      { source: `${crmBasePath}/:path*`, destination: `${crmOrigin}${crmBasePath}/:path*` },
+    ];
+  },
+
   async headers() {
     return [
       {
-        source: "/:path*",
+        // Everything except the proxied CRM, which sends its own (stricter)
+        // security headers; stacking both CSPs would block the CRM's media.
+        source: `/:path((?!${crmSegment}(?:/|$)).*)`,
         headers: [
           { key: "Content-Security-Policy", value: csp },
           { key: "X-Content-Type-Options", value: "nosniff" },
