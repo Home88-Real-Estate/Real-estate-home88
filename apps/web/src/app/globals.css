@@ -640,6 +640,9 @@ p { margin: 0 0 1em; }
 .site-footer { border-top: 1px solid var(--line); margin-top: 64px; background: var(--home88-blue-dark); color: #cdddec; }
 .site-footer a { color: #cdddec; }
 .site-footer a:hover { color: #fff; }
+/* A button in the footer must keep its own text colour, which otherwise loses
+   to `.site-footer a` on specificity. */
+.site-footer a.btn { color: var(--brand); }
 .site-footer__inner { padding-block: 48px; display: grid; gap: 28px; grid-template-columns: 1fr; }
 @media (min-width: 780px) { .site-footer__inner { grid-template-columns: 1.6fr 1fr 1fr 1fr; } }
 .site-footer .brand { color: #ffffff; }

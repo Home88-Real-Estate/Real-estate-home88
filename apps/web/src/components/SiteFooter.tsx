@@ -88,14 +88,10 @@ export function SiteFooter() {
             Απόρρητο: <a href={`mailto:${COMPANY.privacyEmail}`}>{COMPANY.privacyEmail}</a>
           </span>
         </div>
-        <div style={{ marginTop: 10 }}>
-          {/* Discreet, staff-only door to the internal CRM. Not in the main nav. */}
+        <div style={{ marginTop: 12 }}>
+          {/* Staff-only door to the internal CRM. Not in the main nav. */}
           {staffUrl ? (
-            <a
-              href={staffUrl}
-              rel="nofollow"
-              style={{ fontSize: "0.8rem", color: "inherit", opacity: 0.72 }}
-            >
+            <a className="btn btn--onhero btn--sm" href={staffUrl} rel="nofollow">
               Σύνδεση συνεργατών
             </a>
           ) : null}
