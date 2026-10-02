@@ -111,6 +111,20 @@ export type ApiConfig = z.infer<typeof schema>;
 
 let cached: ApiConfig | null = null;
 
+/**
+ * On Vercel the API runs inside the CRM deployment, so when CRM_URL is not set
+ * the CRM's own production address (a Vercel system variable) is the right
+ * origin for reset/invitation links and the CSRF origin check. Without this,
+ * links would point at the localhost default.
+ */
+export function withPlatformDefaults(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const vercelHost = env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
+  if (!env.CRM_URL?.trim() && vercelHost) {
+    return { ...env, CRM_URL: `https://${vercelHost.replace(/^https?:\/\//, "").replace(/\/+$/, "")}` };
+  }
+  return env;
+}
+
 export type ConfigProblem = { variable: string; problem: "missing" | "too_short" | "invalid" };
 
 /**
@@ -119,6 +133,7 @@ export type ConfigProblem = { variable: string; problem: "missing" | "too_short"
  */
 export function configProblems(env: NodeJS.ProcessEnv = process.env): ConfigProblem[] {
   const problems: ConfigProblem[] = [];
+  env = withPlatformDefaults(env);
   const parsed = schema.safeParse(env);
   if (!parsed.success) {
     for (const issue of parsed.error.issues) {
@@ -137,7 +152,7 @@ export function configProblems(env: NodeJS.ProcessEnv = process.env): ConfigProb
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   if (cached) return cached;
 
-  const parsed = schema.safeParse(env);
+  const parsed = schema.safeParse(withPlatformDefaults(env));
   if (!parsed.success) {
     const issues = parsed.error.issues
       .map((i) => `  - ${i.path.join(".") || "(root)"}: ${i.message}`)
