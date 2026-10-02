@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 
 import { logoutAction } from "@/actions/auth";
+import { CRM_BASE_PATH } from "@/lib/paths";
 import { displayName, hasRole, roleLabel, type CurrentUser } from "@/lib/user";
 
 const NAV: Array<{ href: string; label: string; min?: string }> = [
@@ -13,10 +14,16 @@ const NAV: Array<{ href: string; label: string; min?: string }> = [
   { href: "/leads", label: "Leads" },
   { href: "/contacts", label: "Contacts" },
   { href: "/users", label: "Users", min: "MANAGER" },
+  { href: "/security", label: "Security" },
 ];
 
 export function Shell({ user, children }: { user: CurrentUser; children: React.ReactNode }) {
-  const pathname = usePathname();
+  const rawPathname = usePathname();
+  // `usePathname` includes the basePath ("/crm/..."); compare against routes.
+  const pathname =
+    CRM_BASE_PATH && rawPathname.startsWith(CRM_BASE_PATH)
+      ? rawPathname.slice(CRM_BASE_PATH.length) || "/"
+      : rawPathname;
   const [open, setOpen] = useState(false);
 
   const isActive = (href: string) =>

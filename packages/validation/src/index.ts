@@ -627,6 +627,32 @@ export const passwordChangeSchema = z
 export type PasswordChangeInput = z.infer<typeof passwordChangeSchema>;
 
 /**
+ * Forgot-password request. The email is normalised the same way as login, so a
+ * user who signs in with mixed case still matches their reset request.
+ */
+export const forgotPasswordSchema = z
+  .object({
+    email: z.string().trim().toLowerCase().email().max(254),
+  })
+  .strict();
+
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+
+/**
+ * Redeem a reset token. The token is the raw base64url value from the emailed
+ * link; only its hash is ever stored. The new password meets the same policy as
+ * an admin-set password.
+ */
+export const resetPasswordSchema = z
+  .object({
+    token: z.string().trim().min(20).max(400),
+    newPassword: passwordSchema,
+  })
+  .strict();
+
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
+
+/**
  * Rate-limit budget per action. Kept next to the schemas so a new endpoint
  * cannot be added without being given a limit.
  */
@@ -636,4 +662,8 @@ export const RATE_LIMITS = {
   contact: { points: 5, durationSeconds: 600 },
   login: { points: 8, durationSeconds: 900 },
   dmcaNotice: { points: 3, durationSeconds: 3600 },
+  /** Self-service credential changes. Tight: these are high-value operations. */
+  passwordChange: { points: 5, durationSeconds: 900 },
+  forgotPassword: { points: 5, durationSeconds: 900 },
+  resetPassword: { points: 10, durationSeconds: 900 },
 } as const;

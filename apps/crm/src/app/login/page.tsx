@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { LoginForm } from "./LoginForm";
@@ -16,6 +17,9 @@ export default async function LoginPage() {
         <div className="brand">HOME88</div>
         <p className="sub">Agent and back-office sign-in</p>
         <LoginForm />
+        <p className="sub" style={{ marginTop: 16, marginBottom: 0, textAlign: "center" }}>
+          <Link href="/forgot-password">Ξεχάσατε τον κωδικό σας;</Link>
+        </p>
       </div>
     </div>
   );

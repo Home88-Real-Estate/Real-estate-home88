@@ -91,3 +91,18 @@ export async function revokeAllUserSessions(userId: string, reason: string): Pro
     data: { revokedAt: new Date(), revokedReason: reason },
   });
 }
+
+/**
+ * Revokes every session except the one performing the credential change, so a
+ * password change signs out other devices without bouncing the current user.
+ */
+export async function revokeAllUserSessionsExcept(
+  userId: string,
+  keepSessionId: string,
+  reason: string,
+): Promise<void> {
+  await db().session.updateMany({
+    where: { userId, revokedAt: null, NOT: { id: keepSessionId } },
+    data: { revokedAt: new Date(), revokedReason: reason },
+  });
+}

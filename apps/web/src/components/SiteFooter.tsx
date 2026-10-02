@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { COMPANY } from "@/lib/config";
+import { COMPANY, CRM_BASE_PATH, CRM_URL } from "@/lib/config";
 
 export function SiteFooter() {
   const year = new Date().getFullYear();
+  const staffUrl = `${CRM_URL}${CRM_BASE_PATH}/login`;
 
   return (
     <footer className="site-footer">
@@ -84,6 +85,16 @@ export function SiteFooter() {
           <span>
             Απόρρητο: <a href={`mailto:${COMPANY.privacyEmail}`}>{COMPANY.privacyEmail}</a>
           </span>
+        </div>
+        <div style={{ marginTop: 10 }}>
+          {/* Discreet, staff-only door to the internal CRM. Not in the main nav. */}
+          <a
+            href={staffUrl}
+            rel="nofollow"
+            style={{ fontSize: "0.8rem", color: "inherit", opacity: 0.72 }}
+          >
+            Σύνδεση συνεργατών
+          </a>
         </div>
       </div>
     </footer>

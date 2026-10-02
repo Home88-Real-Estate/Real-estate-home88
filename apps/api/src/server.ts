@@ -6,6 +6,7 @@ import { ZodError } from "zod";
 import { loadConfig } from "./config";
 import { HttpError, isHttpError } from "./lib/errors";
 import { attachAuth } from "./plugins/auth";
+import { accountRoutes } from "./routes/account";
 import { authRoutes } from "./routes/auth";
 import { contactRoutes } from "./routes/contacts";
 import { healthRoutes } from "./routes/health";
@@ -82,6 +83,7 @@ export async function buildServer(): Promise<FastifyInstance> {
 
   await app.register(healthRoutes);
   await app.register(authRoutes, { prefix: "/api" });
+  await app.register(accountRoutes, { prefix: "/api" });
   await app.register(propertyRoutes, { prefix: "/api" });
   await app.register(leadRoutes, { prefix: "/api" });
   await app.register(contactRoutes, { prefix: "/api" });

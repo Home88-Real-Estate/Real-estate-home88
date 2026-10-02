@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { CRM_BASE_PATH } from "@/lib/paths";
+
 export function LoginForm() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -15,7 +17,7 @@ export function LoginForm() {
 
     const form = new FormData(event.currentTarget);
     try {
-      const response = await fetch("/api/session", {
+      const response = await fetch(`${CRM_BASE_PATH}/api/session`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({

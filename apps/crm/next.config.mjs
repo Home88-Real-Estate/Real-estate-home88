@@ -62,6 +62,15 @@ const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
 
+  /**
+   * The CRM is its own deploy (e.g. crm.home88.estate) served under /crm, so the
+   * required /crm/login, /crm/security, ... paths exist on that origin. Next
+   * applies basePath to `next/link`, `redirect()` and the router automatically;
+   * the few places that build a fetch URL by hand read the same value from
+   * `lib/paths.ts` (kept in sync through NEXT_PUBLIC_CRM_BASE_PATH).
+   */
+  basePath: process.env.NEXT_PUBLIC_CRM_BASE_PATH || "/crm",
+
   transpilePackages: ["@home88/types", "@home88/ui"],
 
   outputFileTracingRoot: monorepoRoot,

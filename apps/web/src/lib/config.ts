@@ -22,6 +22,14 @@ function optional(name: string, fallback = ""): string {
 
 export const SITE_URL = optional("NEXT_PUBLIC_SITE_URL", "http://localhost:3000").replace(/\/+$/, "");
 
+/**
+ * The internal CRM lives on its own origin (e.g. https://crm.home88.estate) and
+ * is served under a base path. Only the public login URL is used here; the
+ * public site never holds a CRM session.
+ */
+export const CRM_URL = optional("NEXT_PUBLIC_CRM_URL", "http://localhost:3100").replace(/\/+$/, "");
+export const CRM_BASE_PATH = optional("NEXT_PUBLIC_CRM_BASE_PATH", "/crm").replace(/\/+$/, "");
+
 export const COMPANY = {
   /** Shown in the privacy notice and the footer of every commercial email. */
   legalName: optional("COMPANY_LEGAL_NAME", "HOME88"),

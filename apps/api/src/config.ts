@@ -38,6 +38,15 @@ const schema = z.object({
    * a wildcard origin is incompatible with cookie auth anyway.
    */
   CRM_URL: z.string().url().default("http://localhost:3100"),
+  /**
+   * Path prefix the CRM is served under (`basePath` in apps/crm). Used to build
+   * absolute reset links in transactional mail, e.g.
+   * `${CRM_URL}${CRM_BASE_PATH}/reset-password?token=...`.
+   */
+  CRM_BASE_PATH: z
+    .string()
+    .default("/crm")
+    .transform((v) => (v === "/" || v === "" ? "" : `/${v.replace(/^\/+|\/+$/g, "")}`)),
   SITE_URL: z.string().url().default("http://localhost:3000"),
 
   // --- Database ------------------------------------------------------------
