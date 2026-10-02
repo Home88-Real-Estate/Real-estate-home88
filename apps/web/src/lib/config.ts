@@ -29,21 +29,21 @@ export const SITE_URL = optional("NEXT_PUBLIC_SITE_URL", "http://localhost:3000"
  * is served under a base path. Only the public login URL is used here; the
  * public site never holds a CRM session.
  *
- * Production fails closed: with no NEXT_PUBLIC_CRM_URL configured, the staff
- * link is hidden rather than pointing at localhost (a placeholder that would
- * 404 or, worse, hit a developer machine).
+ * The published production origin is the built-in default, so the staff link is
+ * always present in production even before env vars are set; local development
+ * points at the dev CRM instead. A NEXT_PUBLIC_CRM_URL still overrides either.
  */
 export const CRM_URL = (() => {
   const configured = process.env.NEXT_PUBLIC_CRM_URL?.trim();
   if (configured) return configured.replace(/\/+$/, "");
-  return isProduction ? "" : "http://localhost:3100";
+  return isProduction ? "https://crm.home88.estate" : "http://localhost:3100";
 })();
 export const CRM_BASE_PATH = optional("NEXT_PUBLIC_CRM_BASE_PATH", "/crm").replace(/\/+$/, "");
 
 /**
  * Builds the staff sign-in URL from the CRM origin and base path. Kept pure so
- * the footer link and its tests share one source of truth; an empty origin (a
- * production deployment with no CRM configured) deliberately yields no link.
+ * the footer link and its tests share one source of truth; an empty origin
+ * defensively yields no link (the column is then not rendered).
  */
 export function crmLoginUrl(origin: string, basePath: string): string {
   if (!origin) return "";

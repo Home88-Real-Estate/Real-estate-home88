@@ -79,22 +79,22 @@ export function SiteFooter() {
           </ul>
         </div>
 
-        <div>
-          <h3>Συνεργάτες</h3>
-          <ul>
-            {/*
-              Staff/business access only — never a customer account. The footer
-              link reaches the CRM login page; authorisation stays server-side.
-            */}
-            {staffUrl ? (
+        {/*
+          Staff/business access only — never a customer account. The link only
+          reaches the CRM login page; authorisation stays server-side.
+        */}
+        {staffUrl ? (
+          <div>
+            <h3>Συνεργάτες</h3>
+            <ul>
               <li>
                 <a href={staffUrl} rel="nofollow">
                   Σύνδεση Συνεργατών
                 </a>
               </li>
-            ) : null}
-          </ul>
-        </div>
+            </ul>
+          </div>
+        ) : null}
       </div>
 
       <div className="wrap legal-note">

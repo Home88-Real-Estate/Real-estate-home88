@@ -14,7 +14,7 @@ test("development CRM origin builds the local staff login URL", () => {
   assert.equal(crmLoginUrl("http://localhost:3100", "/crm"), "http://localhost:3100/crm/login");
 });
 
-test("no CRM origin yields no link (production fails closed)", () => {
+test("no CRM origin yields no link (defensive guard)", () => {
   assert.equal(crmLoginUrl("", "/crm"), "");
 });
 
