@@ -21,8 +21,7 @@
   --home88-blue-dark: #053755;
   --home88-blue-light: #168bbe;
   --home88-blue-pale: #eef5fa;
-  --home88-bg: #f5f8fb;
-  --home88-off-white: #f7f9fb;
+  --home88-bg: #f7f9fb;
   --home88-grey: #f5f5f5;
   --home88-ink: #333333;
   --home88-muted: #777777;
@@ -819,6 +818,75 @@ p { margin: 0 0 1em; }
 }
 .cta-band h2 { color: #fff; }
 .cta-band p { color: #dbe8f4; max-width: 60ch; }
+
+/* Owner / valuation call-to-action: copy on one side, a short checklist of
+   what actually happens on the other. No invented promises or figures. */
+.split-cta {
+  display: grid;
+  gap: var(--space-6);
+  align-items: center;
+  background: var(--home88-blue-pale);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  padding: clamp(24px, 4vw, 48px);
+}
+@media (min-width: 860px) {
+  .split-cta { grid-template-columns: 1.1fr 0.9fr; }
+}
+.checklist { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.checklist li {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 12px;
+  align-items: start;
+  font-size: 0.97rem;
+}
+.checklist li::before {
+  content: "";
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--brand);
+  /* CSS-only tick: no icon font, no extra request. */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E");
+  background-size: 14px 14px;
+  background-position: center;
+  background-repeat: no-repeat;
+  margin-top: 2px;
+}
+
+/* Areas: real area names with real listing counts. */
+.area-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+.area-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+.area-card:hover {
+  text-decoration: none;
+  border-color: var(--brand);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
+.area-card h3 { margin: 0; font-size: 1.06rem; }
+.area-card p { margin: 0; color: var(--ink-muted); font-size: 0.88rem; }
+.area-card__more {
+  margin-top: var(--space-4);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  color: var(--brand);
+}
 
 /* --- gallery --------------------------------------------------------------- */
 .gallery { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }

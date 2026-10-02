@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { PropertyCardGrid } from "@/components/PropertyCard";
 import { CategoryNav } from "@/components/CategoryNav";
 import { listFeaturedProperties, listRecentProperties, countPublicProperties } from "@/lib/property";
+import { listAreas } from "@/lib/areas";
 import { COMPANY } from "@/lib/config";
 
 export const metadata: Metadata = {
@@ -64,11 +65,16 @@ const VALUES: Array<{ title: string; text: string; image: string; alt: string }>
 ];
 
 export default async function HomePage() {
-  const [featured, recent, total] = await Promise.all([
+  const [featured, recent, total, areas] = await Promise.all([
     listFeaturedProperties("el", 3),
     listRecentProperties("el", 6),
     countPublicProperties(),
+    listAreas(),
   ]);
+
+  // Only the areas we actually cover: the list is derived from live listings,
+  // so this section is never a set of invented place names.
+  const topAreas = areas.slice(0, 8);
 
   // The branded landing background is the hero, independent of inventory, so
   // the homepage never falls back to a bare colour or a slow-loading photo.
@@ -185,6 +191,26 @@ export default async function HomePage() {
 
       <section className="section section--surface">
         <div className="wrap">
+          <div className="between section-head">
+            <div>
+              <h2 style={{ margin: 0 }}>Πρόσφατα ακίνητα</h2>
+              <p className="muted" style={{ margin: "6px 0 0" }}>
+                Οι τελευταίες καταχωρίσεις που δημοσιεύτηκαν.
+              </p>
+            </div>
+            <Link href="/properties" className="btn btn--outline btn--sm">
+              Προβολή όλων
+            </Link>
+          </div>
+          <PropertyCardGrid
+            properties={recent}
+            emptyMessage="Δεν υπάρχουν δημοσιευμένα ακίνητα ακόμη."
+          />
+        </div>
+      </section>
+
+      <section className="section">
+        <div className="wrap">
           <div className="section-head">
             <h2 style={{ margin: 0 }}>Γιατί HOME88</h2>
             <p className="muted" style={{ margin: "6px 0 0" }}>
@@ -207,20 +233,30 @@ export default async function HomePage() {
 
       <section className="section">
         <div className="wrap">
-          <div className="cta-band">
-            <h2>Θέλετε να πουλήσετε ή να ενοικιάσετε το ακίνητό σας;</h2>
-            <p>
-              Αφήστε τα στοιχεία του ακινήτου σας και ένας σύμβουλος της HOME88
-              θα επικοινωνήσει μαζί σας για εκτίμηση και στρατηγική προβολής.
-            </p>
-            <div className="row" style={{ marginTop: 18 }}>
-              <Link href="/submit" className="btn btn--onhero btn--lg">
-                Ζητήστε εκτίμηση
-              </Link>
-              <Link href="/request" className="btn btn--onhero">
-                Ζητώ ακίνητο
-              </Link>
+          <div className="split-cta">
+            <div>
+              <h2 style={{ marginTop: 0 }}>
+                Θέλετε να πουλήσετε ή να ενοικιάσετε το ακίνητό σας;
+              </h2>
+              <p className="muted">
+                Αφήστε τα στοιχεία του ακινήτου σας και ένας σύμβουλος της HOME88
+                θα επικοινωνήσει μαζί σας για εκτίμηση και στρατηγική προβολής.
+              </p>
+              <div className="row">
+                <Link href="/submit" className="btn btn--primary btn--lg">
+                  Ανάθεση ακινήτου
+                </Link>
+                <Link href="/request" className="btn btn--outline">
+                  Ζητώ ακίνητο
+                </Link>
+              </div>
             </div>
+            <ul className="checklist">
+              <li>Δωρεάν εκτίμηση της εμπορικής αξίας του ακινήτου σας.</li>
+              <li>Προτεινόμενη τιμή και διάρκεια διαφήμισης, πριν από τη λήψη απόφασης.</li>
+              <li>Επιλεκτική προβολή σε καταχωρίσεις και επαφή με υποψήφιους αγοραστές.</li>
+              <li>Συνεργασία με νομικούς συμβούλους και μηχανικούς για την ολοκλήρωση της συναλλαγής.</li>
+            </ul>
           </div>
         </div>
       </section>
@@ -229,19 +265,65 @@ export default async function HomePage() {
         <div className="wrap">
           <div className="between section-head">
             <div>
-              <h2 style={{ margin: 0 }}>Πρόσφατα ακίνητα</h2>
+              <h2 style={{ margin: 0 }}>Εκτίμηση ακινήτου</h2>
               <p className="muted" style={{ margin: "6px 0 0" }}>
-                Οι τελευταίες καταχωρίσεις που δημοσιεύτηκαν.
+                Θέλετε να μάθετε την τρέχουσα αξία του ακινήτου σας; Συμπληρώστε τα
+                στοιχεία σας και θα σας επικοινωνήσουμε με προσωπικό ενημέρωση.
               </p>
             </div>
-            <Link href="/properties" className="btn btn--outline btn--sm">
-              Προβολή όλων
+            <Link href="/valuation" className="btn btn--primary">
+              Ζητήστε εκτίμηση
             </Link>
           </div>
-          <PropertyCardGrid
-            properties={recent}
-            emptyMessage="Δεν υπάρχουν δημοσιευμένα ακίνητα ακόμη."
-          />
+        </div>
+      </section>
+
+      {topAreas.length > 0 && (
+        <section className="section">
+          <div className="wrap">
+            <div className="between section-head">
+              <div>
+                <h2 style={{ margin: 0 }}>Περιοχές που καλύπτουμε</h2>
+                <p className="muted" style={{ margin: "6px 0 0" }}>
+                  Δείτε τις διαθέσιμες αγγελίες ανά περιοχή.
+                </p>
+              </div>
+              <Link href="/areas" className="btn btn--outline btn--sm">
+                Όλες οι περιοχές
+              </Link>
+            </div>
+            <div className="area-grid">
+              {topAreas.map((a) => (
+                <Link key={a.slug} href={`/areas/${a.slug}`} className="area-card">
+                  <h3>{a.name}</h3>
+                  <p>
+                    {a.city ? `${a.city} · ` : ""}
+                    {a.count} {a.count === 1 ? "ακίνητο" : "ακίνητα"}
+                  </p>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      <section className="section">
+        <div className="wrap">
+          <div className="cta-band">
+            <h2>Έχετε ερώτηση για ένα ακίνητο;</h2>
+            <p>
+              Επικοινωνήστε με την ομάδα της HOME88 για πληροφορίες, διαθεσιμότητα και
+              προγραμματισμό επίσκεψης.
+            </p>
+            <div className="row" style={{ marginTop: 18 }}>
+              <Link href="/contact" className="btn btn--onhero btn--lg">
+                Επικοινωνία
+              </Link>
+              <a href={`tel:${COMPANY.phone}`} className="btn btn--onhero">
+                {COMPANY.phone}
+              </a>
+            </div>
+          </div>
         </div>
       </section>
     </>
