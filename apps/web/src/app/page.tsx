@@ -40,25 +40,25 @@ const VALUES: Array<{ title: string; text: string; image: string; alt: string }>
   {
     title: "Τοπική γνώση",
     text: "Εξειδίκευση στις περιοχές και τις τιμές της αγοράς.",
-    image: "/images/why-clean/01_topiki_lysi.png",
+    image: "/images/why-icons/01_topiki_lysi.png",
     alt: "Τοπική γνώση HOME88",
   },
   {
     title: "Επαγγελματική παρουσίαση",
     text: "Σύγχρονη προβολή και marketing κάθε ακινήτου.",
-    image: "/images/why-clean/02_epaggelmatiki_parousiasi.png",
+    image: "/images/why-icons/02_epaggelmatiki_parousiasi.png",
     alt: "Επαγγελματική παρουσίαση HOME88",
   },
   {
     title: "Προσωπική εξυπηρέτηση",
     text: "Υποστήριξη από την πρώτη επικοινωνία έως την ολοκλήρωση.",
-    image: "/images/why-clean/03_prosopiki_exypiretisi.png",
+    image: "/images/why-icons/03_prosopiki_exypiretisi.png",
     alt: "Προσωπική εξυπηρέτηση HOME88",
   },
   {
     title: "Δίκτυο & συνεργασίες",
     text: "Πρόσβαση σε αγοραστές, ιδιοκτήτες και επενδυτές.",
-    image: "/images/why-clean/04_diktyo_synergias.png",
+    image: "/images/why-icons/04_diktyo_synergias.png",
     alt: "Δίκτυο και συνεργασίες HOME88",
   },
 ];
