@@ -652,6 +652,31 @@ export const resetPasswordSchema = z
 
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 
+// --- Staff invitations -----------------------------------------------------
+
+/** An admin invites a staff member; the account is created only on accept. */
+export const invitationCreateSchema = z
+  .object({
+    email: z.string().trim().toLowerCase().email("Enter a valid email address.").max(254),
+    firstName: requiredText(80, "First name"),
+    lastName: requiredText(80, "Last name"),
+    phone: phoneSchema,
+    role: userRoleSchema.default("AGENT"),
+  })
+  .strict();
+
+export type InvitationCreateInput = z.infer<typeof invitationCreateSchema>;
+
+/** The invitee redeems the emailed token by choosing their own password. */
+export const invitationAcceptSchema = z
+  .object({
+    token: z.string().trim().min(20).max(400),
+    password: passwordSchema,
+  })
+  .strict();
+
+export type InvitationAcceptInput = z.infer<typeof invitationAcceptSchema>;
+
 /**
  * Rate-limit budget per action. Kept next to the schemas so a new endpoint
  * cannot be added without being given a limit.
@@ -666,4 +691,6 @@ export const RATE_LIMITS = {
   passwordChange: { points: 5, durationSeconds: 900 },
   forgotPassword: { points: 5, durationSeconds: 900 },
   resetPassword: { points: 10, durationSeconds: 900 },
+  invitationCreate: { points: 30, durationSeconds: 3600 },
+  invitationAccept: { points: 10, durationSeconds: 900 },
 } as const;

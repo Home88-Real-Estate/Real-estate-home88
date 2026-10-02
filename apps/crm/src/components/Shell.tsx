@@ -14,6 +14,7 @@ const NAV: Array<{ href: string; label: string; min?: string }> = [
   { href: "/leads", label: "Leads" },
   { href: "/contacts", label: "Contacts" },
   { href: "/users", label: "Users", min: "MANAGER" },
+  { href: "/invitations", label: "Invitations", min: "ADMIN" },
   { href: "/security", label: "Security" },
 ];
 

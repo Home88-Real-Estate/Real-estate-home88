@@ -10,6 +10,7 @@ import { accountRoutes } from "./routes/account";
 import { authRoutes } from "./routes/auth";
 import { contactRoutes } from "./routes/contacts";
 import { healthRoutes } from "./routes/health";
+import { invitationRoutes } from "./routes/invitations";
 import { leadRoutes } from "./routes/leads";
 import { mediaRoutes } from "./routes/media";
 import { portalRoutes } from "./routes/portals";
@@ -84,6 +85,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(healthRoutes);
   await app.register(authRoutes, { prefix: "/api" });
   await app.register(accountRoutes, { prefix: "/api" });
+  await app.register(invitationRoutes, { prefix: "/api" });
   await app.register(propertyRoutes, { prefix: "/api" });
   await app.register(leadRoutes, { prefix: "/api" });
   await app.register(contactRoutes, { prefix: "/api" });

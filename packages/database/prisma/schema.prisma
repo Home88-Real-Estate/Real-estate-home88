@@ -353,6 +353,7 @@ model User {
 
   sessions           Session[]
   passwordResetTokens PasswordResetToken[]
+  invitationsSent    Invitation[]         @relation("InvitationInviter")
 
   @@index([role])
   @@index([status])
@@ -390,6 +391,30 @@ model PasswordResetToken {
 
   @@index([userId])
   @@map("password_reset_tokens")
+}
+
+/// A staff invitation. An admin creates one; the invitee redeems it once to
+/// create an ACTIVE user. Kept separate from User so no password (or a
+/// placeholder hash) exists before the person sets their own.
+model Invitation {
+  id          String     @id @default(cuid())
+  email       String
+  role        UserRole   @default(AGENT)
+  firstName   String
+  lastName    String
+  phone       String?
+  /// SHA-256 of the opaque token in the emailed link. The raw token is never stored.
+  tokenHash   String     @unique
+  invitedById String
+  invitedBy   User       @relation("InvitationInviter", fields: [invitedById], references: [id])
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime   @default(now())
+
+  @@index([email])
+  @@index([expiresAt])
+  @@map("invitations")
 }
 
 // ---------------------------------------------------------------------------
