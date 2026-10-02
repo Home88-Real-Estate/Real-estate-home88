@@ -1,7 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { Prisma } from "@home88/database";
-import { leadStatusChangeSchema } from "@home88/validation";
+import { CHANNEL_LEAD_SOURCES } from "@home88/domain";
+import { leadChannelSchema, leadStatusChangeSchema } from "@home88/validation";
 import { writeAudit, diffFields } from "../lib/audit";
 import { badRequest, notFound } from "../lib/errors";
 import { clientIp, parseInput, userAgent } from "../lib/http";
@@ -20,6 +21,7 @@ const LEAD_SOURCES = [
 const listQuerySchema = z.object({
   status: z.enum(LEAD_STATUSES).optional(),
   source: z.enum(LEAD_SOURCES).optional(),
+  channel: leadChannelSchema.optional(),
   assignedToId: z.string().min(1).max(40).optional(),
   propertyId: z.string().min(1).max(40).optional(),
   q: z.string().trim().max(120).optional(),
@@ -67,6 +69,9 @@ export async function leadRoutes(app: FastifyInstance): Promise<void> {
     const where: Prisma.LeadWhereInput = {};
     if (q.status) where.status = q.status;
     if (q.source) where.source = q.source;
+    else if (q.channel) {
+      where.source = { in: [...CHANNEL_LEAD_SOURCES[q.channel]] as Array<(typeof LEAD_SOURCES)[number]> };
+    }
     if (q.assignedToId) where.assignedToId = q.assignedToId;
     if (q.propertyId) where.propertyId = q.propertyId;
     if (q.q) {

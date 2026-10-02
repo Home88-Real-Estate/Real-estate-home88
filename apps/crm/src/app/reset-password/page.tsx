@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { AuthLayout } from "@/components/AuthLayout";
 import { ResetPasswordForm } from "@/components/ResetPasswordForm";
 
 export const metadata: Metadata = { title: "Ορισμός νέου κωδικού" };
@@ -18,23 +19,22 @@ export default async function ResetPasswordPage({
   const token = first(sp.token);
 
   return (
-    <div className="login-wrap">
-      <div className="login-card">
-        <div className="brand">HOME88</div>
-        <p className="sub">Ορίστε νέο κωδικό</p>
-
-        {token ? (
-          <ResetPasswordForm token={token} />
-        ) : (
-          <div className="notice notice--danger">
-            Ο σύνδεσμος δεν είναι έγκυρος. Ζητήστε νέο σύνδεσμο επαναφοράς.
-          </div>
-        )}
-
-        <p className="sub" style={{ marginTop: 16, marginBottom: 0, textAlign: "center" }}>
+    <AuthLayout
+      title="Ορισμός νέου κωδικού"
+      subtitle="Επιλέξτε έναν ισχυρό κωδικό που δεν χρησιμοποιείτε αλλού."
+      footer={
+        <p className="auth__foot">
           <Link href="/forgot-password">Ζητήστε νέο σύνδεσμο</Link>
         </p>
-      </div>
-    </div>
+      }
+    >
+      {token ? (
+        <ResetPasswordForm token={token} />
+      ) : (
+        <div className="notice notice--danger">
+          Ο σύνδεσμος δεν είναι έγκυρος. Ζητήστε νέο σύνδεσμο επαναφοράς.
+        </div>
+      )}
+    </AuthLayout>
   );
 }

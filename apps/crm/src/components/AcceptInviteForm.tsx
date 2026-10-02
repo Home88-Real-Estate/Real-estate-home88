@@ -61,7 +61,7 @@ export function AcceptInviteForm({ token }: { token: string }) {
         )}
       </div>
 
-      <button type="submit" className="btn btn--primary" style={{ width: "100%" }} disabled={pending}>
+      <button type="submit" className="btn btn--primary btn--block btn--lg" disabled={pending}>
         {pending ? "Ενεργοποίηση..." : "ΕΝΕΡΓΟΠΟΙΗΣΗ ΛΟΓΑΡΙΑΣΜΟΥ"}
       </button>
     </form>

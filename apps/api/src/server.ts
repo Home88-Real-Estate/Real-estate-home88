@@ -8,6 +8,7 @@ import { attachAuth } from "./plugins/auth";
 import { accountRoutes } from "./routes/account";
 import { authRoutes } from "./routes/auth";
 import { contactRoutes } from "./routes/contacts";
+import { dashboardRoutes } from "./routes/dashboard";
 import { healthRoutes } from "./routes/health";
 import { invitationRoutes } from "./routes/invitations";
 import { leadRoutes } from "./routes/leads";
@@ -86,6 +87,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(portalRoutes, { prefix: "/api" });
   await app.register(mediaRoutes, { prefix: "/api" });
   await app.register(userRoutes, { prefix: "/api" });
+  await app.register(dashboardRoutes, { prefix: "/api" });
 
   return app;
 }

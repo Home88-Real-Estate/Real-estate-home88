@@ -2,25 +2,29 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { LoginForm } from "./LoginForm";
+import { AuthLayout } from "@/components/AuthLayout";
 import { getCurrentUser } from "@/lib/session";
 
-export const metadata: Metadata = { title: "Sign in" };
+import { LoginForm } from "./LoginForm";
+
+export const metadata: Metadata = { title: "Σύνδεση" };
 
 export default async function LoginPage() {
   const user = await getCurrentUser();
   if (user) redirect("/");
 
   return (
-    <div className="login-wrap">
-      <div className="login-card">
-        <div className="brand">HOME88</div>
-        <p className="sub">Agent and back-office sign-in</p>
-        <LoginForm />
-        <p className="sub" style={{ marginTop: 16, marginBottom: 0, textAlign: "center" }}>
-          <Link href="/forgot-password">Ξεχάσατε τον κωδικό σας;</Link>
+    <AuthLayout
+      title="Σύνδεση"
+      subtitle="Καλώς ήρθατε στο HOME88 CRM. Συνδεθείτε με τα στοιχεία του λογαριασμού σας."
+      footer={
+        <p className="auth__foot">
+          Νέος συνεργάτης; Ο λογαριασμός δημιουργείται με πρόσκληση από τον διαχειριστή.{" "}
+          <Link href="/forgot-password">Δεν έχετε ορίσει κωδικό;</Link>
         </p>
-      </div>
-    </div>
+      }
+    >
+      <LoginForm />
+    </AuthLayout>
   );
 }

@@ -1,11 +1,18 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+import { LEAD_CHANNELS } from "@home88/domain";
 import { LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS, label, type Paginated } from "@home88/types";
 
+import { EmptyState } from "@/components/EmptyState";
 import { Pagination } from "@/components/Pagination";
 import { StatusBadge } from "@/components/StatusBadge";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime, personName } from "@/lib/format";
+import { CHANNEL_LABEL } from "@/lib/labels";
+import { CRM_BASE_PATH } from "@/lib/paths";
 import { requireRole } from "@/lib/session";
+
+export const metadata: Metadata = { title: "Leads" };
 
 type LeadRow = {
   id: string;
@@ -23,7 +30,7 @@ type LeadRow = {
 };
 
 const STATUS_OPTIONS = [
-  ["", "All statuses"],
+  ["", "Όλα τα στάδια"],
   ...Object.keys(LEAD_STATUS_LABELS).map((value) => [value, label(LEAD_STATUS_LABELS, value, "el")]),
 ];
 
@@ -41,27 +48,39 @@ export default async function LeadsPage({
 
   const q = first(sp.q);
   const status = first(sp.status);
+  const channel = first(sp.channel);
+  const assignedToId = first(sp.assignedToId);
   const page = Math.max(1, Number(first(sp.page)) || 1);
 
   const result = await apiFetch<Paginated<LeadRow>>("/api/leads", {
-    query: { q, status, page, limit: 25 },
+    query: { q, status, channel, assignedToId, page, limit: 25 },
   });
 
   const params: Record<string, string> = {};
   if (q) params.q = q;
   if (status) params.status = status;
+  if (channel) params.channel = channel;
+  if (assignedToId) params.assignedToId = assignedToId;
+  const filtered = Object.keys(params).length > 0;
 
   return (
     <>
-      <h1>Leads</h1>
+      <div className="page-head">
+        <div>
+          <h1>Leads</h1>
+          <p className="muted">
+            {result.ok ? `${result.data.pagination.total} εκδηλώσεις ενδιαφέροντος` : "Εκδηλώσεις ενδιαφέροντος"}
+          </p>
+        </div>
+      </div>
 
-      <form className="filters" method="get" action="/leads">
+      <form className="filters" method="get" action={`${CRM_BASE_PATH}/leads`}>
         <div className="field">
-          <label htmlFor="q">Search</label>
-          <input id="q" name="q" className="input" defaultValue={q} placeholder="Name, email, reference" />
+          <label htmlFor="q">Αναζήτηση</label>
+          <input id="q" name="q" className="input" defaultValue={q} placeholder="Όνομα, email, κωδικός" />
         </div>
         <div className="field">
-          <label htmlFor="status">Status</label>
+          <label htmlFor="status">Στάδιο</label>
           <select id="status" name="status" className="select" defaultValue={status}>
             {STATUS_OPTIONS.map(([value, text]) => (
               <option key={value} value={value}>
@@ -70,28 +89,58 @@ export default async function LeadsPage({
             ))}
           </select>
         </div>
+        <div className="field">
+          <label htmlFor="channel">Κανάλι</label>
+          <select id="channel" name="channel" className="select" defaultValue={channel}>
+            <option value="">Όλα</option>
+            {LEAD_CHANNELS.map((value) => (
+              <option key={value} value={value}>
+                {CHANNEL_LABEL[value]}
+              </option>
+            ))}
+          </select>
+        </div>
+        {assignedToId && <input type="hidden" name="assignedToId" value={assignedToId} />}
         <button type="submit" className="btn btn--outline">
-          Filter
+          Φιλτράρισμα
         </button>
+        {filtered && (
+          <Link href="/leads" className="btn btn--ghost">
+            Καθαρισμός
+          </Link>
+        )}
       </form>
+
+      {assignedToId && (
+        <p className="filter-chip-row">
+          <span className="filter-chip">Ανατεθειμένα σε εμένα</span>
+        </p>
+      )}
 
       {!result.ok ? (
         <div className="notice notice--danger">{result.error.message}</div>
       ) : result.data.data.length === 0 ? (
-        <div className="empty">No leads match.</div>
+        filtered ? (
+          <EmptyState title="Κανένα lead δεν ταιριάζει" text="Αλλάξτε ή καθαρίστε τα φίλτρα." />
+        ) : (
+          <EmptyState
+            title="Δεν υπάρχουν ακόμη leads"
+            text="Οι εκδηλώσεις ενδιαφέροντος από τον ιστότοπο και τα portals θα εμφανίζονται εδώ."
+          />
+        )
       ) : (
         <>
           <div className="table-wrap">
             <table className="data">
               <thead>
                 <tr>
-                  <th>Reference</th>
-                  <th>Name</th>
-                  <th>Status</th>
-                  <th>Source</th>
-                  <th>Property</th>
-                  <th>Assigned</th>
-                  <th>Created</th>
+                  <th>Κωδικός</th>
+                  <th>Όνομα</th>
+                  <th>Στάδιο</th>
+                  <th>Πηγή</th>
+                  <th>Ακίνητο</th>
+                  <th>Ανάθεση</th>
+                  <th>Δημιουργία</th>
                 </tr>
               </thead>
               <tbody>

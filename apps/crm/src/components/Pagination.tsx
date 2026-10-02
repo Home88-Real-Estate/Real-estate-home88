@@ -21,26 +21,26 @@ export function Pagination({
 
   return (
     <div className="pager">
-      <span className="muted">{total} total</span>
+      <span className="muted">{total} συνολικά</span>
       {page > 1 ? (
         <Link className="btn btn--outline btn--sm" href={href(page - 1)}>
-          Previous
+          Προηγούμενη
         </Link>
       ) : (
         <span className="btn btn--outline btn--sm" style={{ opacity: 0.45 }} aria-disabled="true">
-          Previous
+          Προηγούμενη
         </span>
       )}
       <span>
-        Page {page} / {pages}
+        Σελίδα {page} / {pages}
       </span>
       {page < pages ? (
         <Link className="btn btn--outline btn--sm" href={href(page + 1)}>
-          Next
+          Επόμενη
         </Link>
       ) : (
         <span className="btn btn--outline btn--sm" style={{ opacity: 0.45 }} aria-disabled="true">
-          Next
+          Επόμενη
         </span>
       )}
     </div>

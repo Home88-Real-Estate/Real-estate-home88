@@ -1,10 +1,12 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import type { Prisma } from "@home88/database";
+import type { Prisma, PropertyType as PropertyTypeValue } from "@home88/database";
 import {
   availableTransitions,
   can,
+  CATEGORY_PROPERTY_TYPES,
   checkTransition,
   PERMISSIONS,
+  PUBLIC_PROPERTY_STATUSES,
   type Actor,
   type PropertyStatus,
 } from "@home88/domain";
@@ -260,9 +262,19 @@ export async function propertyRoutes(app: FastifyInstance): Promise<void> {
   app.get("/properties", { preHandler: requireRole("AGENT") }, async (request) => {
     const q = parseInput(propertySearchSchema, request.query);
     const where: Prisma.PropertyWhereInput = {};
+    const and: Prisma.PropertyWhereInput[] = [];
     if (q.listingType) where.listingType = q.listingType;
     if (q.propertyType) where.propertyType = q.propertyType;
+    if (q.category) {
+      and.push({ propertyType: { in: [...CATEGORY_PROPERTY_TYPES[q.category]] as PropertyTypeValue[] } });
+    }
     if (q.status) where.status = q.status;
+    if (q.statusGroup === "CURRENT") and.push({ status: { not: "ARCHIVED" } });
+    if (q.statusGroup === "PUBLIC") and.push({ status: { in: [...PUBLIC_PROPERTY_STATUSES] } });
+    if (q.mine) {
+      const me = request.auth!.user.id;
+      and.push({ OR: [{ agentId: me }, { createdById: me }] });
+    }
     if (q.city) where.city = { contains: q.city, mode: "insensitive" };
     if (q.neighborhood) where.neighborhood = { contains: q.neighborhood, mode: "insensitive" };
     if (q.region) where.region = { contains: q.region, mode: "insensitive" };
@@ -280,6 +292,7 @@ export async function propertyRoutes(app: FastifyInstance): Promise<void> {
         { city: { contains: q.q, mode: "insensitive" } },
       ];
     }
+    if (and.length > 0) where.AND = and;
 
     const [total, data] = await db().$transaction([
       db().property.count({ where }),

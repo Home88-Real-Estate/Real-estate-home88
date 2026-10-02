@@ -30,16 +30,22 @@ export function formatArea(value: unknown): string {
   return `${formatDecimal(n)} m²`;
 }
 
+/**
+ * Dates are shown in the agency's time zone, explicitly: the server may run
+ * in UTC, and server and browser must render the same text.
+ */
+export const TIME_ZONE = "Europe/Athens";
+
 export function formatDateTime(value: unknown): string {
   const d = toDate(value);
   if (!d) return EMPTY;
-  return new Intl.DateTimeFormat("el-GR", { dateStyle: "medium", timeStyle: "short" }).format(d);
+  return new Intl.DateTimeFormat("el-GR", { dateStyle: "medium", timeStyle: "short", hourCycle: "h23", timeZone: TIME_ZONE }).format(d);
 }
 
 export function formatDate(value: unknown): string {
   const d = toDate(value);
   if (!d) return EMPTY;
-  return new Intl.DateTimeFormat("el-GR", { dateStyle: "medium" }).format(d);
+  return new Intl.DateTimeFormat("el-GR", { dateStyle: "medium", timeZone: TIME_ZONE }).format(d);
 }
 
 function toDate(value: unknown): Date | null {

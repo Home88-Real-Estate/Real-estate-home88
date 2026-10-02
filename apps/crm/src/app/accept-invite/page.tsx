@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { AcceptInviteForm } from "@/components/AcceptInviteForm";
+import { AuthLayout } from "@/components/AuthLayout";
 
 export const metadata: Metadata = { title: "Ενεργοποίηση λογαριασμού" };
 
@@ -18,23 +19,22 @@ export default async function AcceptInvitePage({
   const token = first(sp.token);
 
   return (
-    <div className="login-wrap">
-      <div className="login-card">
-        <div className="brand">HOME88</div>
-        <p className="sub">Ενεργοποίηση λογαριασμού συνεργάτη</p>
-
-        {token ? (
-          <AcceptInviteForm token={token} />
-        ) : (
-          <div className="notice notice--danger">
-            Ο σύνδεσμος πρόσκλησης δεν είναι έγκυρος. Ζητήστε νέα πρόσκληση από τον διαχειριστή.
-          </div>
-        )}
-
-        <p className="sub" style={{ marginTop: 16, marginBottom: 0, textAlign: "center" }}>
-          <Link href="/login">Επιστροφή στη σύνδεση</Link>
+    <AuthLayout
+      title="Ενεργοποίηση λογαριασμού"
+      subtitle="Ορίστε τον κωδικό σας για να ολοκληρώσετε την πρόσκληση στο HOME88 CRM."
+      footer={
+        <p className="auth__foot">
+          <Link href="/login">← Επιστροφή στη σύνδεση</Link>
         </p>
-      </div>
-    </div>
+      }
+    >
+      {token ? (
+        <AcceptInviteForm token={token} />
+      ) : (
+        <div className="notice notice--danger">
+          Ο σύνδεσμος πρόσκλησης δεν είναι έγκυρος. Ζητήστε νέα πρόσκληση από τον διαχειριστή.
+        </div>
+      )}
+    </AuthLayout>
   );
 }
