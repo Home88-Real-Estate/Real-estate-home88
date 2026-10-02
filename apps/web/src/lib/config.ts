@@ -27,22 +27,47 @@ export const SITE_URL = optional("NEXT_PUBLIC_SITE_URL", "http://localhost:3000"
 export const CRM_BASE_PATH = optional("NEXT_PUBLIC_CRM_BASE_PATH", "/crm").replace(/\/+$/, "");
 
 /**
+ * Builds the staff sign-in URL from the CRM origin and base path. Kept pure so
+ * the footer link and its tests share one source of truth; an empty origin
+ * defensively yields no link (the column is then not rendered).
+ */
+export function crmLoginUrl(origin: string, basePath: string): string {
+  if (!origin) return "";
+  return `${origin.replace(/\/+$/, "")}${basePath.replace(/\/+$/, "")}/login`;
+}
+
+/**
  * Where the footer's staff sign-in link points. The public site never holds a
  * CRM session; it only links to the login page.
  *
- *  1. CRM_ORIGIN set: the CRM is proxied onto this site under /crm (see
- *     next.config.mjs), so the link is same-origin: /crm/login.
- *  2. NEXT_PUBLIC_CRM_URL set: the CRM has its own origin
- *     (e.g. https://crm.home88.estate) and the link goes there.
- *  3. Neither: production hides the link rather than pointing at localhost (a
- *     placeholder that would 404 or, worse, hit a developer machine).
+ *  1. NEXT_PUBLIC_CRM_URL set: the CRM has its own origin (e.g. a subdomain
+ *     whose DNS exists) and the link goes there.
+ *  2. Otherwise in production: the CRM is served on this site's own origin
+ *     under /crm (rewritten to the CRM deployment named by CRM_ORIGIN, see
+ *     next.config.mjs), so the link is same-origin /crm/login. No extra domain
+ *     or DNS record is needed.
+ *  3. Development: the local CRM on port 3100, unless CRM_ORIGIN proxies it.
  */
-export const CRM_LOGIN_URL = (() => {
-  if (process.env.CRM_ORIGIN?.trim()) return `${CRM_BASE_PATH}/login`;
-  const configured = process.env.NEXT_PUBLIC_CRM_URL?.trim().replace(/\/+$/, "");
-  if (configured) return `${configured}${CRM_BASE_PATH}/login`;
-  return isProduction ? "" : `http://localhost:3100${CRM_BASE_PATH}/login`;
-})();
+export function resolveCrmLoginUrl(env: {
+  crmUrl?: string;
+  crmOrigin?: string;
+  basePath: string;
+  production: boolean;
+}): string {
+  const base = env.basePath.replace(/\/+$/, "");
+  const configured = env.crmUrl?.trim();
+  if (configured) return crmLoginUrl(configured, base);
+  if (env.production || env.crmOrigin?.trim()) return `${base}/login`;
+  return crmLoginUrl("http://localhost:3100", base);
+}
+
+/** The one staff sign-in URL used by the footer. */
+export const CRM_LOGIN_URL = resolveCrmLoginUrl({
+  crmUrl: process.env.NEXT_PUBLIC_CRM_URL,
+  crmOrigin: process.env.CRM_ORIGIN,
+  basePath: CRM_BASE_PATH,
+  production: isProduction,
+});
 
 export const COMPANY = {
   /** Shown in the privacy notice and the footer of every commercial email. */
