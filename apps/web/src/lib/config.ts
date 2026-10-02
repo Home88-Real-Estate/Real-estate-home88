@@ -1,9 +1,10 @@
 /**
  * Server-side configuration readers.
  *
- * Everything here is read from the environment at request time, never baked
- * into a client bundle except the three NEXT_PUBLIC_ values, which are
- * intentionally public and contain no secrets.
+ * Everything here is read from the environment at request time and never baked
+ * into a client bundle: no module that imports this file is a client component,
+ * and the values are public origins rather than secrets. The `NEXT_PUBLIC_`
+ * spelling is still accepted for compatibility (see `resolvePublic`).
  */
 
 function required(name: string): string {
@@ -22,9 +23,31 @@ function optional(name: string, fallback = ""): string {
 
 export const isProduction = process.env.NODE_ENV === "production";
 
-export const SITE_URL = optional("NEXT_PUBLIC_SITE_URL", "http://localhost:3000").replace(/\/+$/, "");
+/**
+ * Reads a value that may be published under either the Next.js `NEXT_PUBLIC_`
+ * name or the plain, server-only name.
+ *
+ * `NEXT_PUBLIC_` is inlined into the client bundle, and hosting platforms warn
+ * about it and steer you to a private name instead. That warning does not apply
+ * here: nothing in this app reads these values from the browser — every consumer
+ * of this module is a server component or a server-side route handler — and
+ * these values are public origins, not secrets. So the plain name is accepted
+ * and the prefixed one stays supported, in case a deployment already sets it.
+ */
+export function resolvePublic(
+  name: string,
+  env: Record<string, string | undefined> = process.env,
+): string {
+  return env[`NEXT_PUBLIC_${name}`]?.trim() || env[name]?.trim() || "";
+}
 
-export const CRM_BASE_PATH = optional("NEXT_PUBLIC_CRM_BASE_PATH", "/crm").replace(/\/+$/, "");
+function publicValue(name: string, fallback: string): string {
+  return resolvePublic(name) || fallback;
+}
+
+export const SITE_URL = publicValue("SITE_URL", "http://localhost:3000").replace(/\/+$/, "");
+
+export const CRM_BASE_PATH = publicValue("CRM_BASE_PATH", "/crm").replace(/\/+$/, "");
 
 /**
  * Builds the staff sign-in URL from the CRM origin and base path. Kept pure so
@@ -46,8 +69,8 @@ export const DEFAULT_CRM_ORIGIN = "https://real-estate-home88-iota.vercel.app";
  * Where the footer's staff sign-in link points. The public site never holds a
  * CRM session; it only links to the CRM's own login page.
  *
- *  1. NEXT_PUBLIC_CRM_URL set: that origin (e.g. crm.home88.estate once its
- *     DNS exists).
+ *  1. CRM_URL set (NEXT_PUBLIC_CRM_URL also accepted): that origin, e.g.
+ *     crm.home88.estate once its DNS exists.
  *  2. CRM_ORIGIN set: the CRM deployment it names.
  *  3. Otherwise in production: the HOME88 CRM deployment (DEFAULT_CRM_ORIGIN).
  *  4. Development: the local CRM on port 3100.
@@ -67,11 +90,18 @@ export function resolveCrmLoginUrl(env: {
 
 /** The one staff sign-in URL used by the footer. */
 export const CRM_LOGIN_URL = resolveCrmLoginUrl({
-  crmUrl: process.env.NEXT_PUBLIC_CRM_URL,
+  crmUrl: resolvePublic("CRM_URL"),
   crmOrigin: process.env.CRM_ORIGIN,
   basePath: CRM_BASE_PATH,
   production: isProduction,
 });
+
+/**
+ * Absolute base for public media (object storage). Blank falls back to the
+ * root-relative `/media/<key>` route on this origin, so it only has to be set
+ * when the bucket is served from a different host.
+ */
+export const MEDIA_BASE_URL = publicValue("MEDIA_BASE_URL", "").replace(/\/+$/, "");
 
 export const COMPANY = {
   /** Shown in the privacy notice and the footer of every commercial email. */

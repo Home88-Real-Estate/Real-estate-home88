@@ -13,6 +13,7 @@ import type {
   PublicPropertyDetail,
   PublicPropertySummary,
 } from "@home88/types";
+import { MEDIA_BASE_URL } from "./config";
 import { prisma, safeQuery } from "./db";
 
 /** Only these statuses are ever visible on the public site (owned by @home88/domain). */
@@ -36,7 +37,7 @@ type MediaRow = {
  * the URL here means a database leak does not hand over a browsable gallery.
  */
 export function mediaUrl(storageKey: string): string {
-  const base = process.env.NEXT_PUBLIC_MEDIA_BASE_URL?.replace(/\/+$/, "");
+  const base = MEDIA_BASE_URL;
   if (base) return `${base}/${storageKey.replace(/^\/+/, "")}`;
   return `/media/${storageKey.replace(/^\/+/, "")}`;
 }

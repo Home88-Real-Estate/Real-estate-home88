@@ -6,7 +6,7 @@ storage bucket. No other servers.
 | Vercel project | Root directory | Serves | Domain |
 |---|---|---|---|
 | HOME88 Web | `apps/web` | Public website | `home88.estate` (today `realestate-home-88.vercel.app`) |
-| HOME88 CRM | `apps/crm` | Staff CRM under `/crm` **and the API** under `/crm/api/*` and `/api/*` | `crm.home88.estate` |
+| HOME88 CRM | `apps/crm` | Staff CRM under `/crm` **and the API** under `/crm/api/*` and `/api/*` | `crm.home88.estate` (today `real-estate-home88-iota.vercel.app`) |
 
 ```
 browser ──► home88.estate ─────────────► apps/web ──► PostgreSQL (published listings, enquiries)
@@ -92,18 +92,28 @@ it never shows connection details.
 
 ### HOME88 Web (root `apps/web`)
 
-- `NEXT_PUBLIC_SITE_URL` = the site's URL (note: `NEXT_PUBLIC_`, not `NEXT_SITE_URL`).
+- `SITE_URL` = the site's URL, e.g. `https://realestate-home-88.vercel.app`.
+  `NEXT_PUBLIC_SITE_URL` is also accepted; see the note on env names below.
 - `DATABASE_URL`, `PII_HASH_PEPPER`, `PII_ENCRYPTION_KEY` (same values as the CRM).
 - The footer's «Σύνδεση Συνεργατών» goes to the CRM deployment,
   `https://real-estate-home88-iota.vercel.app/crm/login`, with no configuration;
-  `/crm` on the website redirects there too. Leave `NEXT_PUBLIC_CRM_URL` and
-  `CRM_ORIGIN` **unset** for this.
-- `NEXT_PUBLIC_CRM_URL=https://crm.home88.estate` once that domain resolves
-  points the link there instead. Redeploy after changing it (it is read at
-  build time).
+  `/crm` on the website redirects there too. Leave `CRM_URL` and `CRM_ORIGIN`
+  **unset** for this.
+- `CRM_URL=https://crm.home88.estate` once that domain resolves points the link
+  there instead. `NEXT_PUBLIC_CRM_URL` is accepted too, but see the env names
+  note below.
 - Alternatively `CRM_ORIGIN` = the CRM deployment's URL serves the CRM on the
   website's own `/crm` (rewrite); then add the website's origin to the CRM's
   `CRM_PUBLIC_ORIGINS`.
+
+### Env names on the web project
+
+`apps/web` reads `SITE_URL`, `CRM_URL`, `CRM_BASE_PATH` and `MEDIA_BASE_URL`, and
+also accepts the `NEXT_PUBLIC_` spelling of each. No module that reads them is a
+client component, and they hold public origins rather than secrets, so the plain
+names are preferred: Vercel warns that a `NEXT_PUBLIC_` value is exposed to the
+browser, and some dashboards refuse the name outright. `NEXT_PUBLIC_CRM_BASE_PATH`
+must keep its prefix — Next inlines it into the client bundle for the CRM router.
 
 ## Is the CRM's API working?
 
