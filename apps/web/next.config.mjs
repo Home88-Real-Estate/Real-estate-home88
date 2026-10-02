@@ -61,6 +61,25 @@ try {
 }
 const crmSegment = crmBasePath.replace(/^\//, "");
 
+/**
+ * The HOME88 CRM's production deployment (keep in sync with src/lib/config.ts).
+ * Without CRM_ORIGIN, /crm on this site redirects there, so old bookmarks and
+ * typed URLs still reach the staff sign-in.
+ */
+const DEFAULT_CRM_ORIGIN = "https://real-estate-home88-iota.vercel.app";
+let crmRedirectOrigin = "";
+try {
+  crmRedirectOrigin = new URL(process.env.NEXT_PUBLIC_CRM_URL || DEFAULT_CRM_ORIGIN).origin;
+} catch {
+  crmRedirectOrigin = DEFAULT_CRM_ORIGIN;
+}
+let siteOrigin = "";
+try {
+  siteOrigin = new URL(process.env.NEXT_PUBLIC_SITE_URL || "").origin;
+} catch {
+  siteOrigin = "";
+}
+
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
@@ -124,11 +143,24 @@ const nextConfig = {
   },
 
   async redirects() {
+    const crm =
+      // Never redirect to this site itself (that would loop).
+      crmOrigin || isDev || crmRedirectOrigin === siteOrigin
+        ? []
+        : [
+            { source: crmBasePath, destination: `${crmRedirectOrigin}${crmBasePath}/login`, permanent: false },
+            {
+              source: `${crmBasePath}/:path*`,
+              destination: `${crmRedirectOrigin}${crmBasePath}/:path*`,
+              permanent: false,
+            },
+          ];
     return [
       // Legacy/alternate paths used by the previous deployment.
       { source: "/property", destination: "/properties", permanent: true },
       { source: "/legal/privacy-policy", destination: "/privacy", permanent: true },
       { source: "/legal/terms", destination: "/terms", permanent: true },
+      ...crm,
     ];
   },
 };

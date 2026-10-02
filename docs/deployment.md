@@ -94,12 +94,16 @@ it never shows connection details.
 
 - `NEXT_PUBLIC_SITE_URL` = the site's URL (note: `NEXT_PUBLIC_`, not `NEXT_SITE_URL`).
 - `DATABASE_URL`, `PII_HASH_PEPPER`, `PII_ENCRYPTION_KEY` (same values as the CRM).
-- `NEXT_PUBLIC_CRM_URL=https://crm.home88.estate` once that domain resolves, so the footer's «Σύνδεση Συνεργατών» goes to `https://crm.home88.estate/crm/login`. Redeploy after setting it (it is read at build time).
-
-Until the CRM domain exists, leave `NEXT_PUBLIC_CRM_URL` unset and set
-`CRM_ORIGIN` to the CRM project's `*.vercel.app` URL instead. The website then
-serves the CRM under its own `/crm`, and the footer links there. If you do
-that, add the website's origin to the CRM's `CRM_PUBLIC_ORIGINS`.
+- The footer's «Σύνδεση Συνεργατών» goes to the CRM deployment,
+  `https://real-estate-home88-iota.vercel.app/crm/login`, with no configuration;
+  `/crm` on the website redirects there too. Leave `NEXT_PUBLIC_CRM_URL` and
+  `CRM_ORIGIN` **unset** for this.
+- `NEXT_PUBLIC_CRM_URL=https://crm.home88.estate` once that domain resolves
+  points the link there instead. Redeploy after changing it (it is read at
+  build time).
+- Alternatively `CRM_ORIGIN` = the CRM deployment's URL serves the CRM on the
+  website's own `/crm` (rewrite); then add the website's origin to the CRM's
+  `CRM_PUBLIC_ORIGINS`.
 
 ## Limits to know
 
