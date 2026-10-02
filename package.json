@@ -14,7 +14,7 @@
     "postinstall": "prisma generate --schema packages/database/prisma/schema.prisma",
     "prebuild": "prisma generate --schema packages/database/prisma/schema.prisma",
     "build": "npm run build --workspaces --if-present",
-    "dev": "npm run dev --workspaces --if-present --parallel",
+    "dev": "concurrently -n api,web,crm -c yellow,green,magenta \"npm run dev -w @home88/api\" \"npm run dev -w @home88/web\" \"npm run dev -w @home88/crm\"",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
@@ -24,10 +24,12 @@
     "db:studio": "npm run prisma:studio -w @home88/database",
     "db:validate": "npm run prisma:validate -w @home88/database",
     "db:seed": "npm run seed -w @home88/api",
+    "admin:create": "npm run admin:create -w @home88/api",
     "infra:up": "docker compose up -d",
     "infra:down": "docker compose down"
   },
   "devDependencies": {
+    "concurrently": "^9.1.2",
     "typescript": "^5.6.3"
   }
 }
