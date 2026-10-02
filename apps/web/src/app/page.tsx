@@ -70,7 +70,9 @@ export default async function HomePage() {
     countPublicProperties(),
   ]);
 
-  const heroImage = featured[0]?.primaryImage ?? recent[0]?.primaryImage ?? null;
+  // The branded landing background is the hero, independent of inventory, so
+  // the homepage never falls back to a bare colour or a slow-loading photo.
+  const heroImage = "/images/hero-background.png";
 
   return (
     <>

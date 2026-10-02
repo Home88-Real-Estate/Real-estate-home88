@@ -41,8 +41,7 @@ export function SiteHeader({
 
       <div className="wrap header-main">
         <Link href="/" className="brand" aria-label={`${legalName} — αρχική`}>
-          {legalName}
-          <span className="brand__sub">Real Estate</span>
+          <img className="brand__logo" src="/images/logo.png" alt={legalName} />
         </Link>
 
         <nav className="nav" aria-label="Κύρια πλοήγηση">

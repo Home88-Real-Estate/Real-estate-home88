@@ -178,6 +178,11 @@ p { margin: 0 0 1em; }
   line-height: 1;
 }
 .brand:hover { text-decoration: none; }
+.brand__logo {
+  height: 42px;
+  width: auto;
+  display: block;
+}
 .brand__sub {
   font-size: 0.62rem;
   font-weight: 700;
