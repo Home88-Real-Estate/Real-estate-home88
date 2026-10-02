@@ -37,16 +37,20 @@ export function crmLoginUrl(origin: string, basePath: string): string {
 }
 
 /**
+ * The HOME88 CRM's production deployment. Keep in sync with
+ * DEFAULT_CRM_ORIGIN in next.config.mjs.
+ */
+export const DEFAULT_CRM_ORIGIN = "https://real-estate-home88-iota.vercel.app";
+
+/**
  * Where the footer's staff sign-in link points. The public site never holds a
- * CRM session; it only links to the login page.
+ * CRM session; it only links to the CRM's own login page.
  *
- *  1. NEXT_PUBLIC_CRM_URL set: the CRM has its own origin (e.g. a subdomain
- *     whose DNS exists) and the link goes there.
- *  2. Otherwise in production: the CRM is served on this site's own origin
- *     under /crm (rewritten to the CRM deployment named by CRM_ORIGIN, see
- *     next.config.mjs), so the link is same-origin /crm/login. No extra domain
- *     or DNS record is needed.
- *  3. Development: the local CRM on port 3100, unless CRM_ORIGIN proxies it.
+ *  1. NEXT_PUBLIC_CRM_URL set: that origin (e.g. crm.home88.estate once its
+ *     DNS exists).
+ *  2. CRM_ORIGIN set: the CRM deployment it names.
+ *  3. Otherwise in production: the HOME88 CRM deployment (DEFAULT_CRM_ORIGIN).
+ *  4. Development: the local CRM on port 3100.
  */
 export function resolveCrmLoginUrl(env: {
   crmUrl?: string;
@@ -54,11 +58,11 @@ export function resolveCrmLoginUrl(env: {
   basePath: string;
   production: boolean;
 }): string {
-  const base = env.basePath.replace(/\/+$/, "");
-  const configured = env.crmUrl?.trim();
-  if (configured) return crmLoginUrl(configured, base);
-  if (env.production || env.crmOrigin?.trim()) return `${base}/login`;
-  return crmLoginUrl("http://localhost:3100", base);
+  const origin =
+    env.crmUrl?.trim() ||
+    env.crmOrigin?.trim() ||
+    (env.production ? DEFAULT_CRM_ORIGIN : "http://localhost:3100");
+  return crmLoginUrl(origin, env.basePath);
 }
 
 /** The one staff sign-in URL used by the footer. */

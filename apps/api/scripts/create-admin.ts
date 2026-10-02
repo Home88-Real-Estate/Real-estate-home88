@@ -9,11 +9,15 @@
  *  - refuses to add a second SUPER_ADMIN (--force overrides) and refuses to
  *    raise an existing lower-role account (--promote overrides).
  *
- * Password: never invented, printed or hard-coded. With no ADMIN_PASSWORD the
- * account is created without one; it cannot sign in until its owner sets a
- * password through <CRM>/crm/forgot-password (delivered by email, so SMTP must
- * be configured on the API). ADMIN_PASSWORD, if given, must meet the password
- * policy and is stored only as a scrypt hash.
+ * Password: never invented, printed or hard-coded. The account's owner chooses
+ * it, either:
+ *  - by running this command with ADMIN_PASSWORD (their own choice) set: it is
+ *    checked against the password policy and stored only as a scrypt hash. It
+ *    is applied to a new account, or to an existing one that has no password
+ *    yet. An existing password is only replaced with --reset-password, which
+ *    also signs out every session of that account; or
+ *  - at <CRM>/crm/forgot-password (delivered by email, so SMTP must be
+ *    configured on the API).
  *
  *   DATABASE_URL=... ADMIN_EMAIL=you@example.com ADMIN_AUTH_UID=<uuid> npm run admin:create
  */
@@ -28,6 +32,7 @@ import { isAuthUid, planAdminBootstrap } from "../src/lib/admin-bootstrap";
 import { writeAudit } from "../src/lib/audit";
 import { hashPassword } from "../src/lib/passwords";
 import { db, disconnectDb } from "../src/lib/prisma";
+import { revokeAllUserSessions } from "../src/lib/sessions";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "..", "..", "..");
@@ -163,7 +168,32 @@ async function main(): Promise<void> {
     }
   }
 
-  const user = await prisma.user.findUnique({ where: { email }, select: { passwordHash: true } });
+  const user = await prisma.user.findUnique({ where: { email }, select: { id: true, passwordHash: true } });
+
+  // A password chosen by the owner for an account that already existed.
+  if (user && passwordHash && plan.kind !== "create") {
+    const replace = Boolean(user.passwordHash);
+    if (replace && !process.argv.includes("--reset-password")) {
+      console.log(
+        `${email} already has a password; it was left unchanged. Re-run with --reset-password to replace it.`,
+      );
+    } else {
+      await prisma.$transaction(async (tx) => {
+        await tx.user.update({ where: { id: user.id }, data: { passwordHash } });
+        // Outstanding reset links must not outlive the new password.
+        await tx.passwordResetToken.updateMany({
+          where: { userId: user.id, usedAt: null },
+          data: { usedAt: new Date() },
+        });
+        const action = replace ? "ADMIN_BOOTSTRAP_RESET_PASSWORD" : "ADMIN_BOOTSTRAP_SET_PASSWORD";
+        await writeAudit({ entity: "USER", entityId: user.id, action }, tx);
+      });
+      if (replace) await revokeAllUserSessions(user.id, "password_reset");
+      console.log(`Password ${replace ? "replaced" : "set"} for ${email}. It was not printed.`);
+    }
+    return;
+  }
+
   if (user && !user.passwordHash) {
     const crm = `${process.env.NEXT_PUBLIC_CRM_URL ?? "<CRM origin>"}${process.env.CRM_BASE_PATH ?? "/crm"}`;
     console.log(

@@ -38,15 +38,24 @@ What it does (`apps/api/scripts/create-admin.ts`, decisions in `apps/api/src/lib
 - Creates the SUPER_ADMIN only if no SUPER_ADMIN exists (`--force` overrides). An existing lower-role account with that email is raised only with `--promote`.
 - Refuses, changing nothing, if the UID is already linked to a different staff record or the email is linked to a different UID.
 - Without `ADMIN_PASSWORD` the account is created **with no password**. A null password hash never authenticates (`verifyStoredPassword`), so the account is inert until its owner sets one.
-- Writes an audit row (`ADMIN_BOOTSTRAP_CREATE` / `_PROMOTE` / `_LINK_UID`). Never prints a password, hash or token.
+- Writes an audit row (`ADMIN_BOOTSTRAP_CREATE` / `_PROMOTE` / `_LINK_UID` / `_SET_PASSWORD` / `_RESET_PASSWORD`). Never prints a password, hash or token.
 
-Then the administrator sets their password:
+Then the administrator sets their own password, in one of two ways:
 
-1. Open `https://crm.home88.estate/crm/forgot-password` and enter the email.
-2. Open the emailed link (valid 60 minutes, single use) and choose a password that meets the policy.
-3. Sign in at `https://crm.home88.estate/crm/login`.
+**Without email (no SMTP needed).** The owner runs the command once more in their own terminal with a password they choose:
 
-The link is delivered by email, so the API must have `SMTP_*` configured. With no `SMTP_HOST` the API runs in log-only mode and the message is **not** delivered.
+```bash
+DATABASE_URL="postgresql://…" \
+ADMIN_EMAIL=home88estate@gmail.com \
+ADMIN_PASSWORD='a password you choose' \
+npm run admin:create
+```
+
+It must meet the password policy, is stored only as a scrypt hash and is never printed. It is applied to an account with no password yet; an existing password is replaced only with `--reset-password`, which also signs out every session of the account. Clear the variable (and shell history) afterwards.
+
+**By email.** Open `<CRM>/crm/forgot-password`, enter the email, open the emailed link (valid 60 minutes, single use) and choose a password. The API must have `SMTP_*` configured; with no `SMTP_HOST` it runs in log-only mode and the message is **not** delivered.
+
+Then sign in at `https://real-estate-home88-iota.vercel.app/crm/login`.
 
 ## Password reset and change
 
