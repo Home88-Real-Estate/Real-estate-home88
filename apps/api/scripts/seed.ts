@@ -159,7 +159,7 @@ async function upsertProperty(input: {
     | "STUDIO"
     | "OFFICE"
     | "SHOP";
-  status: "DRAFT" | "ACTIVE" | "RESERVED" | "SOLD" | "RENTED" | "INACTIVE";
+  status: "DRAFT" | "ACTIVE" | "UNDER_OFFER" | "RESERVED" | "SOLD" | "RENTED" | "INACTIVE";
   price: number;
   area: number;
   bedrooms: number;

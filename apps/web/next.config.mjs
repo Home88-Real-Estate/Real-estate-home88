@@ -52,6 +52,7 @@ const nextConfig = {
   // The workspace packages ship TypeScript source, so Next must compile them.
   transpilePackages: [
     "@home88/database",
+    "@home88/domain",
     "@home88/types",
     "@home88/ui",
     "@home88/validation",

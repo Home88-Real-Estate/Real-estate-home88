@@ -1,7 +1,17 @@
-import type { PortalProperty } from "./types";
+import { PUBLIC_PROPERTY_STATUSES } from "@home88/domain";
+import type { PortalProperty, PropertyStatus } from "./types";
 
-/** Portals only want listings that are actually for sale or rent right now. */
-export const PUBLISHABLE_STATUSES = ["ACTIVE", "RESERVED"] as const;
+/** Portals only want listings that are actually on the market right now. */
+export const PUBLISHABLE_STATUSES = PUBLIC_PROPERTY_STATUSES;
+
+/**
+ * The status word written into feeds. A property under offer is still being
+ * marketed, so portals are told it is active rather than given a value their
+ * feed specification does not define.
+ */
+export function feedStatus(status: PropertyStatus): string {
+  return status === "UNDER_OFFER" ? "active" : status.toLowerCase();
+}
 
 export type PublishEligibility = {
   eligible: boolean;

@@ -6,11 +6,13 @@
  * we never publish an empty "SEO" page for a place we do not actually cover.
  */
 
+import { PUBLIC_PROPERTY_STATUSES } from "@home88/domain";
 import type { Prisma } from "@home88/database";
 
 import { safeQuery } from "./db";
 
-const PUBLIC_STATUSES = ["ACTIVE", "RESERVED"] as const;
+/** Only these statuses are ever visible on the public site (owned by @home88/domain). */
+const PUBLIC_STATUSES = PUBLIC_PROPERTY_STATUSES;
 
 export interface AreaSummary {
   slug: string;

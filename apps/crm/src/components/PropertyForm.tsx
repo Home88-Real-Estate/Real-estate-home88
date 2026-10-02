@@ -19,7 +19,10 @@ function optionsFrom(map: Record<string, Localised>): Options {
 
 const LISTING_OPTIONS = optionsFrom(LISTING_TYPE_LABELS);
 const TYPE_OPTIONS = optionsFrom(PROPERTY_TYPE_LABELS);
-const STATUS_OPTIONS = optionsFrom(PROPERTY_STATUS_LABELS);
+/** A new property starts as a draft or active; later moves use the status actions. */
+const CREATE_STATUS_OPTIONS = optionsFrom(PROPERTY_STATUS_LABELS).filter(([value]) =>
+  value === "DRAFT" || value === "ACTIVE",
+);
 
 const CONDITION_OPTIONS: Options = [
   ["NEW_BUILD", "New build"],
@@ -96,7 +99,7 @@ export function PropertyForm({
           <TextField name="titleEn" label="Title (EN)" defaultValue={text(initial, "titleEn")} error={error("titleEn")} span2 />
           <SelectField name="listingType" label="Listing type" defaultValue={text(initial, "listingType") || "SALE"} options={LISTING_OPTIONS} error={error("listingType")} />
           <SelectField name="propertyType" label="Property type" defaultValue={text(initial, "propertyType") || "APARTMENT"} options={TYPE_OPTIONS} error={error("propertyType")} />
-          <SelectField name="status" label="Status" defaultValue={text(initial, "status") || "DRAFT"} options={STATUS_OPTIONS} error={error("status")} />
+          {!id && <SelectField name="status" label="Status" defaultValue="DRAFT" options={CREATE_STATUS_OPTIONS} error={error("status")} />}
           <SelectField name="condition" label="Condition" defaultValue={text(initial, "condition") || "GOOD"} options={CONDITION_OPTIONS} error={error("condition")} />
           <TextField name="reference" label="Reference" defaultValue={text(initial, "reference")} hint="Leave blank to allocate automatically (H88-000001)." error={error("reference")} />
         </div>

@@ -35,6 +35,9 @@ export function PropertyCard({
             <span className="badge">{label(LISTING_TYPE_LABELS, property.listingType, locale)}</span>
             {property.isFeatured && <span className="badge badge--accent">Επιλεγμένο</span>}
             {property.isNew && <span className="badge badge--accent">Νέο</span>}
+            {property.status === "UNDER_OFFER" && (
+              <span className="badge badge--muted">Υπό προσφορά</span>
+            )}
             {property.status === "RESERVED" && <span className="badge badge--muted">Κρατημένο</span>}
           </div>
           {property.primaryImage ? (

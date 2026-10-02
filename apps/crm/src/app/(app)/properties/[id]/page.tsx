@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { ArchiveButton } from "@/components/ArchiveButton";
 import { MediaPanel } from "@/components/MediaPanel";
 import type { MediaItemData } from "@/components/MediaItem";
+import { PropertyHistory, type PriceEntry, type StatusEntry } from "@/components/PropertyHistory";
+import { PropertyStatusActions } from "@/components/PropertyStatusActions";
 import { StatusBadge } from "@/components/StatusBadge";
 import { apiFetch } from "@/lib/api";
 import { formatArea, formatDate, formatDateTime, formatMoney } from "@/lib/format";
@@ -84,9 +85,12 @@ export default async function PropertyDetailPage({
   const user = await requireRole("AGENT");
   const { id } = await params;
 
-  const [result, mediaResult] = await Promise.all([
-    apiFetch<{ property: Property }>(`/api/properties/${id}`),
+  const [result, mediaResult, historyResult] = await Promise.all([
+    apiFetch<{ property: Property; allowedTransitions: string[]; canEdit: boolean }>(
+      `/api/properties/${id}`,
+    ),
     apiFetch<{ media: MediaItemData[] }>(`/api/properties/${id}/media`),
+    apiFetch<{ statuses: StatusEntry[]; prices: PriceEntry[] }>(`/api/properties/${id}/history`),
   ]);
   if (!result.ok) {
     if (result.status === 404) notFound();
@@ -94,6 +98,7 @@ export default async function PropertyDetailPage({
   }
 
   const p = result.data.property;
+  const { allowedTransitions, canEdit } = result.data;
   const media = mediaResult.ok ? mediaResult.data.media : [];
   const features = p as unknown as Record<string, boolean>;
 
@@ -114,12 +119,18 @@ export default async function PropertyDetailPage({
           <h1 style={{ margin: 0 }}>{p.titleEl}</h1>
           {p.titleEn && <p className="muted" style={{ margin: 0 }}>{p.titleEn}</p>}
         </div>
-        <div className="row">
-          <Link href={`/properties/${id}/edit`} className="btn btn--primary btn--sm">
-            Edit
-          </Link>
-          {hasRole(user.role, "ADMIN") && p.status !== "ARCHIVED" && <ArchiveButton id={id} />}
-        </div>
+        {canEdit && (
+          <div className="row">
+            <Link href={`/properties/${id}/edit`} className="btn btn--primary btn--sm">
+              Edit
+            </Link>
+          </div>
+        )}
+      </div>
+
+      <div className="panel">
+        <h2>Κατάσταση</h2>
+        <PropertyStatusActions id={id} allowed={allowedTransitions} />
       </div>
 
       <div className="panel">
@@ -213,6 +224,15 @@ export default async function PropertyDetailPage({
         media={media}
         canModerate={hasRole(user.role, "MANAGER")}
       />
+
+      <div className="panel">
+        <h2>Ιστορικό</h2>
+        {historyResult.ok ? (
+          <PropertyHistory statuses={historyResult.data.statuses} prices={historyResult.data.prices} />
+        ) : (
+          <div className="notice notice--danger">{historyResult.error.message}</div>
+        )}
+      </div>
 
       <div className="panel">
         <h2>Portal listings</h2>

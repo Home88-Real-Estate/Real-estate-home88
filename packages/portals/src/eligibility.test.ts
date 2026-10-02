@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { evaluatePublishEligibility } from "./eligibility";
+import { evaluatePublishEligibility, feedStatus } from "./eligibility";
 import { makePortalProperty } from "./test-fixtures";
 
 test("a complete active listing is eligible", () => {
@@ -44,4 +44,10 @@ test("missing title and description are reported", () => {
   assert.equal(result.eligible, false);
   assert.ok(result.reasons.includes("missing title"));
   assert.ok(result.reasons.includes("missing description"));
+});
+
+test("feeds call a property under offer active and lower-case the rest", () => {
+  assert.equal(feedStatus("UNDER_OFFER"), "active");
+  assert.equal(feedStatus("RESERVED"), "reserved");
+  assert.equal(feedStatus("ACTIVE"), "active");
 });

@@ -1,20 +1,17 @@
 {
-  "name": "@home88/validation",
+  "name": "@home88/domain",
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "description": "HOME88 business rules shared by the API, CRM, website and portal feeds: permissions and the property lifecycle.",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./age-gate": "./src/age-gate.ts"
+    ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json"
-  },
-  "dependencies": {
-    "@home88/domain": "*",
-    "zod": "^3.23.8"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/**/*.test.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

@@ -8,6 +8,7 @@
  * full book.
  */
 
+import { PUBLIC_PROPERTY_STATUSES } from "@home88/domain";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import {
@@ -61,7 +62,7 @@ async function buildFeed(portal: Portal, adapter: PortalAdapter) {
   const context = buildContext(portal, cfg);
 
   const properties = await db().property.findMany({
-    where: { status: { in: ["ACTIVE", "RESERVED"] } },
+    where: { status: { in: [...PUBLIC_PROPERTY_STATUSES] } },
     include: { media: true },
     orderBy: { reference: "asc" },
   });

@@ -8,6 +8,8 @@
  * assignable to them without a cast.
  */
 
+import type { PropertyStatus } from "@home88/domain";
+
 export type PortalTransport = "API" | "XML_FEED" | "CSV_FEED" | "MANUAL";
 
 export type PortalSyncState =
@@ -23,14 +25,8 @@ export type SyncAction = "PUBLISH" | "UPDATE" | "REMOVE" | "REPUBLISH" | "IMPORT
 
 export type ListingType = "SALE" | "RENT" | "ASSIGNMENT";
 
-export type PropertyStatus =
-  | "DRAFT"
-  | "ACTIVE"
-  | "RESERVED"
-  | "SOLD"
-  | "RENTED"
-  | "INACTIVE"
-  | "ARCHIVED";
+/** Owned by the property lifecycle in @home88/domain. */
+export type { PropertyStatus };
 
 export type MediaKind = "PHOTO" | "FLOOR_PLAN" | "VIDEO" | "VIRTUAL_TOUR" | "DOCUMENT";
 

@@ -6,6 +6,7 @@
  * adding a column to the schema does not leak it to the internet.
  */
 
+import { PUBLIC_PROPERTY_STATUSES } from "@home88/domain";
 import type { Prisma, PrismaClient } from "@home88/database";
 import type {
   Locale,
@@ -14,8 +15,8 @@ import type {
 } from "@home88/types";
 import { prisma, safeQuery } from "./db";
 
-/** Only these statuses are ever visible on the public site. */
-const PUBLIC_STATUSES = ["ACTIVE", "RESERVED"] as const;
+/** Only these statuses are ever visible on the public site (owned by @home88/domain). */
+const PUBLIC_STATUSES = PUBLIC_PROPERTY_STATUSES;
 
 type MediaRow = {
   storageKey: string;
