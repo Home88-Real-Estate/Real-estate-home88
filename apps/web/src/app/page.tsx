@@ -36,11 +36,31 @@ const TYPE_OPTIONS: Array<[string, string]> = [
   ["OTHER", "Άλλο"],
 ];
 
-const VALUES: Array<{ title: string; text: string; icon: string }> = [
-  { title: "Τοπική γνώση", text: "Εξειδίκευση στις περιοχές και τις τιμές της αγοράς.", icon: "◎" },
-  { title: "Επαγγελματική παρουσίαση", text: "Σύγχρονη προβολή και marketing κάθε ακινήτου.", icon: "▣" },
-  { title: "Προσωπική εξυπηρέτηση", text: "Υποστήριξη από την πρώτη επικοινωνία έως την ολοκλήρωση.", icon: "☏" },
-  { title: "Δίκτυο & συνεργασίες", text: "Πρόσβαση σε αγοραστές, ιδιοκτήτες και επενδυτές.", icon: "⇄" },
+const VALUES: Array<{ title: string; text: string; image: string; alt: string }> = [
+  {
+    title: "Τοπική γνώση",
+    text: "Εξειδίκευση στις περιοχές και τις τιμές της αγοράς.",
+    image: "/images/why/01_topiki_lysi.png",
+    alt: "Τοπική γνώση HOME88",
+  },
+  {
+    title: "Επαγγελματική παρουσίαση",
+    text: "Σύγχρονη προβολή και marketing κάθε ακινήτου.",
+    image: "/images/why/02_epaggelmatiki_parousiasi.png",
+    alt: "Επαγγελματική παρουσίαση HOME88",
+  },
+  {
+    title: "Προσωπική εξυπηρέτηση",
+    text: "Υποστήριξη από την πρώτη επικοινωνία έως την ολοκλήρωση.",
+    image: "/images/why/03_prosopiki_exypiretisi.png",
+    alt: "Προσωπική εξυπηρέτηση HOME88",
+  },
+  {
+    title: "Δίκτυο & συνεργασίες",
+    text: "Πρόσβαση σε αγοραστές, ιδιοκτήτες και επενδυτές.",
+    image: "/images/why/04_diktyo_synergias.png",
+    alt: "Δίκτυο και συνεργασίες HOME88",
+  },
 ];
 
 export default async function HomePage() {
@@ -167,8 +187,8 @@ export default async function HomePage() {
           <div className="value-grid">
             {VALUES.map((v) => (
               <div className="value" key={v.title}>
-                <div className="value__icon" aria-hidden="true">
-                  {v.icon}
+                <div className="value__media">
+                  <img src={v.image} alt={v.alt} loading="lazy" />
                 </div>
                 <h3>{v.title}</h3>
                 <p>{v.text}</p>

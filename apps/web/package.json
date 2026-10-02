@@ -7,7 +7,8 @@
     "prebuild": "prisma generate --schema ../../packages/database/prisma/schema.prisma",
     "build": "next build",
     "start": "next start -p 3000",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/**/*.test.ts"
   },
   "dependencies": {
     "@home88/database": "*",
@@ -25,6 +26,7 @@
     "@types/node": "^22.10.5",
     "@types/react": "^19.0.7",
     "@types/react-dom": "^19.0.3",
+    "tsx": "^4.23.15",
     "typescript": "^5.6.3"
   }
 }

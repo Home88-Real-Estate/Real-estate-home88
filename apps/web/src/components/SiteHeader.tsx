@@ -1,22 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
-type NavItem = { href: string; label: string; section?: string };
-
-const NAV: NavItem[] = [
-  { href: "/properties?listingType=SALE", label: "Πωλήσεις" },
-  { href: "/properties?listingType=RENT", label: "Ενοικιάσεις" },
-  { href: "/properties", label: "Ακίνητα", section: "/properties" },
-  { href: "/areas", label: "Περιοχές", section: "/areas" },
-  { href: "/submit", label: "Ανάθεση", section: "/submit" },
-  { href: "/request", label: "Ζήτηση", section: "/request" },
-  { href: "/valuation", label: "Εκτίμηση", section: "/valuation" },
-  { href: "/about", label: "Εταιρεία", section: "/about" },
-  { href: "/contact", label: "Επικοινωνία", section: "/contact" },
-];
+import { NAV, resolveActiveNav, type NavItem } from "@/lib/nav";
 
 export function SiteHeader({
   legalName = "HOME88",
@@ -28,13 +16,13 @@ export function SiteHeader({
   hours?: string;
 }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [open, setOpen] = useState(false);
 
-  const isActive = (item: NavItem): boolean => {
-    if (!item.section) return false;
-    if (item.section === "/") return pathname === "/";
-    return pathname === item.section || pathname.startsWith(`${item.section}/`);
-  };
+  // Path + transaction parameter decide the active item, so the three
+  // properties destinations never highlight together.
+  const activeKey = resolveActiveNav(pathname, searchParams);
+  const isActive = (item: NavItem): boolean => item.key === activeKey;
 
   return (
     <header className="site-header">
