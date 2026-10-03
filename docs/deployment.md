@@ -156,6 +156,18 @@ Without `SMTP_HOST` the API runs in log-only mail mode: "forgot password"
 succeeds, but no email (and no link) is delivered. Set your first password with
 `npm run admin:create` and `ADMIN_PASSWORD` (see docs/authentication.md).
 
+## Region and database connections
+
+Both projects run their functions in London (`"regions": ["lhr1"]` in each
+`vercel.json`), next to the Supabase database in `eu-west-2`. A function far
+from its database pays a transatlantic round trip on every query, which makes
+the dashboard (dozens of small counts) slow enough to time out.
+
+For Supabase's transaction pooler (`*.pooler.supabase.com:6543`) the apps add
+`pgbouncer=true`, raise `connection_limit` to at least 5 and set
+`pool_timeout=30` when absent (`serverlessDatabaseUrl` in
+`packages/database`). Other database URLs are used unchanged.
+
 ## Limits to know
 
 - **Rate limits** for login and password reset are kept in memory per running

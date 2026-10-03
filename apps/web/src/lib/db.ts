@@ -7,7 +7,7 @@
  * failure to the server log rather than to the visitor.
  */
 
-import { PrismaClient } from "@home88/database";
+import { PrismaClient, serverlessDatabaseUrl } from "@home88/database";
 import { HAS_DATABASE } from "./config";
 
 /**
@@ -17,7 +17,11 @@ import { HAS_DATABASE } from "./config";
 const globalForPrisma = globalThis as unknown as { home88Prisma?: PrismaClient };
 
 export const prisma: PrismaClient | null = HAS_DATABASE
-  ? (globalForPrisma.home88Prisma ?? new PrismaClient({ log: ["warn", "error"] }))
+  ? (globalForPrisma.home88Prisma ??
+    new PrismaClient({
+      log: ["warn", "error"],
+      datasources: { db: { url: serverlessDatabaseUrl(process.env.DATABASE_URL) } },
+    }))
   : null;
 
 if (HAS_DATABASE && process.env.NODE_ENV !== "production" && prisma) {

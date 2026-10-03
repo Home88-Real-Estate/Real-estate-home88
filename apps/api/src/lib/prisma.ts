@@ -6,7 +6,7 @@
  * checker must not fail merely because no database is configured.
  */
 
-import { PrismaClient } from "@home88/database";
+import { PrismaClient, serverlessDatabaseUrl } from "@home88/database";
 
 const globalForPrisma = globalThis as unknown as { home88ApiPrisma?: PrismaClient };
 
@@ -14,7 +14,10 @@ let client: PrismaClient | null = null;
 
 export function db(): PrismaClient {
   if (client) return client;
-  client = globalForPrisma.home88ApiPrisma ?? new PrismaClient({ log: ["warn", "error"] });
+  const url = serverlessDatabaseUrl(process.env.DATABASE_URL);
+  client =
+    globalForPrisma.home88ApiPrisma ??
+    new PrismaClient({ log: ["warn", "error"], ...(url ? { datasources: { db: { url } } } : {}) });
   if (process.env.NODE_ENV !== "production") {
     globalForPrisma.home88ApiPrisma = client;
   }
