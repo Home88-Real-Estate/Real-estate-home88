@@ -48,6 +48,17 @@ export default async function ContactPage() {
             </p>
           )}
 
+          <figure className="page-figure">
+            <img
+              src="/images/fox/fox-keys-terrace.webp"
+              width={758}
+              height={504}
+              alt="Η αλεπού της HOME88 κρατά τα κλειδιά ενός σπιτιού σε βεράντα με θέα στη θάλασσα"
+              loading="lazy"
+              decoding="async"
+            />
+          </figure>
+
           <div className="notice">
             Για ζητήματα προσωπικών δεδομένων χρησιμοποιήστε το{" "}
             <ContactEmail email={company.privacyEmail} fallback="τη φόρμα αυτής της σελίδας" />. Για αναφορές

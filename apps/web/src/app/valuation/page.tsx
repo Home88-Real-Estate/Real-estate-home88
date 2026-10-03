@@ -85,6 +85,17 @@ export default async function ValuationPage({
         τιμή, υπολογισμένη από πραγματικές συγκρίσιμες αγγελίες της περιοχής.
       </p>
 
+      <figure className="page-figure">
+        <img
+          src="/images/fox/fox-office-plans.webp"
+          width={758}
+          height={504}
+          alt="Η αλεπού της HOME88 στο γραφείο, με κατόψεις και φωτογραφίες ακινήτων και θέα στην Ακρόπολη"
+          loading="lazy"
+          decoding="async"
+        />
+      </figure>
+
       <div className="notice" style={{ maxWidth: 760, marginBottom: 24 }}>
         <strong>Σημαντικό:</strong> το αποτέλεσμα είναι ενδεικτικό και βασίζεται
         σε στατιστικά στοιχεία της αγοράς. Δεν αποτελεί πιστοποιημένη εκτίμηση
