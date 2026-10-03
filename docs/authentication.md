@@ -63,3 +63,18 @@ Then sign in at `https://real-estate-home88-iota.vercel.app/crm/login`.
 - `POST /auth/reset-password` sets the password, burns every outstanding link and revokes all sessions.
 - `POST /auth/password` (signed in) requires the current password. An account with no password yet must use the reset link instead.
 - Login, forgot and reset are rate-limited per IP (and per email for login/forgot).
+
+## First sign-in with the linked Supabase password
+
+A staff account with **no CRM password yet** that is linked to a Supabase Auth
+user (`authUid`) can sign in with that Supabase user's email and password:
+
+- The API checks the password with Supabase Auth (password grant, publishable
+  key) and accepts it only if Supabase returns exactly the linked `authUid`.
+- On success the CRM stores its own scrypt hash of that password and writes
+  `PASSWORD_ADOPTED_FROM_IDENTITY_PROVIDER` to the audit log; later sign-ins are
+  checked locally. Accounts that already have a CRM password are never checked
+  against Supabase.
+- Configuration (CRM project): `SUPABASE_PUBLISHABLE_KEY` (or `SUPABASE_ANON_KEY`
+  / `NEXT_PUBLIC_SUPABASE_ANON_KEY` / `NEXT_ANON_SB`). `SUPABASE_URL` is optional;
+  it is derived from a Supabase `DATABASE_URL`.
