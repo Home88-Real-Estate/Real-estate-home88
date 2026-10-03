@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { COMPANY } from "@/lib/config";
+import { ContactEmail } from "@/components/ContactEmail";
+import { getCompanyInfo } from "@/lib/company";
 
 export const metadata: Metadata = {
   title: "Πολιτική Απορρήτου",
@@ -13,12 +15,13 @@ export const metadata: Metadata = {
 
 const UPDATED = COMPANY.policyVersion;
 
-export default function PrivacyPage() {
+export default async function PrivacyPage() {
+  const company = await getCompanyInfo();
   return (
     <div className="wrap prose section">
       <h1>Πολιτική Απορρήτου</h1>
       <p className="muted">
-        Τελευταία ενημέρωση: {UPDATED} · Υπεύθυνος επεξεργασίας: {COMPANY.legalName}
+        Τελευταία ενημέρωση: {UPDATED} · Υπεύθυνος επεξεργασίας: {company.legalName}
       </p>
 
       <div className="notice" style={{ marginBlock: 22 }}>
@@ -30,9 +33,9 @@ export default function PrivacyPage() {
 
       <h2>1. Ποιος είναι υπεύθυνος</h2>
       <p>
-        Υπεύθυνος επεξεργασίας είναι ο {COMPANY.legalName}
-        {COMPANY.postalAddress ? `, ${COMPANY.postalAddress}` : ""}. Για κάθε θέμα προστασίας
-        δεδομένων: <a href={`mailto:${COMPANY.privacyEmail}`}>{COMPANY.privacyEmail}</a>.
+        Υπεύθυνος επεξεργασίας είναι ο {company.legalName}
+        {company.address ? `, ${company.address}` : ""}. Για κάθε θέμα προστασίας
+        δεδομένων: <ContactEmail email={company.privacyEmail} />.
       </p>
 
       <h2>2. Τι δεδομένα συλλέγουμε</h2>
@@ -108,7 +111,7 @@ export default function PrivacyPage() {
       <p>
         Έχετε δικαίωμα πρόσβασης, διόρθωσης, διαγραφής, περιορισμού, φορητότητας και εναντίωσης.
         Για τα αιτήματα αυτά τηρείται αρχείο με προθεσμία ολοκλήρωσης. Στείλτε email στο{" "}
-        <a href={`mailto:${COMPANY.privacyEmail}`}>{COMPANY.privacyEmail}</a>. Μπορείτε επίσης να
+        <ContactEmail email={company.privacyEmail} />. Μπορείτε επίσης να
         απευθυνθείτε στην Αρχή Προστασίας Δεδομένων Προσωπικού Χαρακτήρα (
         <a href="https://www.dpa.gr" rel="noopener noreferrer" target="_blank">
           dpa.gr

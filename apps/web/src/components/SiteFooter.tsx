@@ -1,7 +1,20 @@
 import Link from "next/link";
-import { COMPANY, CRM_LOGIN_URL } from "@/lib/config";
+import { CRM_LOGIN_URL } from "@/lib/config";
+import type { CompanyInfo } from "@/lib/company";
 
-export function SiteFooter() {
+import { ContactEmail } from "./ContactEmail";
+
+const SOCIAL_LABEL: Record<string, string> = {
+  FACEBOOK: "Facebook",
+  INSTAGRAM: "Instagram",
+  YOUTUBE: "YouTube",
+  LINKEDIN: "LinkedIn",
+  X: "X",
+  PINTEREST: "Pinterest",
+  TIKTOK: "TikTok",
+};
+
+export function SiteFooter({ company }: { company: CompanyInfo }) {
   const year = new Date().getFullYear();
   // Staff-only door to the internal CRM (see CRM_LOGIN_URL in lib/config.ts).
   const staffUrl = CRM_LOGIN_URL;
@@ -11,31 +24,40 @@ export function SiteFooter() {
       <div className="wrap site-footer__inner">
         <div>
           <div className="brand" style={{ marginBottom: 12 }}>
-            {COMPANY.legalName}
+            {company.name}
             <span className="brand__sub">Real Estate</span>
           </div>
           <p className="muted" style={{ fontSize: "0.9rem", maxWidth: "44ch" }}>
             Μεσιτικό γραφείο ακινήτων. Πωλήσεις, ενοικιάσεις και αναθέσεις με
             επαγγελματική παρουσίαση και προσωπική εξυπηρέτηση.
           </p>
-          {COMPANY.postalAddress ? (
+          {company.address ? (
             <address style={{ fontSize: "0.86rem", fontStyle: "normal", whiteSpace: "pre-line" }}>
-              {COMPANY.postalAddress}
+              {company.address}
             </address>
           ) : null}
-          {COMPANY.phone ? (
-            <p style={{ margin: "8px 0 0" }}>
-              <a href={`tel:${COMPANY.phone.replace(/\s+/g, "")}`}>{COMPANY.phone}</a>
+          {company.phones.map((phone, i) => (
+            <p key={phone} style={{ margin: i === 0 ? "8px 0 0" : 0 }}>
+              <a href={`tel:${phone.replace(/[^\d+]/g, "")}`}>{phone}</a>
             </p>
-          ) : null}
-          {COMPANY.contactEmail ? (
+          ))}
+          {company.email ? (
             <p style={{ margin: 0 }}>
-              <a href={`mailto:${COMPANY.contactEmail}`}>{COMPANY.contactEmail}</a>
+              <a href={`mailto:${company.email}`}>{company.email}</a>
             </p>
           ) : null}
-          {COMPANY.hours ? (
+          {company.hours ? (
             <p className="muted" style={{ fontSize: "0.84rem", marginTop: 8 }}>
-              {COMPANY.hours}
+              {company.hours}
+            </p>
+          ) : null}
+          {company.socials.length > 0 ? (
+            <p className="footer-social" style={{ margin: "10px 0 0", display: "flex", gap: 12, flexWrap: "wrap", fontSize: "0.86rem" }}>
+              {company.socials.map((s) => (
+                <a key={s.platform} href={s.url} rel="noopener noreferrer me" target="_blank">
+                  {SOCIAL_LABEL[s.platform] ?? s.platform}
+                </a>
+              ))}
             </p>
           ) : null}
         </div>
@@ -98,11 +120,13 @@ export function SiteFooter() {
       <div className="wrap legal-note">
         <div className="between">
           <span>
-            © {year} {COMPANY.legalName}. Με την επιφύλαξη πάντων των δικαιωμάτων.
+            © {year} {company.legalName}. Με την επιφύλαξη πάντων των δικαιωμάτων.
           </span>
-          <span>
-            Απόρρητο: <a href={`mailto:${COMPANY.privacyEmail}`}>{COMPANY.privacyEmail}</a>
-          </span>
+          {company.privacyEmail ? (
+            <span>
+              Απόρρητο: <ContactEmail email={company.privacyEmail} />
+            </span>
+          ) : null}
         </div>
       </div>
     </footer>

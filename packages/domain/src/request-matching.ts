@@ -87,8 +87,22 @@ function inRange(value: number, min: number | null | undefined, max: number | nu
 
 const euro = new Intl.NumberFormat("el-GR", { maximumFractionDigits: 0 });
 
+/**
+ * Tunable parts of the scoring, set in Settings → Ζητήσεις. Omitted values use
+ * the defaults above, so the engine never depends on settings being present.
+ */
+export type MatchRules = {
+  weights?: Partial<Record<keyof typeof MATCH_WEIGHTS, number>>;
+  /** Share above the requested maximum still counted as a price match (0.05 = 5%). */
+  priceTolerance?: number;
+  sizeTolerance?: number;
+};
+
 /** null = not a match (hard rule failed). */
-export function scoreMatch(request: MatchRequest, property: MatchProperty): MatchResult | null {
+export function scoreMatch(request: MatchRequest, property: MatchProperty, rules: MatchRules = {}): MatchResult | null {
+  const W = { ...MATCH_WEIGHTS, ...rules.weights };
+  const priceTolerance = rules.priceTolerance ?? 0.05;
+  const sizeTolerance = rules.sizeTolerance ?? 0.1;
   if (property.listingType !== request.listingType) return null;
   if (request.propertyTypes.length > 0 && !request.propertyTypes.includes(property.propertyType)) return null;
   if (!(MATCHABLE_STATUSES as readonly string[]).includes(property.status)) return null;
@@ -98,6 +112,7 @@ export function scoreMatch(request: MatchRequest, property: MatchProperty): Matc
   const matched: string[] = [];
   const missing: string[] = [];
   const criterion = (weight: number, ok: boolean, label: string) => {
+    if (weight <= 0) return;
     total += weight;
     if (ok) {
       earned += weight;
@@ -113,7 +128,7 @@ export function scoreMatch(request: MatchRequest, property: MatchProperty): Matc
       .map(normalizeText);
     const wanted = request.areas.map(normalizeText).filter(Boolean);
     const ok = wanted.some((area) => places.some((place) => place.includes(area) || area.includes(place)));
-    criterion(MATCH_WEIGHTS.area, ok, `Περιοχή (${request.areas.join(", ")})`);
+    criterion(W.area, ok, `Περιοχή (${request.areas.join(", ")})`);
   }
 
   if (request.minPrice != null || request.maxPrice != null) {
@@ -122,36 +137,36 @@ export function scoreMatch(request: MatchRequest, property: MatchProperty): Matc
       request.maxPrice != null ? ` έως ${euro.format(request.maxPrice)} €` : ""
     }`.replace("  ", " ");
     // "Price on request" cannot be checked: counted as not met, never as met.
-    criterion(MATCH_WEIGHTS.price, value != null && !property.priceOnRequest && inRange(value, request.minPrice, request.maxPrice, 0.05), label);
+    criterion(W.price, value != null && !property.priceOnRequest && inRange(value, request.minPrice, request.maxPrice, priceTolerance), label);
   }
 
   if (request.minArea != null || request.maxArea != null) {
     criterion(
-      MATCH_WEIGHTS.size,
-      property.area != null && inRange(property.area, request.minArea, request.maxArea, 0.1),
+      W.size,
+      property.area != null && inRange(property.area, request.minArea, request.maxArea, sizeTolerance),
       `Εμβαδόν ${request.minArea != null ? `από ${request.minArea}` : ""}${request.maxArea != null ? ` έως ${request.maxArea}` : ""} m²`.replace("  ", " "),
     );
   }
 
   if (request.minBedrooms != null) {
-    criterion(MATCH_WEIGHTS.bedrooms, (property.bedrooms ?? -1) >= request.minBedrooms, `Υπνοδωμάτια ${request.minBedrooms}+`);
+    criterion(W.bedrooms, (property.bedrooms ?? -1) >= request.minBedrooms, `Υπνοδωμάτια ${request.minBedrooms}+`);
   }
   if (request.minBathrooms != null) {
-    criterion(MATCH_WEIGHTS.bathrooms, (property.bathrooms ?? -1) >= request.minBathrooms, `Μπάνια ${request.minBathrooms}+`);
+    criterion(W.bathrooms, (property.bathrooms ?? -1) >= request.minBathrooms, `Μπάνια ${request.minBathrooms}+`);
   }
   if (request.minFloor != null) {
-    criterion(MATCH_WEIGHTS.floor, property.floor != null && property.floor >= request.minFloor, `Όροφος ${request.minFloor}+`);
+    criterion(W.floor, property.floor != null && property.floor >= request.minFloor, `Όροφος ${request.minFloor}+`);
   }
   if (request.minYearBuilt != null) {
     criterion(
-      MATCH_WEIGHTS.year,
+      W.year,
       property.yearBuilt != null && property.yearBuilt >= request.minYearBuilt,
       `Κατασκευή από ${request.minYearBuilt}`,
     );
   }
 
   if (request.features.length > 0) {
-    const share = MATCH_WEIGHTS.features / request.features.length;
+    const share = W.features / request.features.length;
     for (const key of request.features) {
       const value = property.flags[key];
       criterion(share, value === true || value === "true", fieldLabel(property.propertyType, key));

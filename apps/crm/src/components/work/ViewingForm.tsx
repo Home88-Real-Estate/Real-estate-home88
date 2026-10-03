@@ -5,8 +5,9 @@ import { useActionState, useEffect, useRef } from "react";
 import { createViewing } from "@/actions/work";
 import { idleState } from "@/lib/form";
 
-/** New viewing: property by its code, client, date/time and length. */
-export function ViewingForm({ defaultReference }: { defaultReference?: string }) {
+/** New viewing: property by its code, client, date/time and length (default from Settings → Ημερολόγιο). */
+export function ViewingForm({ defaultReference, defaultMinutes = 30 }: { defaultReference?: string; defaultMinutes?: number }) {
+  const lengths = [...new Set([15, 30, 45, 60, 90, 120, defaultMinutes])].sort((a, b) => a - b);
   const [state, action, pending] = useActionState(createViewing, idleState);
   const form = useRef<HTMLFormElement>(null);
   const error = (key: string) => state.fields?.[key]?.[0];
@@ -43,10 +44,10 @@ export function ViewingForm({ defaultReference }: { defaultReference?: string })
       </div>
       <div className="field">
         <label htmlFor="v-len">Διάρκεια</label>
-        <select id="v-len" name="durationMinutes" className="select" defaultValue="30">
-          {[15, 30, 45, 60, 90, 120].map((m) => (
+        <select id="v-len" name="durationMinutes" className="select" defaultValue={String(defaultMinutes)}>
+          {lengths.map((m) => (
             <option key={m} value={m}>
-              {m < 60 ? `${m} λεπτά` : `${m / 60} ${m === 60 ? "ώρα" : "ώρες"}`}
+              {m < 60 || m % 30 !== 0 ? `${m} λεπτά` : `${m / 60} ${m === 60 ? "ώρα" : "ώρες"}`}
             </option>
           ))}
         </select>

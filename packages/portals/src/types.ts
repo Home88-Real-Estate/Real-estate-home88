@@ -10,7 +10,7 @@
 
 import type { PropertyStatus } from "@home88/domain";
 
-export type PortalTransport = "API" | "XML_FEED" | "CSV_FEED" | "MANUAL";
+export type PortalTransport = "API" | "XML_FEED" | "CSV_FEED" | "JSON_FEED" | "MANUAL";
 
 export type PortalSyncState =
   | "NOT_PUBLISHED"

@@ -7,8 +7,9 @@ export type { CurrentUser } from "./user";
 export { displayName, hasRole, roleLabel } from "./user";
 
 export async function getCurrentUser(): Promise<CurrentUser | null> {
-  const result = await apiFetch<{ user: CurrentUser }>("/api/auth/me");
-  return result.ok ? result.data.user : null;
+  const result = await apiFetch<{ user: CurrentUser; capabilities?: { settings?: boolean } }>("/api/auth/me");
+  if (!result.ok) return null;
+  return { ...result.data.user, canOpenSettings: result.data.capabilities?.settings === true };
 }
 
 /** Guard for authed pages. Redirects to the sign-in screen. */

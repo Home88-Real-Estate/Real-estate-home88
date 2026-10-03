@@ -26,6 +26,7 @@ import { forbidden, notFound } from "../lib/errors";
 import { clientIp, parseInput, userAgent } from "../lib/http";
 import { db } from "../lib/prisma";
 import { allocateReference } from "../lib/references";
+import { requestConfig } from "../settings";
 import { requireRole, roleAtLeast } from "../plugins/auth";
 
 const LISTING_TYPES = ["SALE", "RENT", "ASSIGNMENT"] as const;
@@ -299,11 +300,12 @@ export async function requestRoutes(app: FastifyInstance): Promise<void> {
       take: 1000,
     });
     const want = toMatchRequest(row);
+    const rules = await requestConfig();
     const matches = candidates
-      .map((p) => ({ p, result: scoreMatch(want, toMatchProperty(p)) }))
-      .filter((m): m is { p: PropertyRow; result: NonNullable<typeof m.result> } => m.result !== null && m.result.score >= 40)
+      .map((p) => ({ p, result: scoreMatch(want, toMatchProperty(p), rules) }))
+      .filter((m): m is { p: PropertyRow; result: NonNullable<typeof m.result> } => m.result !== null && m.result.score >= rules.minMatchScore)
       .sort((a, b) => b.result.score - a.result.score)
-      .slice(0, 50)
+      .slice(0, rules.maxMatches)
       .map(({ p, result }) => ({
         property: {
           id: p.id,
@@ -376,11 +378,12 @@ export async function requestRoutes(app: FastifyInstance): Promise<void> {
       take: 1000,
     });
     const target = toMatchProperty({ ...property, status: "ACTIVE" });
+    const rules = await requestConfig();
     const matches = requests
-      .map((r) => ({ r, result: scoreMatch(toMatchRequest(r), target) }))
-      .filter((m) => m.result !== null && m.result.score >= 40)
+      .map((r) => ({ r, result: scoreMatch(toMatchRequest(r), target, rules) }))
+      .filter((m) => m.result !== null && m.result.score >= rules.minMatchScore)
       .sort((a, b) => b.result!.score - a.result!.score)
-      .slice(0, 50)
+      .slice(0, rules.maxMatches)
       .map(({ r, result }) => ({
         request: { id: r.id, reference: r.reference, clientName: r.clientName, rating: r.rating },
         ...result!,

@@ -63,9 +63,13 @@ export default async function CalendarPage({
   const to = addDays(from, 7);
   const days = Array.from({ length: 7 }, (_, i) => addDays(from, i));
 
-  const result = await apiFetch<{ data: Viewing[]; scope: "mine" | "all" }>("/api/viewings", {
-    query: { from: from.toISOString(), to: to.toISOString(), scope: scope || undefined },
-  });
+  const [result, runtime] = await Promise.all([
+    apiFetch<{ data: Viewing[]; scope: "mine" | "all" }>("/api/viewings", {
+      query: { from: from.toISOString(), to: to.toISOString(), scope: scope || undefined },
+    }),
+    apiFetch<{ calendar: { viewingMinutes: number } }>("/api/settings/runtime"),
+  ]);
+  const viewingMinutes = runtime.ok ? runtime.data.calendar.viewingMinutes : 30;
 
   const byDay = new Map<string, Viewing[]>();
   if (result.ok) {
@@ -110,7 +114,7 @@ export default async function CalendarPage({
         <summary className="panel__summary">
           <h2>Νέο ραντεβού / υπόδειξη</h2>
         </summary>
-        <ViewingForm />
+        <ViewingForm defaultMinutes={viewingMinutes} />
       </details>
 
       {!result.ok ? (

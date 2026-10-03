@@ -30,6 +30,7 @@ import { hashPassword } from "../lib/passwords";
 import { db } from "../lib/prisma";
 import { consume } from "../lib/rate-limit";
 import { ROLE_RANK, requireRole } from "../plugins/auth";
+import { assertPasswordPolicy } from "../settings/password-policy";
 
 /** Peers cannot invite peers: an inviter must outrank the role they grant. */
 function canInviteRole(actorRole: string, targetRole: string): boolean {
@@ -202,6 +203,7 @@ export async function invitationRoutes(app: FastifyInstance): Promise<void> {
   app.post("/invitations/accept", async (request) => {
     const cfg = loadConfig();
     const input = parseInput(invitationAcceptSchema, request.body);
+    await assertPasswordPolicy(input.password, "password");
     const ip = clientIp(request);
 
     const limit = consume(`invite-accept:${ip}`, RATE_LIMITS.invitationAccept);

@@ -223,6 +223,8 @@ enum PortalTransport {
   CSV_FEED
   /// We hand the listing to a human who posts it in the portal's UI.
   MANUAL
+  /// Portal ingests a JSON document we publish to a URL they poll or fetch.
+  JSON_FEED
 }
 
 enum PortalSyncState {
@@ -345,40 +347,40 @@ model User {
 
   /// Set by the age gate at invite/creation time. Users of this CRM are staff,
   /// so this is enforced rather than merely recorded.
-  dateOfBirth  DateTime?  @db.Date
+  dateOfBirth DateTime? @db.Date
 
-  avatarUrl       String?
-  locale          String  @default("el")
+  avatarUrl String?
+  locale    String  @default("el")
 
-  properties Property[] @relation("PropertyAgent")
-  ownedBy   Property[] @relation("PropertyCreator")
-  leads      Lead[]     @relation("LeadAssignee")
-  viewings   Viewing[]
-  tasks      Task[]     @relation("TaskAssignee")
-  buyerRequests BuyerRequest[] @relation("RequestAssignee")
-  notes      Note[]
-  offers     Offer[]    @relation("OfferAgent")
-  auditLogs  AuditLog[]
-  consents   ConsentRecord[]
-  createdBy  User?      @relation("UserCreatedBy", fields: [createdById], references: [id])
-  createdById String?
-  createdUsers User[]   @relation("UserCreatedBy")
-  deactivatedBy User?   @relation("UserDeactivatedBy", fields: [deactivatedById], references: [id])
-  deactivatedById String?
-  deactivatedUsers User[] @relation("UserDeactivatedBy")
-  deactivatedAt     DateTime?
+  properties          Property[]      @relation("PropertyAgent")
+  ownedBy             Property[]      @relation("PropertyCreator")
+  leads               Lead[]          @relation("LeadAssignee")
+  viewings            Viewing[]
+  tasks               Task[]          @relation("TaskAssignee")
+  buyerRequests       BuyerRequest[]  @relation("RequestAssignee")
+  notes               Note[]
+  offers              Offer[]         @relation("OfferAgent")
+  auditLogs           AuditLog[]
+  consents            ConsentRecord[]
+  createdBy           User?           @relation("UserCreatedBy", fields: [createdById], references: [id])
+  createdById         String?
+  createdUsers        User[]          @relation("UserCreatedBy")
+  deactivatedBy       User?           @relation("UserDeactivatedBy", fields: [deactivatedById], references: [id])
+  deactivatedById     String?
+  deactivatedUsers    User[]          @relation("UserDeactivatedBy")
+  deactivatedAt       DateTime?
   deletionRequestedAt DateTime?
-  erasureCompletedAt DateTime?
+  erasureCompletedAt  DateTime?
 
   lastLoginAt DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  sessions           Session[]
-  passwordResetTokens PasswordResetToken[]
+  sessions              Session[]
+  passwordResetTokens   PasswordResetToken[]
   propertyStatusChanges PropertyStatusHistory[]
   propertyPriceChanges  PropertyPriceHistory[]
-  invitationsSent    Invitation[]         @relation("InvitationInviter")
+  invitationsSent       Invitation[]            @relation("InvitationInviter")
 
   @@index([role])
   @@index([status])
@@ -387,18 +389,18 @@ model User {
 }
 
 model Session {
-  id               String   @id @default(cuid())
-  userId           String
-  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   /// SHA-256 of the opaque token that lives in the HttpOnly cookie. The raw
   /// token is never stored, so a database leak cannot be replayed as a session.
-  tokenHash        String   @unique
-  ipAddress        String?
-  userAgent        String?
-  expiresAt        DateTime
-  revokedAt        DateTime?
-  revokedReason    String?
-  createdAt        DateTime @default(now())
+  tokenHash     String    @unique
+  ipAddress     String?
+  userAgent     String?
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  revokedReason String?
+  createdAt     DateTime  @default(now())
 
   @@index([userId])
   @@index([expiresAt])
@@ -406,13 +408,13 @@ model Session {
 }
 
 model PasswordResetToken {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash String   @unique
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([userId])
   @@map("password_reset_tokens")
@@ -422,20 +424,20 @@ model PasswordResetToken {
 /// create an ACTIVE user. Kept separate from User so no password (or a
 /// placeholder hash) exists before the person sets their own.
 model Invitation {
-  id          String     @id @default(cuid())
+  id          String    @id @default(cuid())
   email       String
-  role        UserRole   @default(AGENT)
+  role        UserRole  @default(AGENT)
   firstName   String
   lastName    String
   phone       String?
   /// SHA-256 of the opaque token in the emailed link. The raw token is never stored.
-  tokenHash   String     @unique
+  tokenHash   String    @unique
   invitedById String
-  invitedBy   User       @relation("InvitationInviter", fields: [invitedById], references: [id])
+  invitedBy   User      @relation("InvitationInviter", fields: [invitedById], references: [id])
   expiresAt   DateTime
   acceptedAt  DateTime?
   revokedAt   DateTime?
-  createdAt   DateTime   @default(now())
+  createdAt   DateTime  @default(now())
 
   @@index([email])
   @@index([expiresAt])
@@ -456,29 +458,29 @@ model Contact {
 
   /// Held at rest encrypted; see apps/api for the envelope key. Never selected
   /// into list views or logs.
-  emailEncrypted String?
-  emailHash      String?
-  phoneEncrypted String?
+  emailEncrypted  String?
+  emailHash       String?
+  phoneEncrypted  String?
   mobileEncrypted String?
 
-  roles     ContactRole[]
-  taxIdEncrypted String?
+  roles            ContactRole[]
+  taxIdEncrypted   String?
   addressEncrypted String?
 
   preferredContactMethod PreferredContactMethod @default(ANY)
-  preferredLocale        String  @default("el")
+  preferredLocale        String                 @default("el")
 
-  notes      Note[]
-  leads      Lead[]
-  viewings   Viewing[]
+  notes         Note[]
+  leads         Lead[]
+  viewings      Viewing[]
   buyerRequests BuyerRequest[]
-  offers     Offer[]
-  properties Property[] @relation("PropertyOwner")
-  documents  Document[]
+  offers        Offer[]
+  properties    Property[]     @relation("PropertyOwner")
+  documents     Document[]
 
   marketingOptOutAt  DateTime?
   erasureRequestedAt DateTime?
-  retentionExpiresAt  DateTime?
+  retentionExpiresAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -498,12 +500,12 @@ model Property {
   reference String @unique
 
   /// URL slug. Unique, and regenerated when the title changes.
-  slug      String @unique
+  slug String @unique
 
-  listingType   ListingType
-  propertyType  PropertyType
-  status        PropertyStatus @default(DRAFT)
-  condition     PropertyCondition @default(GOOD)
+  listingType  ListingType
+  propertyType PropertyType
+  status       PropertyStatus    @default(DRAFT)
+  condition    PropertyCondition @default(GOOD)
 
   titleEl String
   titleEn String?
@@ -511,58 +513,58 @@ model Property {
   descriptionEl String
   descriptionEn String?
 
-  price           Decimal? @db.Decimal(14, 2)
-  priceOnRequest  Boolean  @default(false)
+  price          Decimal? @db.Decimal(14, 2)
+  priceOnRequest Boolean  @default(false)
   /// Monthly price for RENT; total price for SALE. Lets offers sort correctly.
-  monthlyRent     Decimal? @db.Decimal(14, 2)
+  monthlyRent    Decimal? @db.Decimal(14, 2)
 
-  area         Decimal? @db.Decimal(10, 2)
-  plotArea     Decimal? @db.Decimal(10, 2)
-  builtArea    Decimal? @db.Decimal(10, 2)
+  area      Decimal? @db.Decimal(10, 2)
+  plotArea  Decimal? @db.Decimal(10, 2)
+  builtArea Decimal? @db.Decimal(10, 2)
 
-  bedrooms   Int?
-  bathrooms  Int?
-  wc         Int?
-  floor      Int?
+  bedrooms    Int?
+  bathrooms   Int?
+  wc          Int?
+  floor       Int?
   totalFloors Int?
 
   yearBuilt     Int?
   yearRenovated Int?
 
   heating     HeatingType @default(NOT_AVAILABLE)
-  energyClass EnergyClass  @default(NOT_AVAILABLE)
+  energyClass EnergyClass @default(NOT_AVAILABLE)
   hasSolar    Boolean     @default(false)
 
-  parking     Boolean @default(false)
-  parkingSpaces Int?
-  storage     Boolean @default(false)
-  balcony     Boolean @default(false)
-  balconyArea Decimal? @db.Decimal(8, 2)
-  garden      Boolean @default(false)
-  pool        Boolean @default(false)
-  furnished   Boolean @default(false)
-  petsAllowed Boolean @default(false)
-  seaView     Boolean @default(false)
-  newConstruction Boolean @default(false)
+  parking         Boolean  @default(false)
+  parkingSpaces   Int?
+  storage         Boolean  @default(false)
+  balcony         Boolean  @default(false)
+  balconyArea     Decimal? @db.Decimal(8, 2)
+  garden          Boolean  @default(false)
+  pool            Boolean  @default(false)
+  furnished       Boolean  @default(false)
+  petsAllowed     Boolean  @default(false)
+  seaView         Boolean  @default(false)
+  newConstruction Boolean  @default(false)
 
-  region      String?
-  city        String?
-  areaName    String?
+  region       String?
+  city         String?
+  areaName     String?
   neighborhood String?
-  address     String?
-  postalCode  String?
+  address      String?
+  postalCode   String?
 
   latitude  Decimal? @db.Decimal(10, 7)
   longitude Decimal? @db.Decimal(10, 7)
 
-  videoUrl      String?
+  videoUrl       String?
   virtualTourUrl String?
 
   /// Surfaced on the website once true. Independent of PropertyStatus so a
   /// listing can be hidden without being delisted from portals.
-  publishedOnWebsite Boolean @default(false)
+  publishedOnWebsite Boolean   @default(false)
   publishedAt        DateTime?
-  featured           Boolean  @default(false)
+  featured           Boolean   @default(false)
 
   agentId String?
   agent   User?   @relation("PropertyAgent", fields: [agentId], references: [id], onDelete: SetNull)
@@ -573,20 +575,20 @@ model Property {
   createdById String?
   createdBy   User?   @relation("PropertyCreator", fields: [createdById], references: [id], onDelete: SetNull)
 
-  media        PropertyMedia[]
-  leads        Lead[]
-  viewings     Viewing[]
-  offers       Offer[]
-  documents    Document[]
+  media          PropertyMedia[]
+  leads          Lead[]
+  viewings       Viewing[]
+  offers         Offer[]
+  documents      Document[]
   portalListings PortalListing[]
-  notes        Note[]
-  dmcaNotices  DmcaNotice[]
-  tasks        Task[]
-  statusHistory PropertyStatusHistory[]
-  priceHistory  PropertyPriceHistory[]
+  notes          Note[]
+  dmcaNotices    DmcaNotice[]
+  tasks          Task[]
+  statusHistory  PropertyStatusHistory[]
+  priceHistory   PropertyPriceHistory[]
 
   /// Commission is stored as a rate, not a hard-coded percentage.
-  commissionRatePct Decimal? @db.Decimal(5, 2)
+  commissionRatePct  Decimal? @db.Decimal(5, 2)
   agentCommissionPct Decimal? @db.Decimal(5, 2)
   /// Type- and listing-specific attributes, validated by property-profiles in @home88/domain.
   details            Json?
@@ -651,30 +653,30 @@ model PropertyPriceHistory {
 }
 
 model PropertyMedia {
-  id         String    @id @default(cuid())
+  id         String   @id @default(cuid())
   propertyId String
-  property   Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
-  kind     MediaKind @default(PHOTO)
+  kind MediaKind @default(PHOTO)
 
   /// Object-storage key, never a public URL. A signed URL is generated per
   /// request so a leaked link expires. Unique: confirming the same upload
   /// twice (a retry) never creates a second row.
-  storageKey     String  @unique
+  storageKey   String  @unique
   /// Browser-made web-sized JPEG (long edge ≤ 2048px) and thumbnail of a
   /// photo, stored next to the original. Null for older rows and non-images.
-  previewKey     String?
-  thumbnailKey   String?
-  originalName   String?
-  mimeType       String
-  byteSize       Int
-  width          Int?
-  height         Int?
+  previewKey   String?
+  thumbnailKey String?
+  originalName String?
+  mimeType     String
+  byteSize     Int
+  width        Int?
+  height       Int?
 
   altEl String?
   altEn String?
 
-  sortOrder Int  @default(0)
+  sortOrder Int     @default(0)
   isPrimary Boolean @default(false)
 
   /// Moderation state. Nothing uploads straight to public-serving state.
@@ -694,9 +696,9 @@ model PropertyMedia {
 // ---------------------------------------------------------------------------
 
 model Lead {
-  id        String  @id @default(cuid())
+  id        String @id @default(cuid())
   /// Public code, e.g. H88-000184. Allocated from ReferenceCounter('lead').
-  reference String  @unique
+  reference String @unique
 
   firstName String
   lastName  String?
@@ -704,18 +706,18 @@ model Lead {
   phone     String?
   message   String?
 
-  status     LeadStatus @default(NEW)
-  source     LeadSource @default(WEBSITE)
+  status          LeadStatus @default(NEW)
+  source          LeadSource @default(WEBSITE)
   /// Portal-side identifiers, so a lead can be traced back to its origin.
-  sourcePortalId String?
+  sourcePortalId  String?
   sourceListingId String?
   sourceUrl       String?
 
   preferredContactMethod PreferredContactMethod @default(ANY)
-  locale                 String  @default("el")
+  locale                 String                 @default("el")
 
-  budgetMin  Decimal? @db.Decimal(14, 2)
-  budgetMax  Decimal? @db.Decimal(14, 2)
+  budgetMin Decimal? @db.Decimal(14, 2)
+  budgetMax Decimal? @db.Decimal(14, 2)
 
   propertyId String?
   property   Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
@@ -732,15 +734,15 @@ model Lead {
   tasks    Task[]
 
   /// Compliance state for this enquiry.
-  consentRecordId String?
-  marketingOptOutAt DateTime?
+  consentRecordId    String?
+  marketingOptOutAt  DateTime?
   retentionExpiresAt DateTime?
   erasureRequestedAt DateTime?
 
   /// Verified at capture time by the server-side age gate. Stored as a boolean
   /// decision, never a raw date of birth.
   ageVerifiedAt       DateTime?
-  ageVerificationFail Boolean @default(false)
+  ageVerificationFail Boolean   @default(false)
 
   lastContactedAt DateTime?
   nextActionAt    DateTime?
@@ -765,10 +767,10 @@ model Note {
   body      String
   isPrivate Boolean @default(false)
 
-  leadId    String?
-  lead      Lead?    @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  contactId String?
-  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  leadId     String?
+  lead       Lead?     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  contactId  String?
+  contact    Contact?  @relation(fields: [contactId], references: [id], onDelete: Cascade)
   propertyId String?
   property   Property? @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
@@ -784,9 +786,9 @@ model Note {
 }
 
 model Viewing {
-  id         String        @id @default(cuid())
+  id         String   @id @default(cuid())
   propertyId String
-  property   Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
   leadId    String?
   lead      Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
@@ -798,11 +800,11 @@ model Viewing {
   clientPhone String?
   clientEmail String?
 
-  startsAt   DateTime
-  endsAt     DateTime?
-  status     ViewingStatus @default(SCHEDULED)
-  feedback   String?
-  outcome    String?
+  startsAt DateTime
+  endsAt   DateTime?
+  status   ViewingStatus @default(SCHEDULED)
+  feedback String?
+  outcome  String?
 
   agentId String
   agent   User   @relation(fields: [agentId], references: [id], onDelete: Cascade)
@@ -821,8 +823,8 @@ model Viewing {
 }
 
 model Offer {
-  id         String @id @default(cuid())
-  reference  String @unique
+  id        String @id @default(cuid())
+  reference String @unique
 
   propertyId String
   property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
@@ -832,7 +834,7 @@ model Offer {
   contactId String?
   contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
 
-  amount     Decimal  @db.Decimal(14, 2)
+  amount     Decimal     @db.Decimal(14, 2)
   status     OfferStatus @default(SUBMITTED)
   conditions String?
   expiresAt  DateTime?
@@ -841,9 +843,9 @@ model Offer {
   agentId String?
   agent   User?   @relation("OfferAgent", fields: [agentId], references: [id], onDelete: SetNull)
 
-  commissionAmount  Decimal? @db.Decimal(14, 2)
-  agentCommissionAmount Decimal? @db.Decimal(14, 2)
-  closedAt          DateTime?
+  commissionAmount      Decimal?  @db.Decimal(14, 2)
+  agentCommissionAmount Decimal?  @db.Decimal(14, 2)
+  closedAt              DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -862,29 +864,29 @@ model BuyerRequest {
   id        String @id @default(cuid())
   reference String @unique
 
-  status      RequestStatus @default(ACTIVE)
-  listingType ListingType
+  status        RequestStatus  @default(ACTIVE)
+  listingType   ListingType
   /// Empty = any type.
   propertyTypes PropertyType[]
   /// Free-text areas (city, area or neighbourhood names).
-  areas String[]
+  areas         String[]
 
-  minPrice    Decimal? @db.Decimal(14, 2)
-  maxPrice    Decimal? @db.Decimal(14, 2)
-  minArea     Decimal? @db.Decimal(10, 2)
-  maxArea     Decimal? @db.Decimal(10, 2)
+  minPrice     Decimal? @db.Decimal(14, 2)
+  maxPrice     Decimal? @db.Decimal(14, 2)
+  minArea      Decimal? @db.Decimal(10, 2)
+  maxArea      Decimal? @db.Decimal(10, 2)
   minBedrooms  Int?
   minBathrooms Int?
   minFloor     Int?
   minYearBuilt Int?
   /// Required features, as property-profile keys (parking, storage, elevator, ...).
-  features String[]
+  features     String[]
 
   clientName  String
   clientPhone String?
   clientEmail String?
-  contactId String?
-  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  contactId   String?
+  contact     Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
 
   /// 1-5: how promising the client is.
   rating    Int?
@@ -893,7 +895,7 @@ model BuyerRequest {
 
   assignedToId String?
   assignedTo   User?   @relation("RequestAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
-  createdById String?
+  createdById  String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -911,22 +913,22 @@ model Task {
   status      TaskStatus   @default(OPEN)
   priority    TaskPriority @default(NORMAL)
 
-  dueAt      DateTime?
+  dueAt       DateTime?
   completedAt DateTime?
 
   assignedToId String?
   assignedTo   User?   @relation("TaskAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
 
-  leadId    String?
-  lead      Lead?    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  leadId     String?
+  lead       Lead?     @relation(fields: [leadId], references: [id], onDelete: Cascade)
   propertyId String?
   property   Property? @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   viewingId  String?
-  viewing    Viewing? @relation(fields: [viewingId], references: [id], onDelete: Cascade)
+  viewing    Viewing?  @relation(fields: [viewingId], references: [id], onDelete: Cascade)
 
   createdById String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([assignedToId, status])
   @@index([dueAt])
@@ -942,11 +944,11 @@ model Task {
 // ---------------------------------------------------------------------------
 
 model Document {
-  id         String           @id @default(cuid())
+  id         String    @id @default(cuid())
   propertyId String?
-  property   Property?        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  property   Property? @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   contactId  String?
-  contact    Contact?         @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  contact    Contact?  @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
   title      String
   category   DocumentCategory @default(OTHER)
@@ -956,8 +958,8 @@ model Document {
   checksum   String?
 
   /// Documents containing personal data are removed with the person.
-  containsPersonalData Boolean @default(false)
-  retentionExpiresAt    DateTime?
+  containsPersonalData Boolean   @default(false)
+  retentionExpiresAt   DateTime?
 
   uploadedById String?
   createdAt    DateTime @default(now())
@@ -977,11 +979,11 @@ model Document {
 // ---------------------------------------------------------------------------
 
 model Portal {
-  id          String          @id @default(cuid())
-  name        String
-  code        String          @unique
-  transport   PortalTransport @default(MANUAL)
-  enabled     Boolean         @default(false)
+  id        String          @id @default(cuid())
+  name      String
+  code      String          @unique
+  transport PortalTransport @default(MANUAL)
+  enabled   Boolean         @default(false)
 
   baseUrl        String?
   feedUrl        String?
@@ -994,9 +996,18 @@ model Portal {
 
   settings Json?
 
-  listings PortalListing[]
-  syncLogs PortalSyncLog[]
-  mappings PortalPropertyMapping[]
+  /// Facts behind the status shown in Settings → Portals. Nothing reads as
+  /// "connected" until a sync has actually succeeded.
+  lastSyncAt    DateTime?
+  lastSuccessAt DateTime?
+  lastErrorAt   DateTime?
+  /// Short, credential-free description of the last failure.
+  lastError     String?
+
+  listings        PortalListing[]
+  syncLogs        PortalSyncLog[]
+  mappings        PortalPropertyMapping[]
+  publicationRule PortalPublicationRule?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1006,18 +1017,18 @@ model Portal {
 }
 
 model PortalListing {
-  id         String @id @default(cuid())
+  id         String   @id @default(cuid())
   portalId   String
-  portal     Portal @relation(fields: [portalId], references: [id], onDelete: Cascade)
+  portal     Portal   @relation(fields: [portalId], references: [id], onDelete: Cascade)
   propertyId String
   property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
-  externalId    String?
-  externalUrl   String?
-  state         PortalSyncState @default(NOT_PUBLISHED)
-  lastSyncedAt  DateTime?
-  lastError     String?
-  retryCount    Int       @default(0)
+  externalId   String?
+  externalUrl  String?
+  state        PortalSyncState @default(NOT_PUBLISHED)
+  lastSyncedAt DateTime?
+  lastError    String?
+  retryCount   Int             @default(0)
 
   /// Hash of the payload last sent, so an unchanged property is not re-pushed.
   lastPayloadHash String?
@@ -1035,20 +1046,20 @@ model PortalListing {
 }
 
 model PortalSyncLog {
-  id               String @id @default(cuid())
-  portalId         String
-  portal           Portal @relation(fields: [portalId], references: [id], onDelete: Cascade)
-  portalListingId  String?
-  portalListing    PortalListing? @relation(fields: [portalListingId], references: [id], onDelete: SetNull)
-  propertyId       String?
+  id              String         @id @default(cuid())
+  portalId        String
+  portal          Portal         @relation(fields: [portalId], references: [id], onDelete: Cascade)
+  portalListingId String?
+  portalListing   PortalListing? @relation(fields: [portalListingId], references: [id], onDelete: SetNull)
+  propertyId      String?
 
-  action    SyncAction
-  ok        Boolean
-  detail    String?
-  errorCode String?
+  action     SyncAction
+  ok         Boolean
+  detail     String?
+  errorCode  String?
   durationMs Int?
 
-  actorId String?
+  actorId   String?
   createdAt DateTime @default(now())
 
   @@index([portalId, createdAt])
@@ -1091,16 +1102,16 @@ model ConsentRecord {
   subjectHash String
   email       String?
   userId      String?
-  user        User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user        User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
-  purpose      ConsentPurpose
-  granted      Boolean
+  purpose       ConsentPurpose
+  granted       Boolean
   policyVersion String
 
   /// How the choice was captured.
-  source       String
-  ipAddress    String?
-  userAgent    String?
+  source    String
+  ipAddress String?
+  userAgent String?
 
   grantedAt DateTime?
   revokedAt DateTime?
@@ -1119,13 +1130,13 @@ model ConsentRecord {
 /// Checked by the mailer before every commercial send. Also populated from
 /// hard bounces and spam complaints.
 model EmailSuppression {
-  id           String @id @default(cuid())
+  id           String            @id @default(cuid())
   email        String
-  emailHash    String @unique
+  emailHash    String            @unique
   reason       SuppressionReason
   source       String?
   /// When the original consent was withdrawn, for the 10-business-day record.
-  suppressedAt DateTime @default(now())
+  suppressedAt DateTime          @default(now())
   notes        String?
 
   createdAt DateTime @default(now())
@@ -1139,14 +1150,14 @@ model EmailSuppression {
 /// GDPR / Greek data-subject requests, so requests are auditable rather than
 /// handled ad hoc in someone's inbox.
 model DataRequest {
-  id          String            @id @default(cuid())
-  reference   String            @unique
-  type        DataRequestType
-  status      DataRequestStatus @default(OPEN)
+  id        String            @id @default(cuid())
+  reference String            @unique
+  type      DataRequestType
+  status    DataRequestStatus @default(OPEN)
 
-  subjectName String
+  subjectName  String
   subjectEmail String
-  subjectHash String
+  subjectHash  String
 
   /// Which tables were inspected and what was erased.
   findings    Json?
@@ -1178,20 +1189,20 @@ model DmcaNotice {
   workDescription String?
 
   /// Our material under complaint.
-  infringingUrl    String?
-  propertyId       String?
-  property         Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
-  mediaId          String?
-  contactId        String?
+  infringingUrl String?
+  propertyId    String?
+  property      Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  mediaId       String?
+  contactId     String?
 
   goodFaithStatement String?
   signature          String?
 
-  status   DmcaStatus @default(RECEIVED)
-  counterNoticeReceived Boolean @default(false)
-  actionTakenAt DateTime?
-  resolvedAt    DateTime?
-  notes         String?
+  status                DmcaStatus @default(RECEIVED)
+  counterNoticeReceived Boolean    @default(false)
+  actionTakenAt         DateTime?
+  resolvedAt            DateTime?
+  notes                 String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1205,15 +1216,15 @@ model DmcaNotice {
 /// Append-only. Property and lead history is written here so a status change
 /// cannot be made without leaving a record of who did it.
 model AuditLog {
-  id       String     @id @default(cuid())
+  id       String      @id @default(cuid())
   entity   AuditEntity
   entityId String
 
-  action   String
+  action    String
   /// Field-level before/after, with personal fields redacted.
-  changes  Json?
-  actorId  String?
-  actor    User?     @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  changes   Json?
+  actorId   String?
+  actor     User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
   ipAddress String?
   userAgent String?
 
@@ -1236,20 +1247,486 @@ model EmailLog {
   /// MARKETING is never sent without a current grant and a clear suppression list.
   category String
 
-  template      String?
+  template          String?
   providerMessageId String?
 
   /// Set when the recipient used the one-click unsubscribe endpoint.
   unsubscribedAt DateTime?
 
   consentRecordId String?
-  metadata Json?
+  metadata        Json?
 
   sentAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([toEmail])
   @@index([category])
   @@index([createdAt])
   @@map("email_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Settings
+//
+// One typed table per settings area (a single row with id "default"), so a
+// column has a real type and a missing value is NULL ("not configured")
+// rather than a guess. The catalogue in @home88/domain describes every column:
+// labels, validation and which values are secrets.
+//
+// Secrets never live in these tables. They are AES-256-GCM envelopes in
+// provider_credentials, written through the API and never returned by it.
+// ---------------------------------------------------------------------------
+
+model CompanySettings {
+  id          String   @id @default("default")
+  officeName  String?
+  legalName   String?
+  website     String?
+  email       String?
+  phone1      String?
+  phone2      String?
+  mobile      String?
+  addressEl   String?
+  addressEn   String?
+  city        String?
+  postalCode  String?
+  country     String?
+  hoursEl     String?
+  hoursEn     String?
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+
+  @@map("company_settings")
+}
+
+/// One row per platform (FACEBOOK, INSTAGRAM, …). Legacy platforms such as
+/// Google+ may exist from a migration but are never offered for new entries.
+model CompanySocialLink {
+  id        String   @id @default(cuid())
+  platform  String   @unique
+  url       String
+  updatedAt DateTime @updatedAt
+
+  @@map("company_social_links")
+}
+
+/// Company profile text, one row per language.
+model CompanyProfile {
+  id        String   @id @default(cuid())
+  locale    String   @unique
+  body      String
+  updatedAt DateTime @updatedAt
+
+  @@map("company_profiles")
+}
+
+model CompanyLegalDetails {
+  id                  String   @id @default("default")
+  legalNameEl         String?
+  legalNameEn         String?
+  activityEl          String?
+  activityEn          String?
+  vatNumber           String?
+  taxOffice           String?
+  gemiNumber          String?
+  kefodeEl            String?
+  kefodeEn            String?
+  registeredAddressEl String?
+  registeredAddressEn String?
+  phone               String?
+  legalEmail          String?
+  updatedAt           DateTime @updatedAt
+  updatedById         String?
+
+  @@map("company_legal_details")
+}
+
+model CompanyBranding {
+  id                 String   @id @default("default")
+  logoUrl            String?
+  faviconUrl         String?
+  colorPrimary       String?
+  colorDark          String?
+  colorSecondary     String?
+  colorBackground    String?
+  siteTitle          String?
+  siteDescription    String?
+  defaultLanguage    String?
+  availableLanguages String[] @default([])
+  updatedAt          DateTime @updatedAt
+  updatedById        String?
+
+  @@map("company_branding")
+}
+
+model AppSettings {
+  id                     String   @id @default("default")
+  listingFooterEl        String?
+  listingFooterEn        String?
+  uppercaseDescriptions  Boolean?
+  uploadMode             String?
+  watermarkEnabled       Boolean?
+  watermarkPosition      String?
+  allowDuplicateContacts Boolean?
+  showCustomerNames      String?
+  showContactDetails     String?
+  propertyRefreshDays    Int?
+  requestRefreshDays     Int?
+  mapDefaultLat          Float?
+  mapDefaultLng          Float?
+  showExactLocation      Boolean?
+  /// Browser-side Maps key: visible to visitors by design, restricted by domain.
+  mapsBrowserKey         String?
+  timezone               String?
+  currency               String?
+  updatedAt              DateTime @updatedAt
+  updatedById            String?
+
+  @@map("app_settings")
+}
+
+model PropertySettings {
+  id                        String   @id @default("default")
+  approvalRequired          Boolean?
+  minPhotosToPublish        Int?
+  requireEnglishDescription Boolean?
+  requireEnergyClass        Boolean?
+  staleAfterDays            Int?
+  updatedAt                 DateTime @updatedAt
+  updatedById               String?
+
+  @@map("property_settings")
+}
+
+model ContactSettings {
+  id                   String   @id @default("default")
+  duplicateCheckPhone  Boolean?
+  duplicateCheckEmail  Boolean?
+  duplicateCheckName   Boolean?
+  enabledSources       String[] @default([])
+  defaultContactMethod String?
+  updatedAt            DateTime @updatedAt
+  updatedById          String?
+
+  @@map("contact_settings")
+}
+
+model RequestSettings {
+  id                String   @id @default("default")
+  minMatchScore     Int?
+  maxMatches        Int?
+  priceTolerancePct Int?
+  sizeTolerancePct  Int?
+  weightArea        Int?
+  weightPrice       Int?
+  weightSize        Int?
+  weightBedrooms    Int?
+  weightBathrooms   Int?
+  weightFloor       Int?
+  weightYear        Int?
+  weightFeatures    Int?
+  expiryDays        Int?
+  newMatchAlerts    String?
+  updatedAt         DateTime @updatedAt
+  updatedById       String?
+
+  @@map("request_settings")
+}
+
+/// Every rate starts NULL: HOME88 supplies its own commission rules.
+model CommissionSettings {
+  id                      String   @id @default("default")
+  saleCommissionPct       Decimal? @db.Decimal(7, 3)
+  rentCommissionMonths    Decimal? @db.Decimal(6, 2)
+  assignmentCommissionPct Decimal? @db.Decimal(7, 3)
+  minimumFee              Decimal? @db.Decimal(12, 2)
+  buyerSidePct            Decimal? @db.Decimal(7, 3)
+  sellerSidePct           Decimal? @db.Decimal(7, 3)
+  agentSharePct           Decimal? @db.Decimal(7, 3)
+  agencySharePct          Decimal? @db.Decimal(7, 3)
+  vatMode                 String?
+  vatRatePct              Decimal? @db.Decimal(7, 3)
+  updatedAt               DateTime @updatedAt
+  updatedById             String?
+
+  @@map("commission_settings")
+}
+
+model CalendarSettings {
+  id                        String   @id @default("default")
+  timezone                  String?
+  workingDays               Int[]    @default([])
+  workdayStart              String?
+  workdayEnd                String?
+  viewingMinutes            Int?
+  defaultAppointmentMinutes Int?
+  reminderMinutesBefore     Int?
+  enabledEventCategories    String[] @default([])
+  updatedAt                 DateTime @updatedAt
+  updatedById               String?
+
+  @@map("calendar_settings")
+}
+
+/// Event × channel switches. A missing row means the default (CRM on, email and SMS off).
+model NotificationSetting {
+  id          String   @id @default(cuid())
+  event       String
+  channel     String
+  enabled     Boolean
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+
+  @@unique([event, channel])
+  @@map("notification_settings")
+}
+
+model MandateSettings {
+  id                   String   @id @default("default")
+  numberingPrefix      String?
+  numberingDigits      Int?
+  signatureProvider    String?
+  signatureLevel       String?
+  signatureApiUrl      String?
+  signatureAccountId   String?
+  signingExpiryDays    Int?
+  reminderScheduleDays Int[]    @default([])
+  retentionYears       Int?
+  updatedAt            DateTime @updatedAt
+  updatedById          String?
+
+  @@map("mandate_settings")
+}
+
+/// One template per mandate type and language. Its wording lives in versions.
+model MandateTemplate {
+  id        String                   @id @default(cuid())
+  type      String
+  locale    String
+  createdAt DateTime                 @default(now())
+  versions  MandateTemplateVersion[]
+
+  @@unique([type, locale])
+  @@map("mandate_templates")
+}
+
+/// Lawyer-approved wording. A version is editable only while DRAFT; once
+/// ACTIVE or RETIRED its body never changes, so a signed mandate always points
+/// at the exact text that was signed.
+model MandateTemplateVersion {
+  id            String          @id @default(cuid())
+  templateId    String
+  template      MandateTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  version       Int
+  status        String          @default("DRAFT")
+  body          String
+  /// SHA-256 of body, recorded so a stored copy can be verified later.
+  checksum      String
+  notes         String?
+  createdById   String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  activatedAt   DateTime?
+  activatedById String?
+  retiredAt     DateTime?
+
+  @@unique([templateId, version])
+  @@index([templateId, status])
+  @@map("mandate_template_versions")
+}
+
+model EmailSettings {
+  id           String   @id @default("default")
+  mode         String?
+  apiProvider  String?
+  smtpHost     String?
+  smtpPort     Int?
+  smtpUsername String?
+  smtpTls      Boolean?
+  fromName     String?
+  fromEmail    String?
+  replyTo      String?
+  disclaimerEl String?
+  disclaimerEn String?
+  updatedAt    DateTime @updatedAt
+  updatedById  String?
+
+  @@map("email_settings")
+}
+
+model SmsSettings {
+  id          String   @id @default("default")
+  provider    String?
+  senderName  String?
+  accountId   String?
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+
+  @@map("sms_settings")
+}
+
+model SecuritySettings {
+  id                  String   @id @default("default")
+  sessionTimeoutHours Int?
+  passwordMinLength   Int?
+  maxLoginAttempts    Int?
+  lockoutMinutes      Int?
+  mfaPolicy           String?
+  updatedAt           DateTime @updatedAt
+  updatedById         String?
+
+  @@map("security_settings")
+}
+
+/// Retention periods have no default: they are set after legal review.
+model PrivacySettings {
+  id                      String   @id @default("default")
+  privacyEmail            String?
+  dmcaEmail               String?
+  analyticsEnabled        Boolean?
+  marketingDoubleOptIn    Boolean?
+  leadRetentionMonths     Int?
+  contactRetentionMonths  Int?
+  emailLogRetentionMonths Int?
+  auditRetentionMonths    Int?
+  updatedAt               DateTime @updatedAt
+  updatedById             String?
+
+  @@map("privacy_settings")
+}
+
+model SubscriptionSettings {
+  id          String    @id @default("default")
+  plan        String?
+  status      String?
+  startsAt    DateTime? @db.Date
+  expiresAt   DateTime? @db.Date
+  renewal     String?
+  updatedAt   DateTime  @updatedAt
+  updatedById String?
+
+  @@map("subscription_settings")
+}
+
+/// Write-only provider secrets: AES-256-GCM, bound to (scope, field) as
+/// associated data so an envelope cannot be moved to another field. The key
+/// is SETTINGS_ENCRYPTION_KEY in the server environment; keyId records which
+/// key wrote the envelope.
+model ProviderCredential {
+  id          String   @id @default(cuid())
+  scope       String
+  field       String
+  ciphertext  String
+  iv          String
+  authTag     String
+  keyId       String
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+
+  @@unique([scope, field])
+  @@map("provider_credentials")
+}
+
+/// Who changed which setting, when. Secrets and sensitive identifiers are
+/// recorded as "changed — value masked" with no old or new value, ever.
+model SettingsAuditLog {
+  id        String   @id @default(cuid())
+  section   String
+  field     String?
+  action    String
+  oldValue  Json?
+  newValue  Json?
+  masked    Boolean  @default(false)
+  summary   String?
+  actorId   String?
+  actorName String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([section, createdAt])
+  @@index([createdAt])
+  @@map("settings_audit_log")
+}
+
+/// Overrides of the default settings grants per role. SUPER_ADMIN always
+/// holds everything and is never stored here.
+model RolePermission {
+  id          String   @id @default(cuid())
+  role        UserRole
+  permission  String
+  granted     Boolean
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+
+  @@unique([role, permission])
+  @@map("role_permissions")
+}
+
+/// Internal property tags with stable codes (replacing Estate+ free-text
+/// categories). Never shown on the public website.
+model PropertyTag {
+  id           String   @id @default(cuid())
+  code         String   @unique
+  labelEl      String
+  labelEn      String?
+  color        String   @default("slate")
+  active       Boolean  @default(true)
+  isSystem     Boolean  @default(false)
+  /// Estate+ category names that map to this tag, for the data migration.
+  legacyLabels String[] @default([])
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("property_tags")
+}
+
+/// Region › City › Area › Neighbourhood.
+model Area {
+  id        String                @id @default(cuid())
+  level     String
+  parentId  String?
+  parent    Area?                 @relation("AreaTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children  Area[]                @relation("AreaTree")
+  nameEl    String
+  nameEn    String?
+  slug      String                @unique
+  active    Boolean               @default(true)
+  sortOrder Int                   @default(0)
+  mappings  AreaExternalMapping[]
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+
+  @@index([parentId])
+  @@index([level])
+  @@map("areas")
+}
+
+/// A portal's own id for an area (e.g. Spitogatos area id), so portal ids are
+/// never hard-coded in property code.
+model AreaExternalMapping {
+  id         String   @id @default(cuid())
+  areaId     String
+  area       Area     @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  portalCode String
+  externalId String
+  updatedAt  DateTime @updatedAt
+
+  @@unique([areaId, portalCode])
+  @@index([portalCode, externalId])
+  @@map("area_external_mappings")
+}
+
+model PortalPublicationRule {
+  id            String   @id @default(cuid())
+  portalId      String   @unique
+  portal        Portal   @relation(fields: [portalId], references: [id], onDelete: Cascade)
+  mode          String   @default("NONE")
+  propertyTypes String[] @default([])
+  includeTags   String[] @default([])
+  excludeTags   String[] @default([])
+  updatedAt     DateTime @updatedAt
+  updatedById   String?
+
+  @@map("portal_publication_rules")
 }
