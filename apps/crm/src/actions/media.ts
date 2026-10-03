@@ -16,7 +16,7 @@ export async function updateMedia(
 ): Promise<ActionState> {
   const propertyId = str(formData, "propertyId");
   const mediaId = str(formData, "mediaId");
-  if (!propertyId || !mediaId) return { ok: false, message: "Missing media." };
+  if (!propertyId || !mediaId) return { ok: false, message: "Λείπει το αρχείο." };
 
   const payload: Record<string, unknown> = {};
   if (formData.has("altEl")) payload.altEl = formData.get("altEl");
@@ -31,7 +31,7 @@ export async function updateMedia(
   if (!result.ok) return { ok: false, message: result.error.message, fields: result.error.fields };
 
   refresh(propertyId);
-  return { ok: true, message: "Saved." };
+  return { ok: true, message: "Αποθηκεύτηκε." };
 }
 
 /** The primary item is the one the public site and feeds use as the cover. */

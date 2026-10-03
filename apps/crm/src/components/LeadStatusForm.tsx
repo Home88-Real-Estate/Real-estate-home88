@@ -19,7 +19,7 @@ export function LeadStatusForm({ leadId, current }: { leadId: string; current: s
       <input type="hidden" name="leadId" value={leadId} />
 
       <div className="field">
-        <label htmlFor="status">Status</label>
+        <label htmlFor="status">Κατάσταση</label>
         <select id="status" name="status" className="select" defaultValue={current}>
           {STATUS_OPTIONS.map(([value, text]) => (
             <option key={value} value={value}>
@@ -30,12 +30,12 @@ export function LeadStatusForm({ leadId, current }: { leadId: string; current: s
       </div>
 
       <div className="field">
-        <label htmlFor="note">Note</label>
-        <textarea id="note" name="note" className="textarea" placeholder="What happened on this contact?" />
+        <label htmlFor="note">Σημείωση</label>
+        <textarea id="note" name="note" className="textarea" placeholder="Τι έγινε σε αυτή την επικοινωνία;" />
       </div>
 
       <div className="field">
-        <label htmlFor="lostReason">Reason if lost</label>
+        <label htmlFor="lostReason">Λόγος αν χάθηκε</label>
         <input id="lostReason" name="lostReason" className="input" />
       </div>
 
@@ -46,7 +46,7 @@ export function LeadStatusForm({ leadId, current }: { leadId: string; current: s
       )}
 
       <button type="submit" className="btn btn--primary" disabled={pending}>
-        {pending ? "Updating..." : "Update status"}
+        {pending ? "Ενημέρωση…" : "Ενημέρωση κατάστασης"}
       </button>
     </form>
   );

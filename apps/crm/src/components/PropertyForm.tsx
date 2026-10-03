@@ -1,69 +1,99 @@
 "use client";
 
-import { useActionState } from "react";
+/**
+ * Property editor. Which fields appear, their labels, units, options and what
+ * is required all come from the shared property profiles in @home88/domain,
+ * the same definition the API validates against.
+ *
+ * Values live in one state object, so switching property type keeps what was
+ * typed: switching back restores it. Fields that do not apply to the chosen
+ * type are not sent; the form says which ones before saving.
+ */
+
+import { useActionState, useState } from "react";
 import {
-  LISTING_TYPE_LABELS,
-  PROPERTY_STATUS_LABELS,
-  PROPERTY_TYPE_LABELS,
-  label,
-  type Localised,
-} from "@home88/types";
+  CONDITION_LABELS,
+  CORE_FIELDS,
+  CORE_FLAGS,
+  DETAIL_FIELDS,
+  completeness,
+  fieldDef,
+  listingProfileFor,
+  profileFor,
+  type FieldDef,
+} from "@home88/domain";
+import { LISTING_TYPE_LABELS, PROPERTY_STATUS_LABELS, PROPERTY_TYPE_LABELS, label } from "@home88/types";
 
 import { idleState, type ActionState } from "@/lib/form";
 
-type Options = Array<[string, string]>;
-
-function optionsFrom(map: Record<string, Localised>): Options {
-  return Object.keys(map).map((key) => [key, label(map, key, "el")]);
-}
-
-const LISTING_OPTIONS = optionsFrom(LISTING_TYPE_LABELS);
-const TYPE_OPTIONS = optionsFrom(PROPERTY_TYPE_LABELS);
-/** A new property starts as a draft or active; later moves use the status actions. */
-const CREATE_STATUS_OPTIONS = optionsFrom(PROPERTY_STATUS_LABELS).filter(([value]) =>
-  value === "DRAFT" || value === "ACTIVE",
-);
-
-const CONDITION_OPTIONS: Options = [
-  ["NEW_BUILD", "New build"],
-  ["RENOVATED", "Renovated"],
-  ["GOOD", "Good"],
-  ["NEEDS_RENOVATION", "Needs renovation"],
-  ["UNDER_CONSTRUCTION", "Under construction"],
-];
-
-const HEATING_OPTIONS: Options = [
-  ["CENTRAL", "Central"],
-  ["INDIVIDUAL", "Individual"],
-  ["UNDERFLOOR", "Underfloor"],
-  ["HEAT_PUMP", "Heat pump"],
-  ["GAS", "Gas"],
-  ["NONE", "None"],
-  ["NOT_AVAILABLE", "Not available"],
-];
-
-const ENERGY_OPTIONS: Options = [
-  ["A_PLUS", "A+"],
-  ["A", "A"],
-  ["B", "B"],
-  ["C", "C"],
-  ["D", "D"],
-  ["E", "E"],
-  ["F", "F"],
-  ["G", "G"],
-  ["NOT_AVAILABLE", "n/a"],
-];
-
 type Initial = Record<string, unknown>;
+type Values = Record<string, string | boolean>;
 
-function text(initial: Initial | undefined, name: string): string {
-  const value = initial?.[name];
-  return value == null ? "" : String(value);
+const TYPE_GROUPS: Array<[string, string[]]> = [
+  ["Κατοικία", ["APARTMENT", "STUDIO", "MAISONETTE", "HOUSE", "VILLA"]],
+  ["Επαγγελματικό", ["OFFICE", "SHOP", "WAREHOUSE", "BUILDING", "HOTEL", "INDUSTRIAL"]],
+  ["Γη", ["LAND", "PLOT"]],
+  ["Λοιπά", ["PARKING", "OTHER"]],
+];
+
+const LOCATION_FIELDS: Array<[string, string, boolean?]> = [
+  ["region", "Περιφέρεια"],
+  ["city", "Πόλη / Δήμος"],
+  ["areaName", "Περιοχή"],
+  ["neighborhood", "Γειτονιά"],
+  ["address", "Διεύθυνση", true],
+  ["postalCode", "Τ.Κ."],
+  ["latitude", "Γεωγρ. πλάτος"],
+  ["longitude", "Γεωγρ. μήκος"],
+];
+
+function initialValues(initial: Initial | undefined): Values {
+  const values: Values = {
+    listingType: "SALE",
+    propertyType: "APARTMENT",
+    status: "DRAFT",
+    condition: "GOOD",
+    heating: "NOT_AVAILABLE",
+    energyClass: "NOT_AVAILABLE",
+  };
+  if (!initial) return values;
+  for (const [key, value] of Object.entries(initial)) {
+    if (key === "details" || value == null || typeof value === "object") continue;
+    values[key] = typeof value === "boolean" ? value : String(value);
+  }
+  const details = initial.details;
+  if (details && typeof details === "object") {
+    for (const [key, value] of Object.entries(details as Record<string, unknown>)) {
+      if (value == null) continue;
+      values[`details.${key}`] = typeof value === "boolean" ? value : String(value);
+    }
+  }
+  return values;
 }
 
-function checked(initial: Initial | undefined, name: string): boolean {
-  return initial?.[name] === true;
+/** The form's values in the shape the profiles understand. */
+function asRecord(values: Values): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const details: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(values)) {
+    if (key.startsWith("details.")) details[key.slice(8)] = value;
+    else out[key] = value;
+  }
+  out.details = details;
+  return out;
 }
+
+function nameOf(key: string): string {
+  return key in DETAIL_FIELDS && !(key in CORE_FIELDS) && !(key in CORE_FLAGS) ? `details.${key}` : key;
+}
+
+function isSet(value: string | boolean | undefined): boolean {
+  return value !== undefined && value !== "" && value !== false && value !== "NOT_AVAILABLE";
+}
+
+const ALL_KEYS = [...Object.keys(CORE_FIELDS), ...Object.keys(CORE_FLAGS), ...Object.keys(DETAIL_FIELDS), "price", "monthlyRent"];
+
+const euro = new Intl.NumberFormat("el-GR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
 
 export function PropertyForm({
   action,
@@ -75,148 +105,300 @@ export function PropertyForm({
   submitLabel: string;
 }) {
   const [state, formAction, pending] = useActionState(action, idleState);
-  const error = (name: string) => state.fields?.[name]?.[0];
-  const id = text(initial, "id");
+  const [values, setValues] = useState<Values>(() => initialValues(initial));
+  const id = typeof initial?.id === "string" ? initial.id : "";
+
+  const type = String(values.propertyType);
+  const listing = String(values.listingType);
+  const profile = profileFor(type);
+  const pricing = listingProfileFor(listing);
+  const draft = values.status === "DRAFT";
+
+  const set = (key: string, value: string | boolean) => setValues((v) => ({ ...v, [key]: value }));
+  const error = (key: string) => state.fields?.[key]?.[0];
+  const labelOf = (key: string) => profile.labels?.[key] ?? fieldDef(key)?.label ?? key;
+  const required = new Set(profile.required);
+
+  // Detail fields of the type that the pricing section does not already show.
+  const typeDetails = profile.details.filter((key) => !pricing.details.includes(key));
+  const visible = new Set<string>([...profile.core, ...typeDetails, ...profile.features, ...pricing.details, pricing.priceField]);
+
+  // Values typed for fields that do not apply now (kept in the form, not saved).
+  const hiddenWithValues = ALL_KEYS.filter((key) => !visible.has(key) && isSet(values[nameOf(key)])).map(
+    (key) => fieldDef(key)?.label ?? (key === "price" ? "Τιμή" : key === "monthlyRent" ? "Μίσθωμα" : key),
+  );
+
+  const score = completeness(asRecord(values));
+  const priceValue = Number(String(values[pricing.priceField] ?? "").replace(",", "."));
+  const areaValue = Number(String(values.area ?? "").replace(",", "."));
+  const perSqm =
+    pricing.priceField === "price" && priceValue > 0 && areaValue > 0 ? euro.format(priceValue / areaValue) : null;
+
+  const field = (key: string, span2 = false) => {
+    const def = fieldDef(key);
+    if (!def) return null;
+    const name = nameOf(key);
+    return (
+      <Field
+        key={key}
+        def={def}
+        name={name}
+        label={labelOf(key)}
+        required={required.has(key)}
+        value={values[name]}
+        onChange={(v) => set(name, v)}
+        error={error(name)}
+        span2={span2}
+      />
+    );
+  };
 
   return (
-    <form action={formAction}>
+    <form action={formAction} className="pform">
       {id && <input type="hidden" name="id" value={id} />}
 
       {state.message && (
-        <div
-          className={state.ok ? "notice notice--ok" : "notice notice--danger"}
-          role="alert"
-          style={{ marginBottom: 16 }}
-        >
+        <div className={state.ok ? "notice notice--ok" : "notice notice--danger"} role="alert">
           {state.message}
         </div>
       )}
 
-      <div className="panel">
-        <h2>Basics</h2>
+      <section className="panel">
+        <h2>Βασικά στοιχεία</h2>
         <div className="formgrid">
-          <TextField name="titleEl" label="Title (GR)" defaultValue={text(initial, "titleEl")} error={error("titleEl")} required span2 />
-          <TextField name="titleEn" label="Title (EN)" defaultValue={text(initial, "titleEn")} error={error("titleEn")} span2 />
-          <SelectField name="listingType" label="Listing type" defaultValue={text(initial, "listingType") || "SALE"} options={LISTING_OPTIONS} error={error("listingType")} />
-          <SelectField name="propertyType" label="Property type" defaultValue={text(initial, "propertyType") || "APARTMENT"} options={TYPE_OPTIONS} error={error("propertyType")} />
-          {!id && <SelectField name="status" label="Status" defaultValue="DRAFT" options={CREATE_STATUS_OPTIONS} error={error("status")} />}
-          <SelectField name="condition" label="Condition" defaultValue={text(initial, "condition") || "GOOD"} options={CONDITION_OPTIONS} error={error("condition")} />
-          <TextField name="reference" label="Reference" defaultValue={text(initial, "reference")} hint="Leave blank to allocate automatically (H88-000001)." error={error("reference")} />
+          <TextInput name="titleEl" label="Τίτλος (ελληνικά)" required value={values.titleEl} onChange={set} error={error("titleEl")} span2 />
+          <TextInput name="titleEn" label="Τίτλος (αγγλικά)" value={values.titleEn} onChange={set} error={error("titleEn")} span2 />
+          <div className="field">
+            <label htmlFor="listingType">Είδος αγγελίας</label>
+            <select id="listingType" name="listingType" className="select" value={listing} onChange={(e) => set("listingType", e.target.value)}>
+              {Object.keys(LISTING_TYPE_LABELS).map((key) => (
+                <option key={key} value={key}>
+                  {label(LISTING_TYPE_LABELS, key, "el")}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="propertyType">Τύπος ακινήτου</label>
+            <select id="propertyType" name="propertyType" className="select" value={type} onChange={(e) => set("propertyType", e.target.value)}>
+              {TYPE_GROUPS.map(([group, types]) => (
+                <optgroup key={group} label={group}>
+                  {types.map((key) => (
+                    <option key={key} value={key}>
+                      {label(PROPERTY_TYPE_LABELS, key, "el")}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </div>
+          {!id && (
+            <div className="field">
+              <label htmlFor="status">Κατάσταση καταχώρισης</label>
+              <select id="status" name="status" className="select" value={String(values.status)} onChange={(e) => set("status", e.target.value)}>
+                {["DRAFT", "ACTIVE"].map((key) => (
+                  <option key={key} value={key}>
+                    {label(PROPERTY_STATUS_LABELS, key, "el")}
+                  </option>
+                ))}
+              </select>
+              <span className="hint">Ένα πρόχειρο αποθηκεύεται και ελλιπές.</span>
+            </div>
+          )}
+          {profile.conditions && (
+            <div className="field">
+              <label htmlFor="condition">Κατάσταση ακινήτου</label>
+              <select id="condition" name="condition" className="select" value={String(values.condition)} onChange={(e) => set("condition", e.target.value)}>
+                {profile.conditions.map((key) => (
+                  <option key={key} value={key}>
+                    {CONDITION_LABELS[key]}
+                  </option>
+                ))}
+              </select>
+              {error("condition") && <span className="error">{error("condition")}</span>}
+            </div>
+          )}
+          <TextInput
+            name="reference"
+            label="Κωδικός ακινήτου"
+            value={values.reference}
+            onChange={set}
+            hint="Αφήστε το κενό για αυτόματο κωδικό (H88-000001)."
+            error={error("reference")}
+          />
         </div>
-      </div>
+      </section>
 
-      <div className="panel">
-        <h2>Pricing</h2>
+      <section className="panel">
+        <h2>Τιμή και όροι</h2>
         <div className="formgrid">
-          <TextField name="price" label="Price (EUR)" defaultValue={text(initial, "price")} error={error("price")} />
-          <TextField name="monthlyRent" label="Monthly rent (EUR)" defaultValue={text(initial, "monthlyRent")} error={error("monthlyRent")} />
-          <TextField name="commissionRatePct" label="Commission rate (%)" defaultValue={text(initial, "commissionRatePct")} error={error("commissionRatePct")} />
-          <TextField name="agentCommissionPct" label="Agent commission (%)" defaultValue={text(initial, "agentCommissionPct")} error={error("agentCommissionPct")} />
+          <TextInput
+            name={pricing.priceField}
+            label={`${pricing.priceLabel} (€)`}
+            required={!values.priceOnRequest}
+            value={values[pricing.priceField]}
+            onChange={set}
+            error={error(pricing.priceField)}
+            inputMode="decimal"
+            hint={perSqm ? `${perSqm} ανά m²` : undefined}
+          />
+          {pricing.details.map((key) => field(key))}
+          <TextInput name="commissionRatePct" label="Αμοιβή γραφείου (%)" value={values.commissionRatePct} onChange={set} error={error("commissionRatePct")} inputMode="decimal" hint="Εσωτερικό στοιχείο." />
+          <TextInput name="agentCommissionPct" label="Ποσοστό συνεργάτη (%)" value={values.agentCommissionPct} onChange={set} error={error("agentCommissionPct")} inputMode="decimal" hint="Εσωτερικό στοιχείο." />
         </div>
-        <CheckField name="priceOnRequest" label="Price on request" defaultChecked={checked(initial, "priceOnRequest")} />
-      </div>
+        <Check name="priceOnRequest" label="Τιμή κατόπιν επικοινωνίας" value={values.priceOnRequest} onChange={set} />
+      </section>
 
-      <div className="panel">
-        <h2>Size and layout</h2>
+      <section className="panel">
+        <h2>{profile.title}</h2>
         <div className="formgrid">
-          <TextField name="area" label="Area (m²)" defaultValue={text(initial, "area")} error={error("area")} />
-          <TextField name="plotArea" label="Plot area (m²)" defaultValue={text(initial, "plotArea")} error={error("plotArea")} />
-          <TextField name="builtArea" label="Built area (m²)" defaultValue={text(initial, "builtArea")} error={error("builtArea")} />
-          <TextField name="bedrooms" label="Bedrooms" defaultValue={text(initial, "bedrooms")} error={error("bedrooms")} />
-          <TextField name="bathrooms" label="Bathrooms" defaultValue={text(initial, "bathrooms")} error={error("bathrooms")} />
-          <TextField name="wc" label="WC" defaultValue={text(initial, "wc")} error={error("wc")} />
-          <TextField name="floor" label="Floor" defaultValue={text(initial, "floor")} error={error("floor")} />
-          <TextField name="totalFloors" label="Total floors" defaultValue={text(initial, "totalFloors")} error={error("totalFloors")} />
-          <TextField name="yearBuilt" label="Year built" defaultValue={text(initial, "yearBuilt")} error={error("yearBuilt")} />
-          <TextField name="yearRenovated" label="Year renovated" defaultValue={text(initial, "yearRenovated")} error={error("yearRenovated")} />
-          <SelectField name="heating" label="Heating" defaultValue={text(initial, "heating") || "NOT_AVAILABLE"} options={HEATING_OPTIONS} error={error("heating")} />
-          <SelectField name="energyClass" label="Energy class" defaultValue={text(initial, "energyClass") || "NOT_AVAILABLE"} options={ENERGY_OPTIONS} error={error("energyClass")} />
+          {profile.core.map((key) => field(key))}
+          {typeDetails.map((key) => field(key, DETAIL_FIELDS[key]?.kind === "text"))}
         </div>
-      </div>
+      </section>
 
-      <div className="panel">
-        <h2>Features</h2>
-        <div className="checkgrid">
-          <CheckField name="parking" label="Parking" defaultChecked={checked(initial, "parking")} />
-          <CheckField name="storage" label="Storage" defaultChecked={checked(initial, "storage")} />
-          <CheckField name="balcony" label="Balcony" defaultChecked={checked(initial, "balcony")} />
-          <CheckField name="garden" label="Garden" defaultChecked={checked(initial, "garden")} />
-          <CheckField name="pool" label="Pool" defaultChecked={checked(initial, "pool")} />
-          <CheckField name="furnished" label="Furnished" defaultChecked={checked(initial, "furnished")} />
-          <CheckField name="petsAllowed" label="Pets allowed" defaultChecked={checked(initial, "petsAllowed")} />
-          <CheckField name="seaView" label="Sea view" defaultChecked={checked(initial, "seaView")} />
-          <CheckField name="hasSolar" label="Solar" defaultChecked={checked(initial, "hasSolar")} />
-          <CheckField name="newConstruction" label="New construction" defaultChecked={checked(initial, "newConstruction")} />
-        </div>
+      {profile.features.length > 0 && (
+        <section className="panel">
+          <h2>{type === "LAND" || type === "PLOT" ? "Παροχές και υποδομές" : "Παροχές"}</h2>
+          <div className="checkgrid">
+            {profile.features.map((key) => (
+              <Check key={key} name={nameOf(key)} label={labelOf(key)} value={values[nameOf(key)]} onChange={set} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className="panel">
+        <h2>Τοποθεσία</h2>
         <div className="formgrid">
-          <TextField name="parkingSpaces" label="Parking spaces" defaultValue={text(initial, "parkingSpaces")} error={error("parkingSpaces")} />
-          <TextField name="balconyArea" label="Balcony area (m²)" defaultValue={text(initial, "balconyArea")} error={error("balconyArea")} />
+          {LOCATION_FIELDS.map(([key, text, span2]) => (
+            <TextInput key={key} name={key} label={text} value={values[key]} onChange={set} error={error(key)} span2={span2} />
+          ))}
         </div>
-      </div>
+      </section>
 
-      <div className="panel">
-        <h2>Location</h2>
-        <div className="formgrid">
-          <TextField name="region" label="Region" defaultValue={text(initial, "region")} error={error("region")} />
-          <TextField name="city" label="City" defaultValue={text(initial, "city")} error={error("city")} />
-          <TextField name="areaName" label="Area" defaultValue={text(initial, "areaName")} error={error("areaName")} />
-          <TextField name="neighborhood" label="Neighborhood" defaultValue={text(initial, "neighborhood")} error={error("neighborhood")} />
-          <TextField name="address" label="Address" defaultValue={text(initial, "address")} error={error("address")} span2 />
-          <TextField name="postalCode" label="Postal code" defaultValue={text(initial, "postalCode")} error={error("postalCode")} />
-          <TextField name="latitude" label="Latitude" defaultValue={text(initial, "latitude")} error={error("latitude")} />
-          <TextField name="longitude" label="Longitude" defaultValue={text(initial, "longitude")} error={error("longitude")} />
-        </div>
-      </div>
-
-      <div className="panel">
-        <h2>Descriptions</h2>
+      <section className="panel">
+        <h2>Περιγραφή</h2>
         <div className="field">
-          <label htmlFor="descriptionEl">Description (GR) *</label>
-          <textarea id="descriptionEl" name="descriptionEl" className="textarea" defaultValue={text(initial, "descriptionEl")} required />
+          <label htmlFor="descriptionEl">Περιγραφή (ελληνικά) *</label>
+          <textarea id="descriptionEl" name="descriptionEl" className="textarea" required value={String(values.descriptionEl ?? "")} onChange={(e) => set("descriptionEl", e.target.value)} />
           {error("descriptionEl") && <span className="error">{error("descriptionEl")}</span>}
         </div>
         <div className="field">
-          <label htmlFor="descriptionEn">Description (EN)</label>
-          <textarea id="descriptionEn" name="descriptionEn" className="textarea" defaultValue={text(initial, "descriptionEn")} />
+          <label htmlFor="descriptionEn">Περιγραφή (αγγλικά)</label>
+          <textarea id="descriptionEn" name="descriptionEn" className="textarea" value={String(values.descriptionEn ?? "")} onChange={(e) => set("descriptionEn", e.target.value)} />
           {error("descriptionEn") && <span className="error">{error("descriptionEn")}</span>}
         </div>
-      </div>
+      </section>
 
-      <div className="panel">
-        <h2>Publishing and media</h2>
+      <section className="panel">
+        <h2>Πολυμέσα και δημοσίευση</h2>
         <div className="formgrid">
-          <TextField name="videoUrl" label="Video URL" defaultValue={text(initial, "videoUrl")} error={error("videoUrl")} />
-          <TextField name="virtualTourUrl" label="Virtual tour URL" defaultValue={text(initial, "virtualTourUrl")} error={error("virtualTourUrl")} />
+          <TextInput name="videoUrl" label="Σύνδεσμος βίντεο" value={values.videoUrl} onChange={set} error={error("videoUrl")} />
+          <TextInput name="virtualTourUrl" label="Σύνδεσμος εικονικής περιήγησης" value={values.virtualTourUrl} onChange={set} error={error("virtualTourUrl")} />
         </div>
-        <CheckField name="publishedOnWebsite" label="Published on the public website" defaultChecked={checked(initial, "publishedOnWebsite")} />
-        <CheckField name="featured" label="Featured" defaultChecked={checked(initial, "featured")} />
-      </div>
+        <Check name="publishedOnWebsite" label="Δημοσίευση στον ιστότοπο" value={values.publishedOnWebsite} onChange={set} />
+        <Check name="featured" label="Προβεβλημένο" value={values.featured} onChange={set} />
+      </section>
 
-      <div className="row" style={{ marginTop: 6 }}>
-        <button type="submit" className="btn btn--primary" disabled={pending}>
-          {pending ? "Saving..." : submitLabel}
+      {hiddenWithValues.length > 0 && (
+        <div className="notice notice--warn" role="status">
+          Ορισμένα στοιχεία δεν ισχύουν για «{label(PROPERTY_TYPE_LABELS, type, "el")}» και δεν θα αποθηκευτούν:{" "}
+          {hiddenWithValues.join(", ")}. Αν επιστρέψετε στον προηγούμενο τύπο πριν την αποθήκευση, οι τιμές
+          επανέρχονται.
+        </div>
+      )}
+
+      <div className="pform__footer">
+        <div className="pform__score" aria-live="polite">
+          <strong>Πληρότητα {score.percent}%</strong>
+          <span className="pform__bar" aria-hidden="true">
+            <span style={{ width: `${score.percent}%` }} />
+          </span>
+          {score.missing.length > 0 && <span className="hint">Λείπουν: {score.missing.join(", ")}</span>}
+          {!draft && <span className="hint">Τα πεδία με * είναι υποχρεωτικά για ενεργό ακίνητο.</span>}
+        </div>
+        <button type="submit" className="btn btn--primary btn--lg" disabled={pending}>
+          {pending ? "Αποθήκευση…" : submitLabel}
         </button>
       </div>
     </form>
   );
 }
 
-function TextField({
+function Field({
+  def,
   name,
   label,
-  defaultValue,
+  required,
+  value,
+  onChange,
+  error,
+  span2,
+}: {
+  def: FieldDef;
+  name: string;
+  label: string;
+  required?: boolean;
+  value: string | boolean | undefined;
+  onChange: (value: string | boolean) => void;
+  error?: string;
+  span2?: boolean;
+}) {
+  if (def.kind === "bool") return <Check name={name} label={label} value={value} onChange={(_, v) => onChange(v)} />;
+  const text = `${label}${def.unit ? ` (${def.unit})` : ""}`;
+  return (
+    <div className={`field${span2 ? " span2" : ""}`}>
+      <label htmlFor={name}>
+        {text}
+        {required ? " *" : ""}
+      </label>
+      {def.kind === "select" ? (
+        <select id={name} name={name} className="select" value={String(value ?? "")} onChange={(e) => onChange(e.target.value)}>
+          {!def.options?.some(([v]) => v === "NOT_AVAILABLE") && <option value="">—</option>}
+          {def.options?.map(([v, t]) => (
+            <option key={v} value={v}>
+              {t}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          id={name}
+          name={name}
+          className="input"
+          type={def.kind === "date" ? "date" : "text"}
+          inputMode={def.kind === "int" ? "numeric" : def.kind === "decimal" ? "decimal" : undefined}
+          value={String(value ?? "")}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      )}
+      {def.hint && <span className="hint">{def.hint}</span>}
+      {error && <span className="error">{error}</span>}
+    </div>
+  );
+}
+
+function TextInput({
+  name,
+  label,
+  value,
+  onChange,
   error,
   hint,
   required,
   span2,
+  inputMode,
 }: {
   name: string;
   label: string;
-  defaultValue?: string;
+  value: string | boolean | undefined;
+  onChange: (key: string, value: string) => void;
   error?: string;
   hint?: string;
   required?: boolean;
   span2?: boolean;
+  inputMode?: "decimal" | "numeric";
 }) {
   return (
     <div className={`field${span2 ? " span2" : ""}`}>
@@ -224,53 +406,35 @@ function TextField({
         {label}
         {required ? " *" : ""}
       </label>
-      <input id={name} name={name} type="text" className="input" defaultValue={defaultValue} required={required} />
+      <input
+        id={name}
+        name={name}
+        type="text"
+        className="input"
+        inputMode={inputMode}
+        value={String(value ?? "")}
+        onChange={(e) => onChange(name, e.target.value)}
+      />
       {hint && <span className="hint">{hint}</span>}
       {error && <span className="error">{error}</span>}
     </div>
   );
 }
 
-function SelectField({
+function Check({
   name,
   label,
-  defaultValue,
-  options,
-  error,
+  value,
+  onChange,
 }: {
   name: string;
   label: string;
-  defaultValue?: string;
-  options: Options;
-  error?: string;
-}) {
-  return (
-    <div className="field">
-      <label htmlFor={name}>{label}</label>
-      <select id={name} name={name} className="select" defaultValue={defaultValue}>
-        {options.map(([value, text]) => (
-          <option key={value} value={value}>
-            {text}
-          </option>
-        ))}
-      </select>
-      {error && <span className="error">{error}</span>}
-    </div>
-  );
-}
-
-function CheckField({
-  name,
-  label,
-  defaultChecked,
-}: {
-  name: string;
-  label: string;
-  defaultChecked?: boolean;
+  value: string | boolean | undefined;
+  onChange: (key: string, value: boolean) => void;
 }) {
   return (
     <label className="check">
-      <input type="checkbox" name={name} defaultChecked={defaultChecked} />
+      <input type="checkbox" name={name} checked={value === true || value === "true"} onChange={(e) => onChange(name, e.target.checked)} />
       {label}
     </label>
   );

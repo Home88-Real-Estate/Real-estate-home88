@@ -8,13 +8,13 @@ import {
 type Kind = "property" | "lead" | "portal" | "user";
 
 const PORTAL_LABELS: Record<string, string> = {
-  NOT_PUBLISHED: "Not published",
-  QUEUED: "Queued",
-  PUBLISHING: "Publishing",
-  PUBLISHED: "Published",
-  FAILED: "Failed",
-  REMOVED: "Removed",
-  OUTDATED: "Outdated",
+  NOT_PUBLISHED: "Μη δημοσιευμένο",
+  QUEUED: "Σε αναμονή",
+  PUBLISHING: "Δημοσιεύεται",
+  PUBLISHED: "Δημοσιευμένο",
+  FAILED: "Απέτυχε",
+  REMOVED: "Αφαιρέθηκε",
+  OUTDATED: "Χρειάζεται ενημέρωση",
 };
 
 function classFor(kind: Kind, value: string): string {

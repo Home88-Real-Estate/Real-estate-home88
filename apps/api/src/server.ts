@@ -54,7 +54,7 @@ export async function buildServer(): Promise<FastifyInstance> {
       return;
     }
     if (error instanceof ZodError) {
-      reply.code(422).send({ error: { code: "validation_failed", message: "Invalid input." } });
+      reply.code(422).send({ error: { code: "validation_failed", message: "Μη έγκυρα στοιχεία." } });
       return;
     }
 
@@ -82,13 +82,13 @@ export async function buildServer(): Promise<FastifyInstance> {
     reply.code(status).send({
       error: {
         code: status >= 500 ? "internal_error" : "request_error",
-        message: status >= 500 ? "Something went wrong." : error.message,
+        message: status >= 500 ? "Κάτι πήγε στραβά." : error.message,
       },
     });
   });
 
   app.setNotFoundHandler((_request, reply) => {
-    reply.code(404).send({ error: { code: "not_found", message: "Not found." } });
+    reply.code(404).send({ error: { code: "not_found", message: "Δεν βρέθηκε." } });
   });
 
   await app.register(healthRoutes);

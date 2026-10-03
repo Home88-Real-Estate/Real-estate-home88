@@ -22,7 +22,7 @@ type ContactRow = {
 };
 
 const ROLE_OPTIONS = [
-  ["", "All roles"],
+  ["", "Όλοι οι ρόλοι"],
   ["BUYER", "Buyer"],
   ["SELLER", "Seller"],
   ["LANDLORD", "Landlord"],
@@ -56,15 +56,15 @@ export default async function ContactsPage({
 
   return (
     <>
-      <h1>Contacts</h1>
+      <h1>Επαφές</h1>
 
       <form className="filters" method="get" action={`${CRM_BASE_PATH}/contacts`}>
         <div className="field">
-          <label htmlFor="q">Search</label>
-          <input id="q" name="q" className="input" defaultValue={q} placeholder="Name, company, reference" />
+          <label htmlFor="q">Αναζήτηση</label>
+          <input id="q" name="q" className="input" defaultValue={q} placeholder="Όνομα, εταιρεία, κωδικός" />
         </div>
         <div className="field">
-          <label htmlFor="role">Role</label>
+          <label htmlFor="role">Ρόλος</label>
           <select id="role" name="role" className="select" defaultValue={role}>
             {ROLE_OPTIONS.map(([value, text]) => (
               <option key={value} value={value}>
@@ -74,28 +74,28 @@ export default async function ContactsPage({
           </select>
         </div>
         <button type="submit" className="btn btn--outline">
-          Filter
+          Φιλτράρισμα
         </button>
       </form>
 
       {!result.ok ? (
         <div className="notice notice--danger">{result.error.message}</div>
       ) : result.data.data.length === 0 ? (
-        <div className="empty">No contacts match.</div>
+        <div className="empty">Καμία επαφή δεν ταιριάζει.</div>
       ) : (
         <>
           <div className="table-wrap">
             <table className="data">
               <thead>
                 <tr>
-                  <th>Reference</th>
-                  <th>Name</th>
-                  <th>Company</th>
-                  <th>Roles</th>
+                  <th>Κωδικός</th>
+                  <th>Όνομα</th>
+                  <th>Εταιρεία</th>
+                  <th>Ρόλοι</th>
                   <th>Email</th>
-                  <th>Phone</th>
+                  <th>Τηλέφωνο</th>
                   <th className="num">Leads</th>
-                  <th>Created</th>
+                  <th>Δημιουργία</th>
                 </tr>
               </thead>
               <tbody>

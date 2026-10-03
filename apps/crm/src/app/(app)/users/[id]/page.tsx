@@ -53,38 +53,38 @@ export default async function UserDetailPage({
           <div className="row" style={{ marginBottom: 4 }}>
             <StatusBadge value={target.status} kind="user" />
             <span className="badge badge--muted">{label(USER_ROLE_LABELS, target.role, "el")}</span>
-            {isSelf && <span className="badge badge--muted">You</span>}
+            {isSelf && <span className="badge badge--muted">Εσείς</span>}
           </div>
           <h1 style={{ margin: 0 }}>{personName(target.firstName, target.lastName)}</h1>
         </div>
         <Link href="/users" className="btn btn--outline btn--sm">
-          Back to list
+          Επιστροφή στη λίστα
         </Link>
       </div>
 
       <div className="panel">
-        <h2>Details</h2>
+        <h2>Στοιχεία</h2>
         <dl className="dl">
           <dt>Email</dt>
           <dd>{target.email}</dd>
-          <dt>Phone</dt>
+          <dt>Τηλέφωνο</dt>
           <dd>{target.phone ? <a href={`tel:${target.phone}`}>{target.phone}</a> : "-"}</dd>
-          <dt>Role</dt>
+          <dt>Ρόλος</dt>
           <dd>{label(USER_ROLE_LABELS, target.role, "el")}</dd>
-          <dt>Status</dt>
+          <dt>Κατάσταση</dt>
           <dd>{label(USER_STATUS_LABELS, target.status, "el")}</dd>
-          <dt>Last login</dt>
+          <dt>Τελευταία σύνδεση</dt>
           <dd>{formatDateTime(target.lastLoginAt)}</dd>
-          <dt>Created</dt>
+          <dt>Δημιουργία</dt>
           <dd>{formatDateTime(target.createdAt)}</dd>
-          <dt>Updated</dt>
+          <dt>Ενημέρωση</dt>
           <dd>{formatDateTime(target.updatedAt)}</dd>
         </dl>
       </div>
 
       {!canEditBasics && (
         <div className="notice">
-          You do not have permission to edit this account.
+          Δεν έχετε δικαίωμα να επεξεργαστείτε αυτόν τον λογαριασμό.
         </div>
       )}
 
@@ -95,7 +95,7 @@ export default async function UserDetailPage({
           assignableRoles={assignableRoles(actor.role)}
           canEditRole={canManageTarget}
           canEditStatus={canManageTarget}
-          submitLabel="Save changes"
+          submitLabel="Αποθήκευση αλλαγών"
         />
       )}
 

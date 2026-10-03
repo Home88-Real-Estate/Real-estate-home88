@@ -23,10 +23,10 @@ export type MediaItemData = {
 };
 
 const STATUS_LABELS: Record<string, string> = {
-  pending_review: "Pending review",
-  approved: "Approved",
-  rejected: "Rejected",
-  published: "Published",
+  pending_review: "Σε αναμονή έγκρισης",
+  approved: "Εγκεκριμένο",
+  rejected: "Απορρίφθηκε",
+  published: "Δημοσιευμένο",
 };
 
 const KINDS = ["PHOTO", "FLOOR_PLAN", "DOCUMENT", "VIDEO", "VIRTUAL_TOUR"];
@@ -65,7 +65,7 @@ export function MediaItem({
         <span className={statusClass(item.status)}>
           {STATUS_LABELS[item.status] ?? item.status}
         </span>
-        {item.isPrimary && <span className="badge">Primary</span>}
+        {item.isPrimary && <span className="badge">Κύρια</span>}
       </div>
 
       <p className="muted media-card__meta">
@@ -80,11 +80,11 @@ export function MediaItem({
         <input
           name="altEl"
           defaultValue={item.altEl ?? ""}
-          placeholder="Alt text (GR)"
+          placeholder="Εναλλακτικό κείμενο (GR)"
           className="input"
         />
         <label className="media-card__label">
-          Kind
+          Είδος
           <select name="kind" defaultValue={item.kind} className="input">
             {KINDS.map((kind) => (
               <option key={kind} value={kind}>
@@ -105,7 +105,7 @@ export function MediaItem({
             <input type="hidden" name="propertyId" value={propertyId} />
             <input type="hidden" name="mediaId" value={item.id} />
             <button type="submit" className="btn btn--sm">
-              Make primary
+              Ορισμός ως κύρια
             </button>
           </form>
         )}
@@ -115,7 +115,7 @@ export function MediaItem({
             <input type="hidden" name="mediaId" value={item.id} />
             <input type="hidden" name="status" value="approved" />
             <button type="submit" className="btn btn--sm">
-              Approve
+              Έγκριση
             </button>
           </form>
         )}
@@ -125,20 +125,20 @@ export function MediaItem({
             <input type="hidden" name="mediaId" value={item.id} />
             <input type="hidden" name="status" value="rejected" />
             <button type="submit" className="btn btn--danger btn--sm">
-              Reject
+              Απόρριψη
             </button>
           </form>
         )}
         <form
           action={deleteMedia}
           onSubmit={(event) => {
-            if (!window.confirm("Delete this file?")) event.preventDefault();
+            if (!window.confirm("Διαγραφή αυτού του αρχείου;")) event.preventDefault();
           }}
         >
           <input type="hidden" name="propertyId" value={propertyId} />
           <input type="hidden" name="mediaId" value={item.id} />
           <button type="submit" className="btn btn--danger btn--sm">
-            Delete
+            Διαγραφή
           </button>
         </form>
       </div>

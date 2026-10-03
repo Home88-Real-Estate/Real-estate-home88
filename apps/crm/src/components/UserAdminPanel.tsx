@@ -20,7 +20,7 @@ export function UserAdminPanel({
 
   return (
     <div className="panel">
-      <h2>Security</h2>
+      <h2>Ασφάλεια</h2>
 
       {canResetPassword && (
         <form action={action} style={{ marginBottom: 20 }}>
@@ -35,7 +35,7 @@ export function UserAdminPanel({
             </div>
           )}
           <div className="field">
-            <label htmlFor="new-password">Set a new password</label>
+            <label htmlFor="new-password">Νέος κωδικός</label>
             <input
               id="new-password"
               name="password"
@@ -51,7 +51,7 @@ export function UserAdminPanel({
             {state.fields?.password?.[0] && <span className="error">{state.fields.password[0]}</span>}
           </div>
           <button type="submit" className="btn btn--outline" disabled={pending}>
-            {pending ? "Updating..." : "Reset password"}
+            {pending ? "Ενημέρωση…" : "Αλλαγή κωδικού"}
           </button>
         </form>
       )}
@@ -63,14 +63,14 @@ export function UserAdminPanel({
             <>
               <input type="hidden" name="status" value="ACTIVE" />
               <button type="submit" className="btn btn--primary">
-                Reactivate account
+                Επανενεργοποίηση λογαριασμού
               </button>
             </>
           ) : (
             <>
               <input type="hidden" name="status" value="SUSPENDED" />
               <button type="submit" className="btn btn--danger">
-                Suspend account
+                Αναστολή λογαριασμού
               </button>
             </>
           )}

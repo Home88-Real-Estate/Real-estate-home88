@@ -23,7 +23,7 @@ export function MediaPanel({
       <MediaUploader propertyId={propertyId} />
 
       {media.length === 0 ? (
-        <div className="empty">No media uploaded yet.</div>
+        <div className="empty">Δεν έχουν ανέβει αρχεία ακόμη.</div>
       ) : (
         <div className="media-grid">
           {media.map((item) => (

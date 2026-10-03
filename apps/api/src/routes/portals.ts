@@ -120,7 +120,7 @@ export async function portalRoutes(app: FastifyInstance): Promise<void> {
       const { id, portalId } = request.params as { id: string; portalId: string };
 
       const portal = await db().portal.findUnique({ where: { id: portalId } });
-      if (!portal) throw notFound("Portal not found.");
+      if (!portal) throw notFound("Το portal δεν βρέθηκε.");
 
       const results = await syncPropertyPortals(id, actor.id, {
         force: true,
@@ -133,10 +133,10 @@ export async function portalRoutes(app: FastifyInstance): Promise<void> {
   app.get("/feeds/:code", async (request, reply) => {
     const { code } = request.params as { code: string };
     const portal = await db().portal.findUnique({ where: { code: code.toUpperCase() } });
-    if (!portal || !portal.enabled) throw notFound("Feed not found.");
+    if (!portal || !portal.enabled) throw notFound("Η ροή δεν βρέθηκε.");
 
     const adapter = feedAdapter(portal);
-    if (!adapter) throw notFound("Feed not found.");
+    if (!adapter) throw notFound("Η ροή δεν βρέθηκε.");
 
     const expected = feedTokenOf(portal);
     if (expected) {
