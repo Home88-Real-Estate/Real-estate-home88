@@ -1217,3 +1217,24 @@ p { margin: 0 0 1em; }
 .compare-table thead th { background: var(--surface); }
 .compare-table tbody th { background: #fafcfe; font-weight: 600; white-space: nowrap; }
 .compare-table a { font-weight: 700; }
+
+/* --- owner photo uploader ----------------------------------------------------- */
+.uploader { border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 14px 16px; margin: 0 0 18px; }
+.uploader legend { font-weight: 700; padding: 0 6px; }
+.uploader__drop {
+  border: 2px dashed var(--line-strong, var(--line));
+  border-radius: var(--radius-lg);
+  padding: 22px 14px;
+  text-align: center;
+  background: var(--surface, transparent);
+}
+.uploader__drop.is-over { border-color: var(--home88-blue); background: var(--home88-blue-pale, transparent); }
+.uploader__list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+.uploader__item { display: flex; gap: 12px; align-items: center; border: 1px solid var(--line); border-radius: 10px; padding: 8px; }
+.uploader__item img { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; flex: none; }
+.uploader__meta { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: 2px; }
+.uploader__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.uploader__meta progress { width: 100%; }
+.uploader__actions { display: flex; gap: 6px; flex: none; }
+.uploader__docs { margin-top: 16px; }
+.linkbtn { background: none; border: 0; padding: 0; color: var(--home88-blue); text-decoration: underline; cursor: pointer; font: inherit; }

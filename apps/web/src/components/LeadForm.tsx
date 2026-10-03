@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { newIdempotencyKey, readAttribution } from "@/lib/intake-client";
+
 /**
  * Property enquiry form.
  *
@@ -16,11 +18,14 @@ type State =
   | { kind: "ok"; reference: string | null }
   | { kind: "error"; message: string; fields?: Record<string, string[]> };
 
-export function LeadForm({ propertyReference }: { propertyReference?: string }) {
+export function LeadForm({ propertyReference, kind }: { propertyReference?: string; kind?: "valuation" }) {
   const [state, setState] = useState<State>({ kind: "idle" });
   // Time trap: rendered once when the form mounts. The server rejects a
   // submission completed faster than a human could plausibly type.
   const [renderedAt] = useState(() => Date.now());
+  // One key per form instance, kept across retries so a resubmit is the same submission.
+  const [idempotencyKey] = useState(() => newIdempotencyKey());
+  const [wantsViewing, setWantsViewing] = useState(false);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -44,10 +49,19 @@ export function LeadForm({ propertyReference }: { propertyReference?: string }) 
       },
       hpl: String(form.get("hpl") ?? ""),
       hpt: String(renderedAt),
+      idempotencyKey,
+      attribution: readAttribution(),
     };
 
+    // A viewing request is its own flow: it stays a request until an agent confirms.
+    const preferred = String(form.get("preferredStart") ?? "");
+    const viewing = Boolean(propertyReference) && form.get("requestViewing") === "on";
+    const endpoint = viewing ? "/api/viewings" : kind === "valuation" ? "/api/valuation" : "/api/leads";
+    if (viewing && preferred) (payload as Record<string, unknown>).preferredStart = new Date(preferred).toISOString();
+    if (kind === "valuation" && !payload.message.trim()) payload.message = "Αίτημα εκτίμησης";
+
     try {
-      const res = await fetch("/api/leads", {
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -135,6 +149,22 @@ export function LeadForm({ propertyReference }: { propertyReference?: string }) 
         <textarea id="lead-message" name="message" className="textarea" rows={4} />
       </div>
 
+      {propertyReference && (
+        <>
+          <label className="check">
+            <input type="checkbox" name="requestViewing" checked={wantsViewing} onChange={(e) => setWantsViewing(e.target.checked)} />
+            <span>Θέλω να κλείσω επίσκεψη</span>
+          </label>
+          {wantsViewing && (
+            <div className="field">
+              <label htmlFor="lead-when">Προτιμώμενη ημερομηνία και ώρα</label>
+              <input id="lead-when" name="preferredStart" type="datetime-local" className="input" />
+              <span className="hint">Είναι αίτημα· ο σύμβουλος θα επιβεβαιώσει το ραντεβού μαζί σας.</span>
+            </div>
+          )}
+        </>
+      )}
+
       <div className="field">
         <label htmlFor="lead-pref">Προτιμώμενη επικοινωνία</label>
         <select id="lead-pref" name="preferredContactMethod" className="select" defaultValue="ANY">
@@ -209,7 +239,7 @@ export function LeadForm({ propertyReference }: { propertyReference?: string }) 
       </div>
 
       <button type="submit" className="btn btn--primary btn--block" disabled={disabled} style={{ marginTop: 8 }}>
-        {disabled ? "Αποστολή…" : "Αποστολή αιτήματος"}
+        {disabled ? "Αποστολή…" : propertyReference ? (wantsViewing ? "Αίτημα επίσκεψης" : "Ενδιαφέρομαι") : "Αποστολή αιτήματος"}
       </button>
 
       <p className="muted" style={{ fontSize: "0.78rem", marginTop: 10 }}>

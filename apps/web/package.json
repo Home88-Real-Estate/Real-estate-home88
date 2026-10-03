@@ -13,6 +13,7 @@
   "dependencies": {
     "@home88/database": "*",
     "@home88/domain": "*",
+    "@home88/intake": "*",
     "@home88/types": "*",
     "@home88/ui": "*",
     "@home88/validation": "*",

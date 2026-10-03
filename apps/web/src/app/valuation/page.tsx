@@ -235,7 +235,7 @@ export default async function ValuationPage({
             <p className="muted" style={{ fontSize: "0.9rem" }}>
               Αφήστε τα στοιχεία σας και ένας σύμβουλος θα επικοινωνήσει μαζί σας.
             </p>
-            <LeadForm />
+            <LeadForm kind="valuation" />
           </div>
         </aside>
       </div>

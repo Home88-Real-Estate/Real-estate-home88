@@ -13,7 +13,7 @@ import { Icon, type IconName } from "./Icon";
 import { Logo, MARK_WHITE } from "./Logo";
 import { ThemeToggle } from "./ThemeToggle";
 
-export type NavCounters = { properties: number; newLeads: number; dueTasks: number } | null;
+export type NavCounters = { properties: number; newLeads: number; dueTasks: number; newSubmissions?: number } | null;
 
 type NavItem = {
   href: string;
@@ -124,7 +124,16 @@ export function Shell({
       hot: true,
       countTitle: "Νέα leads",
     },
+    {
+      href: "/submissions",
+      label: "Αναθέσεις",
+      icon: "table",
+      count: counters?.newSubmissions || undefined,
+      hot: true,
+      countTitle: "Νέες υποβολές ιδιοκτητών από τον ιστότοπο",
+    },
     { href: "/requests", label: "Ζητήσεις", icon: "search" },
+    { href: "/media", label: "Πολυμέσα", icon: "image" },
     { href: "/calendar", label: "Ημερολόγιο", icon: "calendar" },
     {
       href: "/reminders",

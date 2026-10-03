@@ -2,6 +2,9 @@
 
 import { useState } from "react";
 
+import { newIdempotencyKey, readAttribution } from "@/lib/intake-client";
+import { PhotoUploader, type UploaderValue } from "@/components/PhotoUploader";
+
 /**
  * Generic public capture form.
  *
@@ -42,6 +45,7 @@ export function CaptureForm({
   includeAgeGate = true,
   consentLabel,
   policyHref = "/privacy",
+  uploads = false,
 }: {
   endpoint: string;
   fields: CaptureField[];
@@ -52,12 +56,21 @@ export function CaptureForm({
   includeAgeGate?: boolean;
   consentLabel?: string;
   policyHref?: string;
+  /** Show the private photo/document uploader (owner submissions). */
+  uploads?: boolean;
 }) {
   const [state, setState] = useState<State>({ kind: "idle" });
   const [renderedAt] = useState(() => Date.now());
+  // One key per form instance, kept across retries: a resubmit is the same submission.
+  const [idempotencyKey] = useState(() => newIdempotencyKey());
+  const [uploaded, setUploaded] = useState<UploaderValue>({ token: null, files: [], busy: false });
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (uploads && uploaded.busy) {
+      setState({ kind: "error", message: "Περιμένετε να ολοκληρωθεί η μεταφόρτωση των αρχείων." });
+      return;
+    }
     setState({ kind: "submitting" });
 
     const form = new FormData(e.currentTarget);
@@ -90,6 +103,11 @@ export function CaptureForm({
     };
     payload.hpl = String(form.get("hpl") ?? "");
     payload.hpt = String(renderedAt);
+    payload.idempotencyKey = idempotencyKey;
+    payload.attribution = readAttribution();
+    if (uploads && uploaded.token && uploaded.files.length > 0) {
+      payload.uploads = { token: uploaded.token, files: uploaded.files };
+    }
 
     try {
       const res = await fetch(endpoint, {
@@ -133,7 +151,7 @@ export function CaptureForm({
     );
   }
 
-  const disabled = state.kind === "submitting";
+  const disabled = state.kind === "submitting" || (uploads && uploaded.busy);
 
   return (
     <form onSubmit={onSubmit} noValidate>
@@ -208,6 +226,8 @@ export function CaptureForm({
             </div>
           );
         })}
+
+      {uploads && <PhotoUploader onChange={setUploaded} />}
 
       {includeAgeGate && (
         <>

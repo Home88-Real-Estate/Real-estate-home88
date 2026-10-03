@@ -529,7 +529,7 @@ export class PublicLeadIntakeService {
 export type PropertyDraft = {
   titleEl: string;
   descriptionEl: string;
-  listingType: "SALE" | "RENT";
+  listingType: "SALE" | "RENT" | "ASSIGNMENT";
   propertyType: string;
   price?: number | null;
   area?: number | null;
@@ -571,7 +571,7 @@ function validateDraft(d: PropertyDraft) {
   const descriptionEl = text(d.descriptionEl, 8000);
   if (!titleEl) fields.titleEl = ["Συμπληρώστε έναν τίτλο."];
   if (!descriptionEl) fields.descriptionEl = ["Συμπληρώστε μια περιγραφή."];
-  if (d.listingType !== "SALE" && d.listingType !== "RENT") fields.listingType = ["Επιλέξτε πώληση ή ενοικίαση."];
+  if (!["SALE", "RENT", "ASSIGNMENT"].includes(d.listingType)) fields.listingType = ["Επιλέξτε πώληση, ενοικίαση ή ανάθεση."];
   if (!PROPERTY_TYPES.includes(d.propertyType)) fields.propertyType = ["Επιλέξτε τύπο ακινήτου."];
   const price = nonNeg(d.price, "price", fields);
   const area = nonNeg(d.area, "area", fields, 1e7);

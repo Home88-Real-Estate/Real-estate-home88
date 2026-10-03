@@ -16,6 +16,8 @@
 
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 
+import { normalisePhone } from "@home88/intake";
+
 const HASH_PEPPER = process.env.PII_HASH_PEPPER ?? "";
 
 /** Normalised, lower-cased address. Returns "" for empty input. */
@@ -33,6 +35,13 @@ export function hashEmail(raw: string | null | undefined): string | null {
   const email = normaliseEmail(raw);
   if (!email) return null;
   return createHash("sha256").update(`${HASH_PEPPER}:${email}`).digest("hex");
+}
+
+/** Hash of the normalised phone, so "+30 210 123 4567" and "2101234567" are one person. */
+export function hashPhone(raw: string | null | undefined): string | null {
+  const phone = normalisePhone(raw);
+  if (!phone) return null;
+  return createHash("sha256").update(`${HASH_PEPPER}:phone:${phone}`).digest("hex");
 }
 
 export function hashSubject(raw: string | null | undefined): string | null {

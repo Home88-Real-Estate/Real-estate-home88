@@ -21,6 +21,7 @@ export default function SubmitPage() {
         <div className="searchpanel" style={{ marginTop: 0 }}>
           <CaptureForm
             endpoint="/api/submissions"
+            uploads
             submitLabel="Υποβολή ακινήτου"
             successMessage="Λάβαμε την υποβολή σας. Θα επικοινωνήσουμε μαζί σας για τα επόμενα βήματα."
             consentLabel="Επεξεργασία των στοιχείων μου για να αξιολογηθεί η ανάθεση."
