@@ -31,3 +31,5 @@ export {
   DmcaStatus,
   AuditEntity,
 } from "@prisma/client";
+
+export { serverlessDatabaseUrl } from "./url";
