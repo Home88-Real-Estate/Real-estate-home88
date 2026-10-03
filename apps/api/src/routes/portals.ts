@@ -222,6 +222,27 @@ export async function portalRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  /** Listings parked after a permanent error or an exhausted retry budget. */
+  app.get("/portals/:code/failed", { preHandler: requireRole("MANAGER") }, async (request) => {
+    const portal = await portalByCode((request.params as { code: string }).code);
+    const listings = await db().portalListing.findMany({
+      where: { portalId: portal.id, state: "FAILED" },
+      orderBy: { updatedAt: "desc" },
+      take: 200,
+      select: {
+        id: true,
+        retryCount: true,
+        needsReview: true,
+        nextRetryAt: true,
+        lastError: true,
+        lastErrorCode: true,
+        updatedAt: true,
+        property: { select: { id: true, reference: true } },
+      },
+    });
+    return { listings };
+  });
+
   app.get("/portals/:code/feed/versions", { preHandler: requireRole("MANAGER") }, async (request) => {
     const portal = await portalByCode((request.params as { code: string }).code);
     const versions = await db().portalFeedVersion.findMany({
@@ -384,6 +405,8 @@ export async function portalRoutes(app: FastifyInstance): Promise<void> {
         externalUrl: listing?.externalUrl ?? null,
         lastSyncedAt: listing?.lastSyncedAt?.toISOString() ?? null,
         lastError: listing?.lastError ?? null,
+        needsReview: listing?.needsReview ?? false,
+        nextRetryAt: listing?.nextRetryAt?.toISOString() ?? null,
         // What would happen on the next sync, and the reasons when it is not READY.
         outcome: verdict.outcome,
         reasons: verdict.reasons,

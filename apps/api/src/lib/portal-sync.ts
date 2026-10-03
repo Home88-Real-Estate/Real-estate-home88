@@ -10,8 +10,12 @@
 
 import type { Portal } from "@home88/database";
 import {
+  decideRetry,
   evaluateCandidate,
   getAdapter,
+  isRetryDue,
+  normaliseErrorCode,
+  retryPolicyFromSettings,
   planSync,
   propertyContentHash,
   type AgencyConfig,
@@ -69,7 +73,7 @@ type Outcome = { state: PortalSyncState; detail: string; errorCode: string | nul
 export function executeTransport(transport: string, action: SyncAction): Outcome {
   if (action === "REMOVE") {
     return transport === "API"
-      ? { state: "FAILED", detail: "API transport is not configured", errorCode: "api_transport_unavailable" }
+      ? { state: "FAILED", detail: "API transport is not configured", errorCode: "TRANSPORT_UNAVAILABLE" }
       : { state: "REMOVED", detail: "delisted from portal", errorCode: null };
   }
 
@@ -86,7 +90,7 @@ export function executeTransport(transport: string, action: SyncAction): Outcome
     case "MANUAL":
       return { state: "QUEUED", detail: "posting sheet ready for manual upload", errorCode: null };
     default:
-      return { state: "FAILED", detail: "API transport is not configured", errorCode: "api_transport_unavailable" };
+      return { state: "FAILED", detail: "API transport is not configured", errorCode: "TRANSPORT_UNAVAILABLE" };
   }
 }
 
@@ -141,6 +145,19 @@ export async function syncPropertyPortals(
       where: { portalId_propertyId: { portalId: portal.id, propertyId } },
     });
 
+    // A listing parked for review, or still backing off, is left alone until a
+    // person republishes it (force) or the backoff elapses.
+    if (existing?.state === "FAILED" && !options.force && !isRetryDue({ needsReview: existing.needsReview, nextRetryAt: existing.nextRetryAt })) {
+      outcomes.push({
+        portalId: portal.id,
+        portalCode: portal.code,
+        action: null,
+        state: "FAILED",
+        detail: existing.needsReview ? "needs review — fix the cause, then republish" : "retry scheduled",
+      });
+      continue;
+    }
+
     // The same gate the dry run and the feed use: market status, this portal's
     // publication rule and flags, its validation profile and taxonomy mapping.
     const verdict = evaluateCandidate({ property: view, tagCodes }, await loadCandidateContext(portal));
@@ -171,6 +188,20 @@ export async function syncPropertyPortals(
     const ok = outcome.state !== "FAILED";
     const now = new Date();
 
+    // Failures are classified: permanent ones are parked for review at once,
+    // transient ones back off, and neither is retried forever.
+    const attempts = ok ? 0 : (existing?.retryCount ?? 0) + 1;
+    const retry = ok
+      ? null
+      : decideRetry({ attempts, errorCode: outcome.errorCode, policy: retryPolicyFromSettings((portal.settings ?? {}) as Record<string, unknown>) });
+    const failureFields = ok
+      ? { lastErrorCode: null, needsReview: false, nextRetryAt: null }
+      : {
+          lastErrorCode: normaliseErrorCode(outcome.errorCode),
+          needsReview: retry!.action === "DEAD_LETTER",
+          nextRetryAt: retry!.nextRetryAt,
+        };
+
     const listing = await db().$transaction(async (tx) => {
       const saved = await tx.portalListing.upsert({
         where: { portalId_propertyId: { portalId: portal.id, propertyId } },
@@ -184,6 +215,7 @@ export async function syncPropertyPortals(
           lastSyncedAt: ok ? now : null,
           lastError: ok ? null : outcome.detail,
           retryCount: ok ? 0 : 1,
+          ...failureFields,
         },
         update: {
           state: outcome.state,
@@ -193,6 +225,7 @@ export async function syncPropertyPortals(
           lastSyncedAt: ok ? now : undefined,
           lastError: ok ? null : outcome.detail,
           retryCount: ok ? 0 : { increment: 1 },
+          ...failureFields,
         },
       });
 
@@ -203,8 +236,8 @@ export async function syncPropertyPortals(
           propertyId,
           action,
           ok,
-          detail: outcome.detail,
-          errorCode: outcome.errorCode,
+          detail: retry ? `${outcome.detail} (${retry.reason})` : outcome.detail,
+          errorCode: normaliseErrorCode(outcome.errorCode),
           durationMs,
           actorId,
         },
