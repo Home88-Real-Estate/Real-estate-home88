@@ -137,6 +137,21 @@ Redeploy after changing variables. While any of these is wrong, sign-in and
 "forgot password" show «Η υπηρεσία δεν είναι προσωρινά διαθέσιμη» and answer
 503, and the function log says which variable to fix.
 
+`CRM_URL` (the origin used in reset/invitation links and the CSRF check)
+defaults to the CRM deployment's own production address on Vercel
+(`VERCEL_PROJECT_PRODUCTION_URL`); set it explicitly once a custom domain is used.
+
+Every table in `public` has row-level security on with no policies and no
+grants for Supabase's `anon`/`authenticated` roles (migration
+`20261004000000_lock_public_api`), so the Supabase REST API exposes no CRM
+data. Prisma connects as the table owner and is unaffected. A migration that
+adds a table must enable RLS on it too.
+
+To send reset/invitation emails with Gmail: `SMTP_HOST=smtp.gmail.com`,
+`SMTP_PORT=465`, `SMTP_USER` = the Gmail address, `SMTP_PASSWORD` = a Google
+**app password** (Google Account → Security → 2-Step Verification → App
+passwords), `SMTP_FROM_EMAIL` = the same address.
+
 Without `SMTP_HOST` the API runs in log-only mail mode: "forgot password"
 succeeds, but no email (and no link) is delivered. Set your first password with
 `npm run admin:create` and `ADMIN_PASSWORD` (see docs/authentication.md).

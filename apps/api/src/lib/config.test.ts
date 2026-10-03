@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { configProblems } from "../config";
+import { configProblems, withPlatformDefaults } from "../config";
 
 const SECRET = "x".repeat(40);
 
@@ -31,4 +31,16 @@ test("an invalid URL variable is reported as invalid", () => {
 
 test("development does not require a long JWT_SECRET", () => {
   assert.deepEqual(configProblems({ NODE_ENV: "development", DATABASE_URL: "postgresql://h/db" }), []);
+});
+
+test("on Vercel, CRM_URL defaults to the deployment's production address", () => {
+  assert.equal(
+    withPlatformDefaults({ VERCEL_PROJECT_PRODUCTION_URL: "real-estate-home88-iota.vercel.app" }).CRM_URL,
+    "https://real-estate-home88-iota.vercel.app",
+  );
+  assert.equal(
+    withPlatformDefaults({ CRM_URL: "https://crm.home88.estate", VERCEL_PROJECT_PRODUCTION_URL: "x.vercel.app" }).CRM_URL,
+    "https://crm.home88.estate",
+  );
+  assert.equal(withPlatformDefaults({}).CRM_URL, undefined);
 });
