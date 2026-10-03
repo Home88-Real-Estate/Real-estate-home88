@@ -113,6 +113,10 @@ export type ApiReadiness = {
   database: "up" | "down" | "unknown";
   /** Names of environment variables that are missing or invalid; never values. */
   configuration: Array<{ variable: string; problem: string }>;
+  /** Why the database is down, in plain words (no secrets). */
+  databaseProblem?: DatabaseProblem;
+  /** Host, port and user of DATABASE_URL; never the password. */
+  databaseTarget?: Record<string, string | boolean>;
 };
 
 /**
@@ -135,6 +139,74 @@ export async function apiReadiness(): Promise<ApiReadiness> {
     return { status: "ready", api: "up", database: "up", configuration };
   } catch (error) {
     console.error("[home88:api] database check failed:", safeDetail(error));
-    return { status: "unavailable", api: "up", database: "down", configuration };
+    return {
+      status: "unavailable",
+      api: "up",
+      database: "down",
+      configuration,
+      databaseProblem: diagnoseDatabaseError(error),
+      databaseTarget: describeDatabaseUrl(process.env.DATABASE_URL ?? ""),
+    };
+  }
+}
+
+export type DatabaseProblem = { code: string; reason: string };
+
+/**
+ * Turns a connection failure into a plain-language cause. Uses the Prisma
+ * error code and well-known pooler messages only; nothing secret is echoed.
+ */
+export function diagnoseDatabaseError(error: unknown): DatabaseProblem {
+  const e = (error ?? {}) as { errorCode?: unknown; code?: unknown; message?: unknown };
+  const code = typeof e.errorCode === "string" ? e.errorCode : typeof e.code === "string" ? e.code : "unknown";
+  const message = typeof e.message === "string" ? e.message : "";
+  if (/tenant or user not found/i.test(message)) {
+    return {
+      code,
+      reason:
+        "The pooler does not know this user/project: the user must be postgres.<project-ref> and the host must be the pooler address shown in Supabase → Connect.",
+    };
+  }
+  if (code === "P1000" || /password authentication failed|authentication failed/i.test(message)) {
+    return { code, reason: "Wrong database password (or user) in DATABASE_URL." };
+  }
+  if (code === "P1013" || /invalid (port|database|connection) (number|string|url)|empty host/i.test(message)) {
+    return {
+      code,
+      reason:
+        "DATABASE_URL is not a valid address. Usually the password contains characters such as ? # & / $ @ that must be percent-encoded; use a password of letters and numbers only.",
+    };
+  }
+  if (code === "P1001") return { code, reason: "The database host/port cannot be reached from this deployment." };
+  if (code === "P1002" || code === "P1008") return { code, reason: "Connecting to the database timed out." };
+  if (code === "P1003") return { code, reason: "The database name in DATABASE_URL does not exist (use /postgres)." };
+  if (code === "P1011") return { code, reason: "TLS/SSL negotiation with the database failed." };
+  if (code === "P1017") return { code, reason: "The database server closed the connection." };
+  return { code, reason: "The database rejected or dropped the connection; see the function log." };
+}
+
+/**
+ * The parts of DATABASE_URL that are safe to show (never the password), so a
+ * wrong host, port or user can be spotted.
+ */
+export function describeDatabaseUrl(raw: string): Record<string, string | boolean> {
+  if (!raw.trim()) return { valid: false, problem: "missing" };
+  try {
+    const url = new URL(raw);
+    return {
+      valid: true,
+      protocol: url.protocol.replace(/:$/, ""),
+      user: decodeURIComponent(url.username),
+      host: url.hostname,
+      port: url.port || "5432",
+      database: url.pathname.replace(/^\//, ""),
+      hasPassword: url.password.length > 0,
+      pgbouncer: url.searchParams.get("pgbouncer") === "true",
+    };
+  } catch {
+    return {
+      valid: false,
+      problem: "not a valid URL (a password with ? # & / $ @ must be percent-encoded)",
+    };
   }
 }
