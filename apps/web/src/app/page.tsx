@@ -37,6 +37,34 @@ const TYPE_OPTIONS: Array<[string, string]> = [
   ["OTHER", "Άλλο"],
 ];
 
+// The HOME88 fox mascot: one card per thing a visitor usually comes to do.
+const SERVICES: Array<{ title: string; text: string; href: string; cta: string; image: string; alt: string }> = [
+  {
+    title: "Πουλάτε ή νοικιάζετε;",
+    text: "Αναθέστε μας το ακίνητό σας και αναλαμβάνουμε την προβολή και τους ενδιαφερόμενους.",
+    href: "/submit",
+    cta: "Ανάθεση ακινήτου",
+    image: "/images/fox/fox-house.webp",
+    alt: "Η αλεπού της HOME88 δίπλα σε ένα σπιτάκι",
+  },
+  {
+    title: "Ψάχνετε ακίνητο;",
+    text: "Πείτε μας τι χρειάζεστε και θα σας στείλουμε τα ακίνητα που ταιριάζουν.",
+    href: "/request",
+    cta: "Ζητώ ακίνητο",
+    image: "/images/fox/fox-keys.webp",
+    alt: "Η αλεπού της HOME88 κρατά κλειδιά σπιτιού",
+  },
+  {
+    title: "Πόσο αξίζει το ακίνητό σας;",
+    text: "Ζητήστε εκτίμηση της εμπορικής αξίας από σύμβουλο που γνωρίζει την περιοχή.",
+    href: "/valuation",
+    cta: "Ζητήστε εκτίμηση",
+    image: "/images/fox/fox-view.webp",
+    alt: "Η αλεπού της HOME88 κοιτάζει τη θάλασσα από μια βεράντα",
+  },
+];
+
 const VALUES: Array<{ title: string; text: string; image: string; alt: string }> = [
   {
     title: "Τοπική γνώση",
@@ -248,6 +276,18 @@ export default async function HomePage() {
               Μια εταιρεία που γνωρίζει την αγορά και στηρίζει κάθε συναλλαγή.
             </p>
           </div>
+          <figure className="brand-banner">
+            <img
+              src="/images/fox/home88-fox-banner.webp"
+              srcSet="/images/fox/home88-fox-banner-960.webp 960w, /images/fox/home88-fox-banner.webp 1536w"
+              sizes="(min-width: 1240px) 1180px, 100vw"
+              width={1536}
+              height={1024}
+              alt="Η αλεπού της HOME88 με ένα σπιτάκι σε βεράντα με θέα στη θάλασσα, δίπλα στο λογότυπο HOME 88"
+              loading="lazy"
+              decoding="async"
+            />
+          </figure>
           <div className="value-grid">
             {VALUES.map((v) => (
               <div className="value" key={v.title}>
@@ -257,6 +297,27 @@ export default async function HomePage() {
                 <h3>{v.title}</h3>
                 <p>{v.text}</p>
               </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="section section--surface">
+        <div className="wrap">
+          <div className="section-head">
+            <h2 style={{ margin: 0 }}>Πώς μπορούμε να βοηθήσουμε</h2>
+            <p className="muted" style={{ margin: "6px 0 0" }}>
+              Είτε πουλάτε, είτε αγοράζετε, είτε θέλετε απλώς να μάθετε την αξία του ακινήτου σας.
+            </p>
+          </div>
+          <div className="service-grid">
+            {SERVICES.map((s) => (
+              <Link key={s.href} href={s.href} className="service-card">
+                <img src={s.image} alt={s.alt} width={440} height={440} loading="lazy" decoding="async" />
+                <h3>{s.title}</h3>
+                <p>{s.text}</p>
+                <span className="service-card__cta">{s.cta} →</span>
+              </Link>
             ))}
           </div>
         </div>
