@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { settingsSection } from "@home88/domain";
 
-import { contrastRatio, isValidGreekVat, sectionUpdateSchema, sectionValuesSchema } from "./settings";
+import { contrastRatio, isValidGreekVat, portalUpdateSchema, sectionUpdateSchema, sectionValuesSchema } from "./settings";
 
 test("Greek VAT check digit", () => {
   assert.equal(isValidGreekVat("094014201"), true);
@@ -33,4 +33,21 @@ test("secrets only for declared secret fields of the section", () => {
   assert.equal(sectionUpdateSchema("email").safeParse({ values: {}, secrets: { fromEmail: "x" } }).success, false);
   assert.equal(sectionUpdateSchema("company").safeParse({ values: {}, secrets: { anything: "x" } }).success, false);
   assert.equal(sectionUpdateSchema("sms").safeParse({ values: { senderName: "HOME 88 Real Estate" } }).success, false);
+});
+
+test("portal rule conditions are validated and unknown keys refused", () => {
+  const base = { enabled: false, values: {} };
+  const ok = portalUpdateSchema.safeParse({
+    ...base,
+    rule: { mode: "ALL_WEBSITE", conditions: { listingTypes: ["SALE"], minPrice: 500000, cities: ["Γλυφάδα"] } },
+  });
+  assert.equal(ok.success, true);
+  assert.equal(portalUpdateSchema.safeParse({ ...base, rule: { mode: "NONE" } }).success, true, "conditions are optional");
+  assert.equal(portalUpdateSchema.safeParse({ ...base, rule: { mode: "NONE", conditions: null } }).success, true);
+
+  const inverted = portalUpdateSchema.safeParse({ ...base, rule: { mode: "NONE", conditions: { minPrice: 9, maxPrice: 1 } } });
+  assert.equal(inverted.success, false);
+  assert.equal(portalUpdateSchema.safeParse({ ...base, rule: { mode: "NONE", conditions: { minPrice: -1 } } }).success, false);
+  assert.equal(portalUpdateSchema.safeParse({ ...base, rule: { mode: "NONE", conditions: { script: "x" } } }).success, false);
+  assert.equal(portalUpdateSchema.safeParse({ ...base, rule: { mode: "NONE", conditions: { listingTypes: ["SWAP"] } } }).success, false);
 });

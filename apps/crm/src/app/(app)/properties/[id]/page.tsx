@@ -11,6 +11,7 @@ import { CONDITION_LABELS, describeProperty, listingProfileFor, profileFor, type
 import { LISTING_TYPE_LABELS, PROPERTY_TYPE_LABELS, label } from "@home88/types";
 
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
+import { PropertyPortalPanel } from "@/components/PropertyPortalPanel";
 import { hasRole, requireRole } from "@/lib/session";
 
 type PortalListing = {
@@ -281,39 +282,7 @@ export default async function PropertyDetailPage({
         )}
       </div>
 
-      <div className="panel">
-        <h2>Δημοσιεύσεις σε portals</h2>
-        {p.portalListings.length === 0 ? (
-          <div className="empty">Δεν έχει δημοσιευτεί σε κανένα portal.</div>
-        ) : (
-          <div className="table-wrap">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Portal</th>
-                  <th>Κατάσταση</th>
-                  <th>Τελευταίος συγχρονισμός</th>
-                  <th>Σύνδεσμος</th>
-                </tr>
-              </thead>
-              <tbody>
-                {p.portalListings.map((listing) => (
-                  <tr key={listing.id}>
-                    <td>{listing.portal.name}</td>
-                    <td>
-                      <StatusBadge value={listing.state} kind="portal" />
-                    </td>
-                    <td>{listing.lastSyncedAt ? formatDate(listing.lastSyncedAt) : "-"}</td>
-                    <td>
-                      {listing.externalUrl ? <a href={listing.externalUrl}>Άνοιγμα</a> : "-"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      <PropertyPortalPanel propertyId={id} canManage={hasRole(user.role, "MANAGER")} />
     </>
   );
 }

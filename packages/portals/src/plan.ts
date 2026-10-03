@@ -17,7 +17,7 @@ export type SyncPlanInput = {
   force?: boolean;
 };
 
-const ALREADY_LISTED: PortalSyncState[] = ["PUBLISHED", "OUTDATED", "QUEUED", "PUBLISHING"];
+const ALREADY_LISTED: PortalSyncState[] = ["PUBLISHED", "IN_FEED", "OUTDATED", "QUEUED", "PUBLISHING"];
 
 /**
  * Chooses the sync action for one property/portal pair.
@@ -37,13 +37,14 @@ export function planSync(input: SyncPlanInput): PlannedSync {
   }
 
   if (force) {
-    return state === "PUBLISHED"
+    return state === "PUBLISHED" || state === "IN_FEED"
       ? { action: "REPUBLISH", reason: "forced republish" }
       : { action: "PUBLISH", reason: "forced publish" };
   }
 
   switch (state) {
     case "PUBLISHED":
+    case "IN_FEED":
       return currentHash === lastPayloadHash
         ? { action: null, reason: "unchanged" }
         : { action: "UPDATE", reason: "content changed" };

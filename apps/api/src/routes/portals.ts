@@ -8,25 +8,33 @@
  * full book.
  */
 
-import { PUBLIC_PROPERTY_STATUSES } from "@home88/domain";
+import { PORTAL_CATALOG, SYSTEM_PROPERTY_TAGS } from "@home88/domain";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import {
-  evaluatePublishEligibility,
+  evaluateCandidate,
+  FEATURE_FLAGS,
+  FEATURE_LABELS,
   getAdapter,
+  unmappedCodes,
   type AdapterPayload,
   type PortalAdapter,
 } from "@home88/portals";
 import { loadConfig } from "../config";
-import { forbidden, notFound } from "../lib/errors";
+import { writeAudit } from "../lib/audit";
+import { conflict, forbidden, HttpError, notFound } from "../lib/errors";
 import { parseInput } from "../lib/http";
 import { db } from "../lib/prisma";
-import { mediaBase, toPortalProperty } from "../lib/portal-map";
 import {
-  buildContext,
-  eligibilityOptions,
-  syncPropertyPortals,
-} from "../lib/portal-sync";
+  FEED_SCHEMA_VERSION,
+  gateFeed,
+  loadCandidateContext,
+  loadCandidates,
+  loadTagCodes,
+  previewPortal,
+} from "../lib/portal-distribution";
+import { mediaBase, toPortalProperty } from "../lib/portal-map";
+import { buildContext, syncPropertyPortals } from "../lib/portal-sync";
 import type { Portal } from "@home88/database";
 import { requireRole } from "../plugins/auth";
 
@@ -52,31 +60,59 @@ function feedAdapter(portal: Portal): PortalAdapter | null {
 }
 
 /**
- * Assembles a portal's feed from every property that is currently for sale or
- * rent and passes that portal's own eligibility rules.
+ * Assembles a portal's feed from the properties that pass that portal's own
+ * gate: market status, publication rule and flags, validation, mapping. This is
+ * the same gate the dry run uses, so the preview shows what is served.
  */
 async function buildFeed(portal: Portal, adapter: PortalAdapter) {
   const cfg = loadConfig();
-  const base = mediaBase(cfg);
-  const options = eligibilityOptions(portal);
   const context = buildContext(portal, cfg);
-
-  const properties = await db().property.findMany({
-    where: { status: { in: [...PUBLIC_PROPERTY_STATUSES] } },
-    include: { media: true },
-    orderBy: { reference: "asc" },
-  });
+  const gate = await loadCandidateContext(portal);
+  const candidates = await loadCandidates();
 
   const payloads: AdapterPayload[] = [];
-  for (const property of properties) {
-    const view = toPortalProperty(property, base);
-    if (!adapter.supports(view)) continue;
-    if (!evaluatePublishEligibility(view, options).eligible) continue;
-    payloads.push(adapter.build(view, context));
+  for (const candidate of candidates) {
+    if (evaluateCandidate(candidate, gate).outcome !== "READY") continue;
+    payloads.push(adapter.build(candidate.property, context));
   }
 
   return adapter.compose!(payloads);
 }
+
+async function portalByCode(code: string): Promise<Portal> {
+  const portal = await db().portal.findUnique({ where: { code: code.toUpperCase() } });
+  if (!portal) throw notFound("Το portal δεν βρέθηκε.");
+  return portal;
+}
+
+const PROPERTY_TYPES = [
+  "APARTMENT", "MAISONETTE", "HOUSE", "VILLA", "STUDIO", "OFFICE", "SHOP", "WAREHOUSE",
+  "BUILDING", "HOTEL", "LAND", "PLOT", "PARKING", "INDUSTRIAL", "OTHER",
+] as const;
+
+const mappingsBodySchema = z
+  .object({
+    entries: z
+      .array(
+        z
+          .object({
+            kind: z.enum(["TYPE", "FEATURE"]),
+            internalCode: z.string().regex(/^[A-Z][A-Z0-9_]{1,39}$/),
+            status: z.enum(["MAPPED", "UNSUPPORTED", "TRANSFORM"]),
+            externalValue: z.string().trim().max(120).nullable().optional(),
+          })
+          .strict()
+          .refine((e) => e.status === "UNSUPPORTED" || Boolean(e.externalValue), {
+            message: "Συμπληρώστε την τιμή του portal.",
+          }),
+      )
+      .max(200),
+  })
+  .strict();
+
+const tagsBodySchema = z
+  .object({ codes: z.array(z.string().regex(/^[A-Z][A-Z0-9_]{1,39}$/)).max(30) })
+  .strict();
 
 export async function portalRoutes(app: FastifyInstance): Promise<void> {
   app.get("/portals", { preHandler: requireRole("AGENT") }, async () => {
@@ -146,6 +182,16 @@ export async function portalRoutes(app: FastifyInstance): Promise<void> {
 
     const feed = await buildFeed(portal, adapter);
 
+    // A feed that suddenly shrinks is held back: some portals delist whatever is
+    // missing from it. Answering 503 leaves the portal on its last good import.
+    const gate = await gateFeed(portal, feed);
+    if (gate.blocked) {
+      reply.header("retry-after", "3600");
+      throw new HttpError(503, "publication_blocked", gate.verdict.message ?? "Η δημοσίευση έχει ανασταλεί μέχρι επιβεβαίωση από διαχειριστή.");
+    }
+
+    reply.header("x-feed-version", String(gate.version));
+    reply.header("x-feed-schema", FEED_SCHEMA_VERSION);
     if (request.headers["if-none-match"] === feed.hash) {
       reply.code(304);
       return null;
@@ -156,5 +202,194 @@ export async function portalRoutes(app: FastifyInstance): Promise<void> {
     reply.header("x-property-count", String(feed.propertyCount));
     reply.type(feed.contentType);
     return feed.body;
+  });
+
+  // --- Distribution: preview, feed versions, mappings, tags ---------------------
+
+  /** Dry run: what would go out, what would not, and why. Writes nothing. */
+  app.get("/portals/:code/preview", { preHandler: requireRole("MANAGER") }, async (request) => {
+    const portal = await portalByCode((request.params as { code: string }).code);
+    const result = await previewPortal(portal);
+    // The list can be long; the reference and reason are all a manager needs.
+    return {
+      preview: {
+        ...result,
+        items: result.items
+          .filter((item) => item.outcome !== "READY")
+          .slice(0, 200)
+          .map(({ reference, outcome, reasons }) => ({ reference, outcome, reasons })),
+      },
+    };
+  });
+
+  app.get("/portals/:code/feed/versions", { preHandler: requireRole("MANAGER") }, async (request) => {
+    const portal = await portalByCode((request.params as { code: string }).code);
+    const versions = await db().portalFeedVersion.findMany({
+      where: { portalId: portal.id },
+      orderBy: { version: "desc" },
+      take: 20,
+    });
+    return { versions };
+  });
+
+  /** A manager confirms a feed the size guard held back. */
+  app.post("/portals/:code/feed/approve", { preHandler: requireRole("MANAGER") }, async (request) => {
+    const actor = request.auth!.user;
+    const portal = await portalByCode((request.params as { code: string }).code);
+    const latest = await db().portalFeedVersion.findFirst({ where: { portalId: portal.id }, orderBy: { version: "desc" } });
+    if (!latest || !latest.blocked) throw conflict("Δεν υπάρχει ροή που να περιμένει επιβεβαίωση.");
+    if (latest.approvedAt) throw conflict("Η ροή έχει ήδη επιβεβαιωθεί.");
+
+    await db().portalFeedVersion.update({
+      where: { id: latest.id },
+      data: { approvedAt: new Date(), approvedById: actor.id },
+    });
+    await writeAudit({
+      entity: "PORTAL",
+      entityId: portal.id,
+      action: "feed_approved",
+      actorId: actor.id,
+      changes: { portal: portal.code, version: latest.version, propertyCount: latest.propertyCount, reason: latest.blockReason },
+    });
+    return { approved: { version: latest.version, propertyCount: latest.propertyCount } };
+  });
+
+  app.get("/portals/:code/mappings", { preHandler: requireRole("MANAGER") }, async (request) => {
+    const portal = await portalByCode((request.params as { code: string }).code);
+    const entries = await db().portalMapping.findMany({
+      where: { portalId: portal.id },
+      orderBy: [{ kind: "asc" }, { internalCode: "asc" }],
+    });
+    const asEntries = entries.map((e) => ({ kind: e.kind, internalCode: e.internalCode, status: e.status, externalValue: e.externalValue }));
+    return {
+      entries: asEntries,
+      unmapped: unmappedCodes(asEntries, PROPERTY_TYPES),
+      features: (Object.keys(FEATURE_FLAGS) as Array<keyof typeof FEATURE_LABELS>).map((code) => ({ code, label: FEATURE_LABELS[code] })),
+      propertyTypes: PROPERTY_TYPES,
+    };
+  });
+
+  /** Replaces the portal's whole mapping table. Admin: it changes what categories are published. */
+  app.put("/portals/:code/mappings", { preHandler: requireRole("ADMIN") }, async (request) => {
+    const actor = request.auth!.user;
+    const portal = await portalByCode((request.params as { code: string }).code);
+    const body = parseInput(mappingsBodySchema, request.body);
+
+    const seen = new Set<string>();
+    for (const e of body.entries) {
+      const key = `${e.kind}:${e.internalCode}`;
+      if (seen.has(key)) throw conflict(`Διπλή αντιστοίχιση για ${e.internalCode}.`);
+      seen.add(key);
+      if (e.kind === "TYPE" && !(PROPERTY_TYPES as readonly string[]).includes(e.internalCode)) {
+        throw conflict(`Άγνωστος τύπος ακινήτου ${e.internalCode}.`);
+      }
+      if (e.kind === "FEATURE" && !(e.internalCode in FEATURE_FLAGS)) {
+        throw conflict(`Άγνωστο χαρακτηριστικό ${e.internalCode}.`);
+      }
+    }
+
+    await db().$transaction(async (tx) => {
+      await tx.portalMapping.deleteMany({ where: { portalId: portal.id } });
+      if (body.entries.length > 0) {
+        await tx.portalMapping.createMany({
+          data: body.entries.map((e) => ({
+            portalId: portal.id,
+            kind: e.kind,
+            internalCode: e.internalCode,
+            status: e.status,
+            externalValue: e.status === "UNSUPPORTED" ? null : (e.externalValue ?? null),
+            updatedById: actor.id,
+          })),
+        });
+      }
+    });
+    await writeAudit({
+      entity: "PORTAL",
+      entityId: portal.id,
+      action: "mappings_changed",
+      actorId: actor.id,
+      changes: { portal: portal.code, entries: body.entries.length },
+    });
+    return { saved: body.entries.length };
+  });
+
+  /** Stable tag codes drive publication rules and the DO_NOT_PUBLISH flag. */
+  app.get("/properties/:id/tags", { preHandler: requireRole("AGENT") }, async (request) => {
+    const { id } = request.params as { id: string };
+    const [assigned, available] = await Promise.all([
+      loadTagCodes([id]),
+      db().propertyTag.findMany({ where: { active: true }, orderBy: { sortOrder: "asc" }, select: { code: true, labelEl: true } }),
+    ]);
+    return { codes: assigned.get(id) ?? [], available };
+  });
+
+  app.put("/properties/:id/tags", { preHandler: requireRole("MANAGER") }, async (request) => {
+    const actor = request.auth!.user;
+    const { id } = request.params as { id: string };
+    const body = parseInput(tagsBodySchema, request.body);
+
+    const property = await db().property.findUnique({ where: { id }, select: { id: true } });
+    if (!property) throw notFound("Το ακίνητο δεν βρέθηκε.");
+
+    const wanted = [...new Set(body.codes)];
+    const tags = await db().propertyTag.findMany({ where: { code: { in: wanted }, active: true }, select: { id: true, code: true } });
+    const unknown = wanted.filter((code) => !tags.some((t) => t.code === code));
+    if (unknown.length > 0) throw conflict(`Άγνωστη ετικέτα: ${unknown.join(", ")}.`);
+
+    const before = (await loadTagCodes([id])).get(id) ?? [];
+    await db().$transaction(async (tx) => {
+      await tx.propertyTagAssignment.deleteMany({ where: { propertyId: id } });
+      if (tags.length > 0) {
+        await tx.propertyTagAssignment.createMany({ data: tags.map((t) => ({ propertyId: id, tagId: t.id, createdById: actor.id })) });
+      }
+    });
+    await writeAudit({ entity: "PROPERTY", entityId: id, action: "tags_changed", actorId: actor.id, changes: { before, after: wanted } });
+
+    // Tags decide portal eligibility, so listings must be re-judged now. A
+    // failure here must not undo the tag change the manager just made.
+    let outcomes: Awaited<ReturnType<typeof syncPropertyPortals>> = [];
+    try {
+      outcomes = await syncPropertyPortals(id, actor.id);
+    } catch {
+      outcomes = [];
+    }
+    return { codes: wanted, outcomes };
+  });
+
+  /**
+   * Per-property distribution: for every portal that exists in the database,
+   * where the listing stands and, when it is not going out, why not.
+   */
+  app.get("/properties/:id/portals", { preHandler: requireRole("AGENT") }, async (request) => {
+    const { id } = request.params as { id: string };
+    const property = await db().property.findUnique({ where: { id }, include: { media: true } });
+    if (!property) throw notFound("Το ακίνητο δεν βρέθηκε.");
+
+    const base = mediaBase(loadConfig());
+    const view = toPortalProperty(property, base);
+    const tagCodes = (await loadTagCodes([id])).get(id) ?? [];
+    const portals = await db().portal.findMany({ orderBy: { name: "asc" }, include: { listings: { where: { propertyId: id } } } });
+
+    const rows = [];
+    for (const portal of portals) {
+      const listing = portal.listings[0] ?? null;
+      const verdict = evaluateCandidate({ property: view, tagCodes }, await loadCandidateContext(portal));
+      rows.push({
+        portalId: portal.id,
+        code: portal.code,
+        name: portal.name,
+        enabled: portal.enabled,
+        state: listing?.state ?? "NOT_PUBLISHED",
+        externalId: listing?.externalId ?? null,
+        externalUrl: listing?.externalUrl ?? null,
+        lastSyncedAt: listing?.lastSyncedAt?.toISOString() ?? null,
+        lastError: listing?.lastError ?? null,
+        // What would happen on the next sync, and the reasons when it is not READY.
+        outcome: verdict.outcome,
+        reasons: verdict.reasons,
+        warnings: verdict.warnings.map((w) => w.message),
+      });
+    }
+    return { portals: rows, catalogSize: PORTAL_CATALOG.length, flags: SYSTEM_PROPERTY_TAGS.map((t) => t.code) };
   });
 }

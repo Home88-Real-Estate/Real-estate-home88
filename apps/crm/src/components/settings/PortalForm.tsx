@@ -16,7 +16,13 @@ export type PortalDetail = {
   secrets: Record<string, { configured: boolean; updatedAt: string | null }>;
   missing: string[];
   feedUrl: string | null;
-  rule: { mode: string; propertyTypes: string[]; includeTags: string[]; excludeTags: string[] };
+  rule: {
+    mode: string;
+    propertyTypes: string[];
+    includeTags: string[];
+    excludeTags: string[];
+    conditions: { listingTypes?: string[]; cities?: string[]; minPrice?: number | null; maxPrice?: number | null; minArea?: number | null; maxArea?: number | null } | null;
+  };
 };
 
 export function PortalForm({ portal, tags, canManage, encryptionNote }: { portal: PortalDetail; tags: Array<{ code: string; labelEl: string }>; canManage: boolean; encryptionNote: boolean }) {
@@ -76,7 +82,7 @@ export function PortalForm({ portal, tags, canManage, encryptionNote }: { portal
       </fieldset>
 
       <fieldset className="sform__group">
-        <legend>Κανόνας δημοσίευσης <span className="soon">Φάση 6</span></legend>
+        <legend>Κανόνας δημοσίευσης</legend>
         <div className="field">
           <label htmlFor="ruleMode">Ποια ακίνητα στέλνονται</label>
           <select id="ruleMode" name="ruleMode" className="select" defaultValue={portal.rule.mode} disabled={disabled}>
@@ -101,6 +107,24 @@ export function PortalForm({ portal, tags, canManage, encryptionNote }: { portal
             <label key={t.code} className="check"><input type="checkbox" name="ruleExclude" value={t.code} defaultChecked={portal.rule.excludeTags.includes(t.code)} disabled={disabled} /> {t.labelEl}</label>
           ))}
         </div>
+        <p className="fieldlabel">Περιορισμοί (προαιρετικά)</p>
+        <div className="checkgrid checkgrid--tight">
+          {[["SALE", "Πώληση"], ["RENT", "Ενοικίαση"], ["ASSIGNMENT", "Ανάθεση"]].map(([value, l]) => (
+            <label key={value} className="check"><input type="checkbox" name="condListing" value={value} defaultChecked={portal.rule.conditions?.listingTypes?.includes(value!) ?? false} disabled={disabled} /> {l}</label>
+          ))}
+        </div>
+        <div className="formgrid">
+          <div className="field"><label htmlFor="condMinPrice">Τιμή από (€)</label><input id="condMinPrice" name="condMinPrice" inputMode="decimal" className="input" defaultValue={portal.rule.conditions?.minPrice ?? ""} disabled={disabled} /></div>
+          <div className="field"><label htmlFor="condMaxPrice">Τιμή έως (€)</label><input id="condMaxPrice" name="condMaxPrice" inputMode="decimal" className="input" defaultValue={portal.rule.conditions?.maxPrice ?? ""} disabled={disabled} /></div>
+          <div className="field"><label htmlFor="condMinArea">τ.μ. από</label><input id="condMinArea" name="condMinArea" inputMode="decimal" className="input" defaultValue={portal.rule.conditions?.minArea ?? ""} disabled={disabled} /></div>
+          <div className="field"><label htmlFor="condMaxArea">τ.μ. έως</label><input id="condMaxArea" name="condMaxArea" inputMode="decimal" className="input" defaultValue={portal.rule.conditions?.maxArea ?? ""} disabled={disabled} /></div>
+        </div>
+        <div className="field">
+          <label htmlFor="condCities">Μόνο στις πόλεις</label>
+          <textarea id="condCities" name="condCities" className="input" rows={2} defaultValue={(portal.rule.conditions?.cities ?? []).join(", ")} disabled={disabled} />
+          <span className="hint">Χωρισμένες με κόμμα. Κενό = όλες. Μια τιμή που λείπει από το ακίνητο δεν περνά έλεγχο ορίων.</span>
+        </div>
+        <p className="hint">«Να μη δημοσιευθεί» και «Μόνο στον ιστότοπο» αποκλείουν πάντα ένα ακίνητο από κάθε portal.</p>
       </fieldset>
 
       {canManage && (

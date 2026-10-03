@@ -1095,3 +1095,9 @@ button.ptoggle:focus-visible { outline: 3px solid var(--focus); outline-offset: 
 @media (max-width: 900px) {
   .sform__footer { bottom: 72px; }
 }
+
+/* --- portal preview ---------------------------------------------------------- */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 0 0 12px; }
+.stats > div { border: 1px solid var(--line); border-radius: var(--radius-lg, 10px); padding: 10px 14px; background: var(--surface, transparent); }
+.stats dt { font-size: 0.78rem; color: var(--ink-muted); }
+.stats dd { margin: 2px 0 0; font-size: 1.4rem; font-weight: 700; }

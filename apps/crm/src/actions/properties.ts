@@ -57,3 +57,15 @@ export async function changePropertyStatus(
   revalidatePath(`/properties/${id}`);
   return { ok: true, message: "Η κατάσταση ενημερώθηκε." };
 }
+
+/** Replaces a property's internal tags, then lets the API re-judge its portal listings. */
+export async function savePropertyTags(_previous: ActionState, formData: FormData): Promise<ActionState> {
+  const id = str(formData, "id") ?? "";
+  const result = await apiFetch(`/api/properties/${encodeURIComponent(id)}/tags`, {
+    method: "PUT",
+    json: { codes: formData.getAll("tag").map(String) },
+  });
+  if (!result.ok) return { ok: false, message: result.error.message, fields: result.error.fields };
+  revalidatePath(`/properties/${id}`);
+  return { ok: true, message: "Οι ετικέτες αποθηκεύτηκαν και τα portals ελέγχθηκαν ξανά." };
+}

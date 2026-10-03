@@ -13,6 +13,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { Prisma } from "@home88/database";
 import {
   childLevel,
   defaultNotificationEnabled,
@@ -44,7 +45,7 @@ import {
   propertyTagUpdateSchema,
   templateLocaleSchema,
 } from "@home88/validation";
-import { getAdapter } from "@home88/portals";
+import { capabilitiesFor, availableActions, getAdapter, parseConditions, type IntegrationStatus } from "@home88/portals";
 import { loadConfig } from "../config";
 import { badRequest, conflict, forbidden, HttpError, notFound, tooManyRequests, validationFailed } from "../lib/errors";
 import { clientIp, parseInput } from "../lib/http";
@@ -450,11 +451,18 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       const cfg = loadConfig();
       feedUrl = `${cfg.CRM_URL.replace(/\/+$/, "")}${cfg.CRM_BASE_PATH}/api/feeds/${entry.code}?token=${feedToken}`;
     }
+    const status = portalStatus({ configured, enabled: row?.enabled ?? false, lastSuccessAt: row?.lastSuccessAt, lastErrorAt: row?.lastErrorAt });
+    // A portal with no adapter cannot do anything yet, whatever its fields say.
+    const integrationStatus: IntegrationStatus = adapter ? status : "PLANNED";
+    const capabilities = capabilitiesFor(entry.transport, adapter);
     return {
       code: entry.code,
       name: entry.name,
       transport: entry.transport,
       note: entry.note ?? null,
+      capabilities,
+      integrationStatus,
+      actions: availableActions(capabilities, integrationStatus),
       fields: entry.fields,
       enabled: row?.enabled ?? false,
       values,
@@ -462,7 +470,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       missing,
       hasAdapter: provider.hasAdapter,
       feedUrl,
-      status: portalStatus({ configured, enabled: row?.enabled ?? false, lastSuccessAt: row?.lastSuccessAt, lastErrorAt: row?.lastErrorAt }),
+      status,
       lastSyncAt: row?.lastSyncAt?.toISOString() ?? null,
       lastSuccessAt: row?.lastSuccessAt?.toISOString() ?? null,
       lastError: row?.lastError ?? null,
@@ -472,8 +480,9 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
             propertyTypes: row.publicationRule.propertyTypes,
             includeTags: row.publicationRule.includeTags,
             excludeTags: row.publicationRule.excludeTags,
+            conditions: parseConditions(row.publicationRule.conditions),
           }
-        : { mode: "NONE", propertyTypes: [], includeTags: [], excludeTags: [] },
+        : { mode: "NONE", propertyTypes: [], includeTags: [], excludeTags: [], conditions: null },
     };
   }
 
@@ -482,7 +491,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     const data = [];
     for (const p of PORTAL_CATALOG) {
       const v = await portalView(p.code, false);
-      data.push({ code: v.code, name: v.name, transport: v.transport, enabled: v.enabled, status: v.status, hasAdapter: v.hasAdapter, lastSuccessAt: v.lastSuccessAt, lastError: v.lastError });
+      data.push({ code: v.code, name: v.name, transport: v.transport, enabled: v.enabled, status: v.integrationStatus, hasAdapter: v.hasAdapter, lastSuccessAt: v.lastSuccessAt, lastError: v.lastError });
     }
     return { data };
   });
@@ -564,10 +573,12 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
         create: { code: entry.code, name: entry.name, transport: entry.transport, enabled: input.enabled, settings: stored as object },
         update: { enabled: input.enabled, settings: stored as object, transport: entry.transport },
       });
+      const { conditions, ...ruleFields } = input.rule;
+      const conditionsJson = conditions ? (conditions as Prisma.InputJsonValue) : Prisma.DbNull;
       await tx.portalPublicationRule.upsert({
         where: { portalId: portal.id },
-        create: { portalId: portal.id, ...input.rule, updatedById: actor.id },
-        update: { ...input.rule, updatedById: actor.id },
+        create: { portalId: portal.id, ...ruleFields, conditions: conditionsJson, updatedById: actor.id },
+        update: { ...ruleFields, conditions: conditionsJson, updatedById: actor.id },
       });
       for (const [field, value] of puts) {
         const envelope = box!.seal(portalScope(entry.code), field, value);

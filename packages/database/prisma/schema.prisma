@@ -235,6 +235,8 @@ enum PortalSyncState {
   FAILED
   REMOVED
   OUTDATED
+  /// In a feed we serve; the portal has not confirmed it imported the listing.
+  IN_FEED
 }
 
 enum SyncAction {
@@ -581,6 +583,7 @@ model Property {
   offers         Offer[]
   documents      Document[]
   portalListings PortalListing[]
+  tagAssignments PropertyTagAssignment[]
   notes          Note[]
   dmcaNotices    DmcaNotice[]
   tasks          Task[]
@@ -1008,6 +1011,8 @@ model Portal {
   syncLogs        PortalSyncLog[]
   mappings        PortalPropertyMapping[]
   publicationRule PortalPublicationRule?
+  taxonomy        PortalMapping[]
+  feedVersions    PortalFeedVersion[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1678,7 +1683,25 @@ model PropertyTag {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  assignments PropertyTagAssignment[]
+
   @@map("property_tags")
+}
+
+/// Which internal tags a property carries. Tag codes are stable, so portal
+/// publication rules (and the DO_NOT_PUBLISH flag) match on them rather than on
+/// free-text notes.
+model PropertyTagAssignment {
+  propertyId  String
+  property    Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  tagId       String
+  tag         PropertyTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  createdById String?
+  createdAt   DateTime    @default(now())
+
+  @@id([propertyId, tagId])
+  @@index([tagId])
+  @@map("property_tag_assignments")
 }
 
 /// Region › City › Area › Neighbourhood.
@@ -1725,8 +1748,62 @@ model PortalPublicationRule {
   propertyTypes String[] @default([])
   includeTags   String[] @default([])
   excludeTags   String[] @default([])
+  /// Optional narrowing on top of `mode` (listing types, cities, price and area
+  /// bounds, required tags). Parsed defensively by @home88/portals.
+  conditions    Json?
   updatedAt     DateTime @updatedAt
   updatedById   String?
 
   @@map("portal_publication_rules")
+}
+
+enum PortalMappingKind {
+  TYPE
+  FEATURE
+}
+
+enum PortalMappingStatus {
+  MAPPED
+  UNSUPPORTED
+  TRANSFORM
+}
+
+/// How one portal names a HOME88 property type or feature. Kept as data so no
+/// portal's vocabulary is hard-coded in property code. Locations are mapped by
+/// AreaExternalMapping.
+model PortalMapping {
+  id            String              @id @default(cuid())
+  portalId      String
+  portal        Portal              @relation(fields: [portalId], references: [id], onDelete: Cascade)
+  kind          PortalMappingKind
+  internalCode  String
+  status        PortalMappingStatus @default(MAPPED)
+  externalValue String?
+  updatedById   String?
+  updatedAt     DateTime            @updatedAt
+
+  @@unique([portalId, kind, internalCode])
+  @@map("portal_mappings")
+}
+
+/// One row per distinct feed we generated for a portal. A feed whose size
+/// collapsed against the last confirmed one is recorded as blocked and is not
+/// served until a manager approves it.
+model PortalFeedVersion {
+  id            String    @id @default(cuid())
+  portalId      String
+  portal        Portal    @relation(fields: [portalId], references: [id], onDelete: Cascade)
+  version       Int
+  schemaVersion String
+  propertyCount Int
+  checksum      String
+  generatedAt   DateTime  @default(now())
+  blocked       Boolean   @default(false)
+  blockReason   String?
+  approvedAt    DateTime?
+  approvedById  String?
+
+  @@unique([portalId, version])
+  @@index([portalId, generatedAt])
+  @@map("portal_feed_versions")
 }
