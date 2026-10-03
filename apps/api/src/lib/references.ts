@@ -11,13 +11,14 @@ import type { Prisma } from "@home88/database";
 
 export const REFERENCE_PREFIX = "H88";
 
-export function formatReference(value: number): string {
-  return `${REFERENCE_PREFIX}-${String(value).padStart(6, "0")}`;
+export function formatReference(value: number, prefix: string = REFERENCE_PREFIX): string {
+  return `${prefix}-${String(value).padStart(6, "0")}`;
 }
 
 export async function allocateReference(
   tx: Prisma.TransactionClient,
   scope: string,
+  prefix: string = REFERENCE_PREFIX,
 ): Promise<string> {
   // create.nextValue = 2 so that `nextValue - 1` is the first value handed out.
   const counter = await tx.referenceCounter.upsert({
@@ -25,7 +26,7 @@ export async function allocateReference(
     create: { scope, nextValue: 2 },
     update: { nextValue: { increment: 1 } },
   });
-  return formatReference(counter.nextValue - 1);
+  return formatReference(counter.nextValue - 1, prefix);
 }
 
 /**

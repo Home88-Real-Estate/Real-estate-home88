@@ -39,6 +39,9 @@ export function ReminderTabs({ reminders, now }: { reminders: DashboardData["rem
     <section className="panel" id="reminders" aria-labelledby="reminders-title">
       <div className="panel__head">
         <h2 id="reminders-title">Υπενθυμίσεις</h2>
+        <Link href="/reminders" className="btn btn--ghost btn--sm">
+          Όλες
+        </Link>
       </div>
       {/* Count above label: three tabs fit even in the narrow side column. */}
       <div className="tabs tabs--stats" role="tablist" aria-label="Υπενθυμίσεις">

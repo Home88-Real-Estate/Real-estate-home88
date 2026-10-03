@@ -37,3 +37,29 @@ export const OFFER_STATUS_LABEL: Record<string, string> = {
   WITHDRAWN: "Αποσύρθηκε",
   EXPIRED: "Έληξε",
 };
+
+export const REQUEST_STATUS_LABEL: Record<string, string> = {
+  ACTIVE: "Ενεργή",
+  PAUSED: "Σε παύση",
+  FULFILLED: "Ολοκληρώθηκε",
+  CANCELLED: "Ακυρώθηκε",
+};
+
+export const REQUEST_STATUS_CLASS: Record<string, string> = {
+  ACTIVE: "badge badge--ok",
+  PAUSED: "badge badge--warn",
+  FULFILLED: "badge badge--info",
+  CANCELLED: "badge badge--muted",
+};
+
+const EURO = new Intl.NumberFormat("el-GR", { maximumFractionDigits: 0 });
+
+/** "300.000 – 450.000 €", "έως 1.200 €", "—". */
+export function priceRange(min: unknown, max: unknown): string {
+  const lo = min == null ? null : Number(min);
+  const hi = max == null ? null : Number(max);
+  if (lo != null && hi != null) return `${EURO.format(lo)} – ${EURO.format(hi)} €`;
+  if (hi != null) return `έως ${EURO.format(hi)} €`;
+  if (lo != null) return `από ${EURO.format(lo)} €`;
+  return "—";
+}

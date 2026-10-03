@@ -99,3 +99,13 @@ test("local day boundaries", () => {
   assert.equal(iso(day.from), "2026-10-02T21:00:00.000Z");
   assert.equal(iso(day.to), "2026-10-03T21:00:00.000Z");
 });
+
+test("datetime-local values are read as Athens time, both ways", async () => {
+  const { parseLocalDateTime, toLocalDateTimeInput } = await import("./date-range");
+  // Summer (UTC+3) and winter (UTC+2).
+  assert.equal(parseLocalDateTime("2026-07-15T10:30")!.toISOString(), "2026-07-15T07:30:00.000Z");
+  assert.equal(parseLocalDateTime("2026-12-15T10:30")!.toISOString(), "2026-12-15T08:30:00.000Z");
+  assert.equal(toLocalDateTimeInput(new Date("2026-12-15T08:30:00Z")), "2026-12-15T10:30");
+  assert.equal(parseLocalDateTime("15/12/2026 10:30"), null);
+  assert.equal(parseLocalDateTime("2026-13-01T10:00"), null);
+});

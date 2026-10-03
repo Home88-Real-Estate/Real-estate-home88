@@ -179,3 +179,22 @@ export function localDay(now: Date, timeZone: string = AGENCY_TIME_ZONE): { from
     to: zonedTime(p.year, p.month, p.day + 1, 0, 0, timeZone),
   };
 }
+
+/**
+ * "2026-10-05T10:30" (a datetime-local input, no zone) read as agency time.
+ * Returns null for anything else.
+ */
+export function parseLocalDateTime(value: string, timeZone: string = AGENCY_TIME_ZONE): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value.trim());
+  if (!m) return null;
+  const [, y, mo, d, h, mi] = m.map(Number) as unknown as number[];
+  if (mo! < 1 || mo! > 12 || d! < 1 || d! > 31 || h! > 23 || mi! > 59) return null;
+  return zonedTime(y!, mo!, d!, h!, mi!, timeZone);
+}
+
+/** The inverse, for prefilling a datetime-local input: "2026-10-05T10:30". */
+export function toLocalDateTimeInput(date: Date, timeZone: string = AGENCY_TIME_ZONE): string {
+  const p = zonedParts(date, timeZone);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${p.year}-${pad(p.month)}-${pad(p.day)}T${pad(p.hour)}:${pad(p.minute)}`;
+}
