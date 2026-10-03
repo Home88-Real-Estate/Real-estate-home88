@@ -16,6 +16,7 @@ import { mediaRoutes } from "./routes/media";
 import { portalRoutes } from "./routes/portals";
 import { propertyRoutes } from "./routes/properties";
 import { requestRoutes } from "./routes/requests";
+import { settingsRoutes } from "./routes/settings";
 import { taskRoutes } from "./routes/tasks";
 import { userRoutes } from "./routes/users";
 import { viewingRoutes } from "./routes/viewings";
@@ -110,6 +111,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(viewingRoutes, { prefix: "/api" });
   await app.register(requestRoutes, { prefix: "/api" });
   await app.register(dashboardRoutes, { prefix: "/api" });
+  await app.register(settingsRoutes, { prefix: "/api" });
 
   return app;
 }

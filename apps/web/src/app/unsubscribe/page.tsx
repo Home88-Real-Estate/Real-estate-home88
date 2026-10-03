@@ -4,6 +4,8 @@ import Link from "next/link";
 import { UnsubscribeConfirm } from "@/components/UnsubscribeConfirm";
 import { COMPANY } from "@/lib/config";
 import { verifyUnsubscribeToken } from "@/lib/unsubscribe-token";
+import { ContactEmail } from "@/components/ContactEmail";
+import { getCompanyInfo } from "@/lib/company";
 
 export const metadata: Metadata = {
   title: "Διαγραφή από ενημερώσεις",
@@ -17,6 +19,7 @@ export default async function UnsubscribePage({
 }: {
   searchParams: Promise<{ token?: string | string[] }>;
 }) {
+  const company = await getCompanyInfo();
   const sp = await searchParams;
   const rawToken = Array.isArray(sp.token) ? sp.token[0] : sp.token;
   const verified = rawToken ? verifyUnsubscribeToken(rawToken) : null;
@@ -33,7 +36,7 @@ export default async function UnsubscribePage({
           <p style={{ margin: "6px 0 0" }}>
             Χρησιμοποιήστε τον σύνδεσμο «Διαγραφή» στο κάτω μέρος του email που λάβατε, ή
             επικοινωνήστε μαζί μας στο{" "}
-            <a href={`mailto:${COMPANY.privacyEmail}`}>{COMPANY.privacyEmail}</a> και θα σας
+            <ContactEmail email={company.privacyEmail} fallback="τη φόρμα επικοινωνίας" /> και θα σας
             διαγράψουμε.
           </p>
         </div>

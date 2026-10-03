@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 
 import { CaptureForm } from "@/components/CaptureForm";
-import { COMPANY } from "@/lib/config";
+import { ContactEmail } from "@/components/ContactEmail";
+import { getCompanyInfo } from "@/lib/company";
 
 export const metadata: Metadata = {
   title: "Επικοινωνία",
@@ -9,28 +10,47 @@ export const metadata: Metadata = {
   alternates: { canonical: "/contact" },
 };
 
-export default function ContactPage() {
+export default async function ContactPage() {
+  const company = await getCompanyInfo();
   return (
     <div className="wrap section">
       <div className="grid grid--2" style={{ alignItems: "start" }}>
         <div>
           <h1>Επικοινωνία</h1>
           <p className="muted">
-            Συμπληρώστε τη φόρμα ή στείλτε email στο{" "}
-            <a href={`mailto:${COMPANY.privacyEmail}`}>{COMPANY.privacyEmail}</a>.
+            Συμπληρώστε τη φόρμα και θα σας απαντήσουμε το συντομότερο.
+            {company.email ? (
+              <>
+                {" "}Ή στείλτε email στο <ContactEmail email={company.email} />.
+              </>
+            ) : null}
           </p>
 
-          {COMPANY.postalAddress && (
+          {(company.address || company.phones.length > 0 || company.hours) && (
             <p className="muted">
-              <strong>Διεύθυνση:</strong>
-              <br />
-              {COMPANY.postalAddress}
+              {company.address && (
+                <>
+                  <strong>Διεύθυνση:</strong> {company.address}
+                  <br />
+                </>
+              )}
+              {company.phones.map((p) => (
+                <span key={p}>
+                  <strong>Τηλέφωνο:</strong> <a href={`tel:${p.replace(/[^\d+]/g, "")}`}>{p}</a>
+                  <br />
+                </span>
+              ))}
+              {company.hours && (
+                <>
+                  <strong>Ωράριο:</strong> {company.hours}
+                </>
+              )}
             </p>
           )}
 
           <div className="notice">
             Για ζητήματα προσωπικών δεδομένων χρησιμοποιήστε το{" "}
-            <a href={`mailto:${COMPANY.privacyEmail}`}>{COMPANY.privacyEmail}</a>. Για αναφορές
+            <ContactEmail email={company.privacyEmail} fallback="τη φόρμα αυτής της σελίδας" />. Για αναφορές
             πνευματικών δικαιωμάτων δείτε τη σελίδα{" "}
             <a href="/dmca">Πνευματικά Δικαιώματα</a>.
           </div>

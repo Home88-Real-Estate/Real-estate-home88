@@ -15,6 +15,8 @@ export type CurrentUser = {
   status: string;
   locale: string;
   avatarUrl: string | null;
+  /** From the API's capability check; the settings routes still authorise every request. */
+  canOpenSettings?: boolean;
 };
 
 /** Mirrors ROLE_RANK in apps/api/src/plugins/auth.ts. */

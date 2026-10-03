@@ -9,6 +9,7 @@ import { ConsentBanner } from "@/components/ConsentBanner";
 import { CompareBar } from "@/components/CompareBar";
 import { CONSENT_COOKIE, needsDecision, parseConsent } from "@/lib/consent";
 import { COMPANY, SITE_URL } from "@/lib/config";
+import { getCompanyInfo } from "@/lib/company";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -38,6 +39,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const cookieStore = await cookies();
   const consent = parseConsent(cookieStore.get(CONSENT_COOKIE)?.value);
   const showBanner = needsDecision(consent);
+  const company = await getCompanyInfo();
 
   return (
     <html lang="el">
@@ -46,15 +48,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           Μετάβαση στο περιεχόμενο
         </a>
 
-        <SiteHeader
-          legalName={COMPANY.legalName}
-          phone={COMPANY.phone}
-          hours={COMPANY.hours}
-        />
+        <SiteHeader legalName={company.name} phone={company.phone ?? ""} hours={company.hours ?? ""} />
 
         <main id="main">{children}</main>
 
-        <SiteFooter />
+        <SiteFooter company={company} />
 
         <CompareBar />
 

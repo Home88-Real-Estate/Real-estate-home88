@@ -10,7 +10,8 @@
     "./age-gate": "./src/age-gate.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "tsx --test src/**/*.test.ts"
   },
   "dependencies": {
     "@home88/domain": "*",

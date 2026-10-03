@@ -6,6 +6,7 @@ import { CategoryNav } from "@/components/CategoryNav";
 import { listFeaturedProperties, listRecentProperties, countPublicProperties } from "@/lib/property";
 import { listAreas } from "@/lib/areas";
 import { COMPANY } from "@/lib/config";
+import { getCompanyInfo } from "@/lib/company";
 
 export const metadata: Metadata = {
   title: `${COMPANY.legalName} — Ακίνητα προς πώληση και ενοικίαση`,
@@ -93,6 +94,7 @@ const VALUES: Array<{ title: string; text: string; image: string; alt: string }>
 ];
 
 export default async function HomePage() {
+  const company = await getCompanyInfo();
   const [featured, recent, total, areas] = await Promise.all([
     listFeaturedProperties("el", 3),
     listRecentProperties("el", 6),
@@ -411,9 +413,11 @@ export default async function HomePage() {
               <Link href="/contact" className="btn btn--onhero btn--lg">
                 Επικοινωνία
               </Link>
-              <a href={`tel:${COMPANY.phone}`} className="btn btn--onhero">
-                {COMPANY.phone}
-              </a>
+              {company.phone ? (
+                <a href={`tel:${company.phone.replace(/[^\d+]/g, "")}`} className="btn btn--onhero">
+                  {company.phone}
+                </a>
+              ) : null}
             </div>
           </div>
         </div>

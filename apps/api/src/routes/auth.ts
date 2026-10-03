@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { loginSchema, RATE_LIMITS } from "@home88/validation";
+import { loginSchema } from "@home88/validation";
 import { loadConfig } from "../config";
 import { writeAudit } from "../lib/audit";
 import { forbidden, tooManyRequests, unauthorized } from "../lib/errors";
@@ -9,6 +9,7 @@ import { db } from "../lib/prisma";
 import { consume } from "../lib/rate-limit";
 import { createSession, revokeSessionToken, SESSION_COOKIE_NAME } from "../lib/sessions";
 import { supabaseAuthConfig, verifyWithSupabaseAuth } from "../lib/supabase-auth";
+import { securityConfig, settings } from "../settings";
 import { requireAuth } from "../plugins/auth";
 
 /**
@@ -52,7 +53,9 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     const body = parseInput(loginSchema, request.body);
     const ip = clientIp(request);
 
-    const limit = consume(`login:${ip}:${body.email}`, RATE_LIMITS.login);
+    // Attempts and lockout come from Settings → Ασφάλεια (defaults: 8 per 15 minutes).
+    const security = await securityConfig();
+    const limit = consume(`login:${ip}:${body.email}`, security.login);
     if (!limit.allowed) throw tooManyRequests(limit.retryAfterSeconds > 0
       ? `Too many attempts. Try again in ${limit.retryAfterSeconds}s.`
       : undefined);
@@ -98,7 +101,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (user.status !== "ACTIVE") throw forbidden("Ο λογαριασμός δεν είναι ενεργός.");
 
     const session = await createSession(user.id, {
-      ttlHours: cfg.SESSION_TTL_HOURS,
+      ttlHours: security.sessionTimeoutHours ?? cfg.SESSION_TTL_HOURS,
       ipAddress: ip,
       userAgent: userAgent(request),
     });
@@ -131,7 +134,13 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
-  app.get("/auth/me", { preHandler: requireAuth }, async (request) => ({
-    user: request.auth?.user ?? null,
-  }));
+  app.get("/auth/me", { preHandler: requireAuth }, async (request) => {
+    const user = request.auth!.user;
+    // What the navigation may offer; every route still checks for itself.
+    const settingsAccess = await settings()
+      .visible({ id: user.id, role: user.role, name: user.email })
+      .then((sections) => sections.length > 0)
+      .catch(() => user.role === "SUPER_ADMIN" || user.role === "ADMIN");
+    return { user, capabilities: { settings: settingsAccess } };
+  });
 }

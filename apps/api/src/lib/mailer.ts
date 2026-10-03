@@ -10,13 +10,13 @@
  *   2. Every send is recorded in EmailLog before it leaves, so "did we email
  *      this person" is answerable even when delivery fails.
  *
- * With no SMTP_HOST the transport is a no-op that writes to stdout: nothing is
- * delivered by accident during development.
+ * The provider is resolved at send time (see providers/email.ts): SMTP from
+ * Settings → Email, else SMTP_* from the environment, else log-only, which
+ * writes a line to stdout and delivers nothing.
  */
 
-import nodemailer, { type Transporter } from "nodemailer";
 import type { Prisma } from "@home88/database";
-import { loadConfig } from "../config";
+import { resolveEmailProvider } from "../providers/email";
 import { hashEmail, redactEmail } from "./pii";
 import { db } from "./prisma";
 
@@ -37,26 +37,7 @@ export type SendMailResult =
   | { ok: true; emailLogId: string; delivered: boolean }
   | { ok: false; emailLogId: string | null; reason: "suppressed" | "no_recipient" };
 
-let transporter: Transporter | null | undefined;
-
-function getTransporter(): Transporter | null {
-  if (transporter !== undefined) return transporter;
-  const cfg = loadConfig();
-  if (!cfg.SMTP_HOST) {
-    transporter = null;
-    return null;
-  }
-  transporter = nodemailer.createTransport({
-    host: cfg.SMTP_HOST,
-    port: cfg.SMTP_PORT,
-    secure: cfg.SMTP_PORT === 465,
-    auth: cfg.SMTP_USER ? { user: cfg.SMTP_USER, pass: cfg.SMTP_PASSWORD } : undefined,
-  });
-  return transporter;
-}
-
 export async function sendMail(input: SendMailInput): Promise<SendMailResult> {
-  const cfg = loadConfig();
   const to = input.to.trim();
   if (!to) return { ok: false, emailLogId: null, reason: "no_recipient" };
 
@@ -85,29 +66,16 @@ export async function sendMail(input: SendMailInput): Promise<SendMailResult> {
     },
   });
 
-  const transport = getTransporter();
-  if (!transport) {
-    console.log(
-      `[home88:api] (log-only) ${input.category} -> ${redactEmail(to)}: ${input.subject}`,
-    );
+  const provider = await resolveEmailProvider();
+  const result = await provider.send({ to, subject: input.subject, text: input.text, html: input.html });
+  if (!result.delivered) {
+    console.log(`[home88:api] (log-only) ${input.category} -> ${redactEmail(to)}: ${input.subject}`);
     return { ok: true, emailLogId: log.id, delivered: false };
   }
 
-  const from = cfg.SMTP_FROM_EMAIL
-    ? `"${cfg.SMTP_FROM_NAME}" <${cfg.SMTP_FROM_EMAIL}>`
-    : undefined;
-
-  const info = await transport.sendMail({
-    from,
-    to,
-    subject: input.subject,
-    text: input.text,
-    html: input.html,
-  });
-
   await db().emailLog.update({
     where: { id: log.id },
-    data: { sentAt: new Date(), providerMessageId: info.messageId ?? null },
+    data: { sentAt: new Date(), providerMessageId: result.providerMessageId },
   });
 
   return { ok: true, emailLogId: log.id, delivered: true };

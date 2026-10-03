@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 
 import { CaptureForm } from "@/components/CaptureForm";
-import { COMPANY } from "@/lib/config";
+import { ContactEmail } from "@/components/ContactEmail";
+import { getCompanyInfo } from "@/lib/company";
 
 export const metadata: Metadata = {
   title: "Πνευματικά Δικαιώματα",
@@ -9,7 +10,8 @@ export const metadata: Metadata = {
   alternates: { canonical: "/dmca" },
 };
 
-export default function DmcaPage() {
+export default async function DmcaPage() {
+  const company = await getCompanyInfo();
   return (
     <div className="wrap section">
       <div className="prose">
@@ -37,7 +39,7 @@ export default function DmcaPage() {
 
         <p className="muted">
           Εναλλακτικά, μπορείτε να στείλετε την αναφορά σας στο{" "}
-          <a href={`mailto:${COMPANY.dmcaEmail}`}>{COMPANY.dmcaEmail}</a>.
+          <ContactEmail email={company.dmcaEmail} />.
         </p>
       </div>
 

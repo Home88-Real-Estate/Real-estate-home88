@@ -106,3 +106,25 @@ test("reminders, viewings and requests require a signed-in user", async () => {
     assert.equal(response.status, 401, `${method} ${path}`);
   }
 });
+
+test("settings routes require a session and never answer anonymously", async () => {
+  for (const [method, path] of [
+    ["GET", "/api/settings"],
+    ["GET", "/api/settings/sections/email"],
+    ["PUT", "/api/settings/sections/email"],
+    ["GET", "/api/settings/permissions"],
+    ["PUT", "/api/settings/permissions"],
+    ["GET", "/api/settings/audit"],
+    ["GET", "/api/settings/portals/SPITOGATOS"],
+    ["POST", "/api/settings/email/test"],
+  ] as const) {
+    const response = await handleApiRequest(
+      new Request(`http://crm.test${path}`, {
+        method,
+        headers: { "content-type": "application/json" },
+        body: method === "GET" ? undefined : JSON.stringify({ values: {}, secrets: { smtpPassword: "x" } }),
+      }),
+    );
+    assert.equal(response.status, 401, `${method} ${path}`);
+  }
+});

@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 
 import { COMPANY } from "@/lib/config";
+import { ContactEmail } from "@/components/ContactEmail";
+import { getCompanyInfo } from "@/lib/company";
 
 export const metadata: Metadata = {
   title: "Όροι Χρήσης",
@@ -8,7 +10,8 @@ export const metadata: Metadata = {
   alternates: { canonical: "/terms" },
 };
 
-export default function TermsPage() {
+export default async function TermsPage() {
+  const company = await getCompanyInfo();
   return (
     <div className="wrap prose section" id="terms">
       <h1>Όροι Χρήσης</h1>
@@ -28,8 +31,8 @@ export default function TermsPage() {
 
       <h2>1. Ποιοι είμαστε</h2>
       <p>
-        Η ιστοσελίδα ανήκει στον {COMPANY.legalName}
-        {COMPANY.postalAddress ? `, ${COMPANY.postalAddress}` : ""}. Με τη χρήση της αποδέχεστε
+        Η ιστοσελίδα ανήκει στον {company.legalName}
+        {company.address ? `, ${company.address}` : ""}. Με τη χρήση της αποδέχεστε
         τους παρόντες όρους.
       </p>
 

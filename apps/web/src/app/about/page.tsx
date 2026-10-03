@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { COMPANY } from "@/lib/config";
+import { ContactEmail } from "@/components/ContactEmail";
+import { getCompanyInfo } from "@/lib/company";
 
 export const metadata: Metadata = {
   title: "Η εταιρεία",
@@ -9,14 +11,19 @@ export const metadata: Metadata = {
   alternates: { canonical: "/about" },
 };
 
-export default function AboutPage() {
+export default async function AboutPage() {
+  const company = await getCompanyInfo();
   return (
     <div className="wrap prose section">
       <h1>Η εταιρεία</h1>
+      {company.profile ? (
+        company.profile.split(/\n{2,}/).map((para, i) => <p key={i} style={{ whiteSpace: "pre-line" }}>{para}</p>)
+      ) : (
       <p>
-        Ο {COMPANY.legalName} δραστηριοποιείται στην αγορά ακινήτων: πωλήσεις, ενοικιάσεις και
+        Ο {company.legalName} δραστηριοποιείται στην αγορά ακινήτων: πωλήσεις, ενοικιάσεις και
         αναθέσεις. Συνεργαζόμαστε με ιδιοκτήτες και αγοραστές σε όλη την Ελλάδα.
       </p>
+      )}
 
       <h2>Το ακίνητό σας, σε ένα σημείο</h2>
       <p>
@@ -35,8 +42,13 @@ export default function AboutPage() {
 
       <h2>Επικοινωνία</h2>
       <p>
-        Δείτε τη σελίδα <Link href="/contact">Επικοινωνία</Link> ή στείλτε email στο{" "}
-        <a href={`mailto:${COMPANY.privacyEmail}`}>{COMPANY.privacyEmail}</a>.
+        Δείτε τη σελίδα <Link href="/contact">Επικοινωνία</Link>
+        {company.email ? (
+          <>
+            {" "}ή στείλτε email στο <ContactEmail email={company.email} />
+          </>
+        ) : null}
+        .
       </p>
     </div>
   );

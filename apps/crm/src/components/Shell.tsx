@@ -32,7 +32,6 @@ const COMING_SOON: Array<{ label: string; icon: IconName }> = [
   { label: "Στατιστικά", icon: "chart" },
   { label: "Μαζικό SMS", icon: "message" },
   { label: "Ομάδες", icon: "team" },
-  { label: "Ρυθμίσεις", icon: "sliders" },
   { label: "Συνδέσεις", icon: "plug" },
 ];
 
@@ -137,12 +136,13 @@ export function Shell({
     },
     { href: "/contacts", label: "Πελάτες", icon: "users" },
   ];
-  const admin = (
+  const admin: NavItem[] = (
     [
       { href: "/users", label: "Χρήστες", icon: "userCog", min: "MANAGER" },
       { href: "/invitations", label: "Προσκλήσεις", icon: "send", min: "ADMIN" },
     ] satisfies NavItem[]
   ).filter((item) => hasRole(user.role, item.min));
+  if (user.canOpenSettings) admin.push({ href: "/settings", label: "Ρυθμίσεις", icon: "sliders" });
 
   const renderItem = (item: NavItem) => (
     <Link

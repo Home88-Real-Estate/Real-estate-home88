@@ -37,6 +37,7 @@ import { db } from "../lib/prisma";
 import { consume } from "../lib/rate-limit";
 import { revokeAllUserSessions, revokeAllUserSessionsExcept } from "../lib/sessions";
 import { requireAuth } from "../plugins/auth";
+import { assertPasswordPolicy } from "../settings/password-policy";
 
 /** Shown for every forgot-password request, so it reveals nothing. */
 const GENERIC_RESET_MESSAGE =
@@ -77,6 +78,7 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     const cfg = loadConfig();
     const actor = request.auth!.user;
     const body = parseInput(passwordChangeSchema, request.body);
+    await assertPasswordPolicy(body.newPassword, "newPassword");
     const ip = clientIp(request);
 
     const limit = consume(`password-change:${actor.id}`, RATE_LIMITS.passwordChange);
@@ -200,6 +202,7 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
   app.post("/auth/reset-password", async (request) => {
     const cfg = loadConfig();
     const body = parseInput(resetPasswordSchema, request.body);
+    await assertPasswordPolicy(body.newPassword, "newPassword");
     const ip = clientIp(request);
 
     const limit = consume(`reset:${ip}`, RATE_LIMITS.resetPassword);

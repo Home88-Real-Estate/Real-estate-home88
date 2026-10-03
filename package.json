@@ -26,7 +26,8 @@
     "db:seed": "npm run seed -w @home88/api",
     "admin:create": "npm run admin:create -w @home88/api",
     "infra:up": "docker compose up -d",
-    "infra:down": "docker compose down"
+    "infra:down": "docker compose down",
+    "check:bundle": "node scripts/check-client-bundle.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
