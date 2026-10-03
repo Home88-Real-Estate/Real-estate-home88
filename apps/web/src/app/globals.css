@@ -927,6 +927,16 @@ p { margin: 0 0 1em; }
 }
 .brand-banner img { display: block; width: 100%; height: auto; }
 
+.page-figure {
+  margin: 0 0 28px;
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: #f6e7d2;
+  max-width: 760px;
+}
+.page-figure img { display: block; width: 100%; height: auto; }
+
 .service-grid {
   display: grid;
   gap: 24px;

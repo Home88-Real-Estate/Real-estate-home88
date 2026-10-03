@@ -17,6 +17,17 @@ export default function RequestPage() {
         χρειάζεται να ελέγχετε συνεχώς τις αγγελίες.
       </p>
 
+      <figure className="page-figure">
+        <img
+          src="/images/fox/fox-lounge-keys.webp"
+          width={758}
+          height={504}
+          alt="Η αλεπού της HOME88 σε σαλόνι με θέα στη θάλασσα, δίπλα σε κλειδιά και συμβόλαιο"
+          loading="lazy"
+          decoding="async"
+        />
+      </figure>
+
       <div className="searchpanel" style={{ marginTop: 20, maxWidth: 760 }}>
         <CaptureForm
           endpoint="/api/leads"

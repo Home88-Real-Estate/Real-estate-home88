@@ -16,6 +16,16 @@ export default async function AboutPage() {
   return (
     <div className="wrap prose section">
       <h1>Η εταιρεία</h1>
+      <figure className="page-figure">
+        <img
+          src="/images/fox/fox-villa-sunset.webp"
+          width={758}
+          height={504}
+          alt="Η αλεπού της HOME88 σε βεράντα βίλας με πισίνα και θέα στη θάλασσα την ώρα του ηλιοβασιλέματος"
+          loading="lazy"
+          decoding="async"
+        />
+      </figure>
       {company.profile ? (
         company.profile.split(/\n{2,}/).map((para, i) => <p key={i} style={{ whiteSpace: "pre-line" }}>{para}</p>)
       ) : (
