@@ -21,6 +21,13 @@ type PortalListing = {
   portal: { id: string; name: string; code: string };
 };
 
+type RequestMatch = {
+  score: number;
+  matched: string[];
+  missing: string[];
+  request: { id: string; reference: string; clientName: string; rating: number | null };
+};
+
 type Property = {
   id: string;
   reference: string;
@@ -75,12 +82,13 @@ export default async function PropertyDetailPage({
   const user = await requireRole("AGENT");
   const { id } = await params;
 
-  const [result, mediaResult, historyResult] = await Promise.all([
+  const [result, mediaResult, historyResult, matchResult] = await Promise.all([
     apiFetch<{ property: Property; allowedTransitions: string[]; canEdit: boolean }>(
       `/api/properties/${id}`,
     ),
     apiFetch<{ media: MediaItemData[] }>(`/api/properties/${id}/media`),
     apiFetch<{ statuses: StatusEntry[]; prices: PriceEntry[] }>(`/api/properties/${id}/history`),
+    apiFetch<{ matches: RequestMatch[] }>(`/api/properties/${id}/matching-requests`),
   ]);
   if (!result.ok) {
     if (result.status === 404) notFound();
@@ -217,6 +225,44 @@ export default async function PropertyDetailPage({
             <h3>Περιγραφή (αγγλικά)</h3>
             <p style={{ whiteSpace: "pre-wrap" }}>{p.descriptionEn}</p>
           </>
+        )}
+      </div>
+
+      <div className="panel">
+        <div className="panel__head">
+          <div>
+            <h2>Ζητήσεις που ταιριάζουν</h2>
+            <p className="panel__sub">Ενεργές ζητήσεις πελατών για τις οποίες είναι κατάλληλο το ακίνητο.</p>
+          </div>
+          <Link href="/requests/new" className="btn btn--ghost btn--sm">
+            Νέα ζήτηση
+          </Link>
+        </div>
+        {!matchResult.ok ? (
+          <div className="notice notice--danger">{matchResult.error.message}</div>
+        ) : matchResult.data.matches.length === 0 ? (
+          <div className="empty">Καμία ενεργή ζήτηση δεν ταιριάζει ακόμη.</div>
+        ) : (
+          <ul className="list matchlist">
+            {matchResult.data.matches.map((m) => (
+              <li key={m.request.id}>
+                <span className={m.score >= 85 ? "score score--high" : m.score >= 65 ? "score score--mid" : "score"}>{m.score}%</span>
+                <span className="list__main">
+                  <Link href={`/requests/${m.request.id}`} className="list__title">
+                    {m.request.clientName} <span className="mono muted">{m.request.reference}</span>
+                  </Link>
+                  <span className="matchwhy">
+                    {m.matched.map((t) => (
+                      <span key={t} className="matchwhy__ok">✓ {t}</span>
+                    ))}
+                    {m.missing.map((t) => (
+                      <span key={t} className="matchwhy__no">✗ {t}</span>
+                    ))}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
 

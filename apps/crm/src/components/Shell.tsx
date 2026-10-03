@@ -27,10 +27,7 @@ type NavItem = {
 
 /** Modules on the roadmap. Listed so the plan is visible; never linked to a fake screen. */
 const COMING_SOON: Array<{ label: string; icon: IconName }> = [
-  { label: "Ζητήσεις", icon: "search" },
   { label: "Ψηφιακές Εντολές", icon: "mandate" },
-  { label: "Υπενθυμίσεις", icon: "bell" },
-  { label: "Ημερολόγιο", icon: "calendar" },
   { label: "Διαφημίσεις", icon: "megaphone" },
   { label: "Στατιστικά", icon: "chart" },
   { label: "Μαζικό SMS", icon: "message" },
@@ -112,9 +109,6 @@ export function Shell({
       href: "/",
       label: "Αρχική",
       icon: "home",
-      count: counters?.dueTasks || undefined,
-      hot: true,
-      countTitle: "Υπενθυμίσεις για σήμερα ή εκπρόθεσμες",
     },
     {
       href: "/properties",
@@ -130,6 +124,16 @@ export function Shell({
       count: counters?.newLeads || undefined,
       hot: true,
       countTitle: "Νέα leads",
+    },
+    { href: "/requests", label: "Ζητήσεις", icon: "search" },
+    { href: "/calendar", label: "Ημερολόγιο", icon: "calendar" },
+    {
+      href: "/reminders",
+      label: "Υπενθυμίσεις",
+      icon: "bell",
+      count: counters?.dueTasks || undefined,
+      hot: true,
+      countTitle: "Υπενθυμίσεις για σήμερα ή εκπρόθεσμες",
     },
     { href: "/contacts", label: "Πελάτες", icon: "users" },
   ];

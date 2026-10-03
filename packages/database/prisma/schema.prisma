@@ -188,6 +188,14 @@ enum TaskStatus {
   CANCELLED
 }
 
+/// Lifecycle of a buyer/tenant request (Ζήτηση).
+enum RequestStatus {
+  ACTIVE
+  PAUSED
+  FULFILLED
+  CANCELLED
+}
+
 enum TaskPriority {
   LOW
   NORMAL
@@ -295,6 +303,7 @@ enum AuditEntity {
   CONSENT
   EMAIL
   SETTINGS
+  REQUEST
 }
 
 // ---------------------------------------------------------------------------
@@ -346,6 +355,7 @@ model User {
   leads      Lead[]     @relation("LeadAssignee")
   viewings   Viewing[]
   tasks      Task[]     @relation("TaskAssignee")
+  buyerRequests BuyerRequest[] @relation("RequestAssignee")
   notes      Note[]
   offers     Offer[]    @relation("OfferAgent")
   auditLogs  AuditLog[]
@@ -461,6 +471,7 @@ model Contact {
   notes      Note[]
   leads      Lead[]
   viewings   Viewing[]
+  buyerRequests BuyerRequest[]
   offers     Offer[]
   properties Property[] @relation("PropertyOwner")
   documents  Document[]
@@ -843,6 +854,54 @@ model Offer {
   @@index([createdAt])
   @@index([agentId, createdAt])
   @@map("offers")
+}
+
+/// A client's search criteria (Ζήτηση): what they want to buy or rent.
+/// Matched against properties by @home88/domain request-matching.
+model BuyerRequest {
+  id        String @id @default(cuid())
+  reference String @unique
+
+  status      RequestStatus @default(ACTIVE)
+  listingType ListingType
+  /// Empty = any type.
+  propertyTypes PropertyType[]
+  /// Free-text areas (city, area or neighbourhood names).
+  areas String[]
+
+  minPrice    Decimal? @db.Decimal(14, 2)
+  maxPrice    Decimal? @db.Decimal(14, 2)
+  minArea     Decimal? @db.Decimal(10, 2)
+  maxArea     Decimal? @db.Decimal(10, 2)
+  minBedrooms  Int?
+  minBathrooms Int?
+  minFloor     Int?
+  minYearBuilt Int?
+  /// Required features, as property-profile keys (parking, storage, elevator, ...).
+  features String[]
+
+  clientName  String
+  clientPhone String?
+  clientEmail String?
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  /// 1-5: how promising the client is.
+  rating    Int?
+  notes     String?
+  expiresAt DateTime?
+
+  assignedToId String?
+  assignedTo   User?   @relation("RequestAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  createdById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, listingType])
+  @@index([assignedToId, status])
+  @@index([createdAt])
+  @@map("buyer_requests")
 }
 
 model Task {

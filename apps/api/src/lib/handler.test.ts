@@ -85,3 +85,24 @@ test("database diagnosis names the cause without secrets", async () => {
   const broken = describeDatabaseUrl("postgresql://postgres.abc:pa?ss#@host:6543/postgres");
   assert.ok(!JSON.stringify(broken).includes("pa?ss"), "password never shown");
 });
+
+test("reminders, viewings and requests require a signed-in user", async () => {
+  for (const [method, path] of [
+    ["GET", "/api/tasks"],
+    ["POST", "/api/tasks"],
+    ["GET", "/api/viewings?from=2026-10-01&to=2026-10-08"],
+    ["POST", "/api/viewings"],
+    ["GET", "/api/requests"],
+    ["POST", "/api/requests"],
+    ["GET", "/api/properties/x/matching-requests"],
+  ] as const) {
+    const response = await handleApiRequest(
+      new Request(`http://crm.test${path}`, {
+        method,
+        headers: { "content-type": "application/json", origin: "http://localhost:3100" },
+        ...(method === "POST" ? { body: "{}" } : {}),
+      }),
+    );
+    assert.equal(response.status, 401, `${method} ${path}`);
+  }
+});

@@ -13,6 +13,9 @@ export function TodaysViewings({ viewings }: { viewings: DashboardData["todaysVi
     <section className="panel" id="today-viewings" aria-labelledby="viewings-title">
       <div className="panel__head">
         <h2 id="viewings-title">Σημερινά ραντεβού</h2>
+        <Link href="/calendar" className="btn btn--ghost btn--sm">
+          Ημερολόγιο
+        </Link>
       </div>
       {viewings.length === 0 ? (
         <EmptyState compact title="Κανένα ραντεβού για σήμερα." />
