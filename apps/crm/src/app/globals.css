@@ -244,33 +244,30 @@ p { margin: 0 0 1em; }
   padding: 44px 52px;
   display: flex;
   flex-direction: column;
-  background:
-    radial-gradient(1200px 520px at 115% -10%, rgba(91, 180, 240, 0.32), transparent 60%),
-    radial-gradient(900px 600px at -20% 120%, rgba(22, 139, 190, 0.28), transparent 55%),
-    linear-gradient(155deg, #0b5394 0%, #06406f 48%, #042a49 100%);
+  /* The HOME88 fox at the door. The artwork fills the width from the top;
+     its empty night ground blends into the matching navy below, which is
+     where the copy sits, so the fox is never covered by text. */
+  background: #07172f var(--auth-art, none) center -40px / 100% auto no-repeat;
 }
 .auth__brand::after {
-  /* Faint architectural grid: depth without imagery. */
+  /* Darken only the lower part, behind the copy, for legible white text. */
   content: "";
   position: absolute;
   inset: 0;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
-  background-size: 48px 48px;
-  mask-image: linear-gradient(180deg, transparent 0%, #000 45%, transparent 100%);
+  background: linear-gradient(180deg, transparent 58%, rgba(7, 23, 48, 0.6) 72%, rgba(7, 23, 48, 0.94) 100%);
   pointer-events: none;
 }
 .auth__brand > * { position: relative; z-index: 1; }
+@media (max-height: 760px) { .auth__lead { display: none; } }
 .auth__logo { width: 170px; height: auto; }
 .auth__pitch { margin-top: auto; max-width: 30rem; }
 .auth__eyebrow { text-transform: uppercase; letter-spacing: 0.14em; font-size: 0.75rem; font-weight: 700; color: #9fd0f5; margin: 0 0 14px; }
-.auth__title { font-size: clamp(1.9rem, 2.6vw, 2.5rem); line-height: 1.15; font-weight: 750; color: #fff; margin: 0 0 16px; letter-spacing: -0.02em; }
-.auth__lead { color: #d5e5f3; font-size: 1.02rem; margin: 0 0 28px; }
+.auth__title { font-size: clamp(1.6rem, 2.1vw, 2.1rem); line-height: 1.15; font-weight: 750; color: #fff; margin: 0 0 16px; letter-spacing: -0.02em; }
+.auth__lead { color: #d5e5f3; font-size: 0.98rem; margin: 0; max-width: 26rem; }
 .auth__points { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
 .auth__points li { display: flex; align-items: center; gap: 12px; color: #e8f1f9; font-size: 0.95rem; }
 .auth__points .icon { width: 34px; height: 34px; padding: 8px; border-radius: 10px; background: rgba(255, 255, 255, 0.1); color: #bfe2fb; }
-.auth__legal { margin-top: 44px; font-size: 0.8rem; color: #9ab6cf; }
+.auth__legal { margin-top: 28px; font-size: 0.8rem; color: #9ab6cf; }
 
 .auth__panel { display: grid; place-items: center; padding: 40px 24px; background: var(--paper); }
 .auth__card { width: 100%; max-width: 400px; }
