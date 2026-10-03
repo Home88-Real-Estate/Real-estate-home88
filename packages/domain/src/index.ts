@@ -5,3 +5,4 @@ export * from "./property-lifecycle";
 export * from "./property-profiles";
 export * from "./request-matching";
 export * from "./settings-catalog";
+export * from "./commission";

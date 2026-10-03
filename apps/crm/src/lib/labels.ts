@@ -63,3 +63,11 @@ export function priceRange(min: unknown, max: unknown): string {
   if (lo != null) return `από ${EURO.format(lo)} €`;
   return "—";
 }
+
+export const TRX_STATUS_CLASS: Record<string, string> = {
+  NEGOTIATION: "badge badge--info",
+  AGREEMENT: "badge badge--warn",
+  CONTRACT: "badge badge--warn",
+  CLOSED: "badge badge--ok",
+  CANCELLED: "badge badge--muted",
+};
