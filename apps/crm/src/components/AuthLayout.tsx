@@ -1,5 +1,8 @@
 import { Icon } from "./Icon";
 import { Logo } from "./Logo";
+import { CRM_BASE_PATH } from "@/lib/paths";
+
+const ART = `url("${CRM_BASE_PATH}/brand/login-fox.webp")`;
 
 /**
  * Shared frame for every signed-out page (login, password reset, invitation):
@@ -20,7 +23,7 @@ export function AuthLayout({
   const year = new Date().getFullYear();
   return (
     <div className="auth">
-      <section className="auth__brand" aria-label="HOME88 CRM">
+      <section className="auth__brand" aria-label="HOME88 CRM" style={{ "--auth-art": ART } as React.CSSProperties}>
         <Logo variant="white" width={170} className="auth__logo" />
         <div className="auth__pitch">
           <p className="auth__eyebrow">HOME88 CRM</p>
@@ -28,20 +31,6 @@ export function AuthLayout({
           <p className="auth__lead">
             Ακίνητα, πελάτες και εκδηλώσεις ενδιαφέροντος, συνδεδεμένα με τον ιστότοπο και τα portals.
           </p>
-          <ul className="auth__points">
-            <li>
-              <Icon name="building" />
-              Χαρτοφυλάκιο ακινήτων και δημοσιεύσεις
-            </li>
-            <li>
-              <Icon name="inbox" />
-              Leads από τον ιστότοπο και τα portals
-            </li>
-            <li>
-              <Icon name="chart" />
-              Η δραστηριότητα του γραφείου με μια ματιά
-            </li>
-          </ul>
         </div>
         <p className="auth__legal">© {year} HOME88 · Πρόσβαση μόνο για εξουσιοδοτημένους συνεργάτες</p>
       </section>
