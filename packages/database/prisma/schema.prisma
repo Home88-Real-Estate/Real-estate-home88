@@ -354,22 +354,23 @@ model User {
   avatarUrl String?
   locale    String  @default("el")
 
-  properties          Property[]      @relation("PropertyAgent")
-  ownedBy             Property[]      @relation("PropertyCreator")
-  leads               Lead[]          @relation("LeadAssignee")
+  properties          Property[]           @relation("PropertyAgent")
+  ownedBy             Property[]           @relation("PropertyCreator")
+  leads               Lead[]               @relation("LeadAssignee")
   viewings            Viewing[]
-  tasks               Task[]          @relation("TaskAssignee")
-  buyerRequests       BuyerRequest[]  @relation("RequestAssignee")
+  tasks               Task[]               @relation("TaskAssignee")
+  buyerRequests       BuyerRequest[]       @relation("RequestAssignee")
+  submissions         PropertySubmission[] @relation("SubmissionAssignee")
   notes               Note[]
-  offers              Offer[]         @relation("OfferAgent")
+  offers              Offer[]              @relation("OfferAgent")
   auditLogs           AuditLog[]
   consents            ConsentRecord[]
-  createdBy           User?           @relation("UserCreatedBy", fields: [createdById], references: [id])
+  createdBy           User?                @relation("UserCreatedBy", fields: [createdById], references: [id])
   createdById         String?
-  createdUsers        User[]          @relation("UserCreatedBy")
-  deactivatedBy       User?           @relation("UserDeactivatedBy", fields: [deactivatedById], references: [id])
+  createdUsers        User[]               @relation("UserCreatedBy")
+  deactivatedBy       User?                @relation("UserDeactivatedBy", fields: [deactivatedById], references: [id])
   deactivatedById     String?
-  deactivatedUsers    User[]          @relation("UserDeactivatedBy")
+  deactivatedUsers    User[]               @relation("UserDeactivatedBy")
   deactivatedAt       DateTime?
   deletionRequestedAt DateTime?
   erasureCompletedAt  DateTime?
@@ -462,6 +463,9 @@ model Contact {
   /// into list views or logs.
   emailEncrypted  String?
   emailHash       String?
+  /// Peppered hash of the normalised phone, so the same person is found by
+  /// number without the number being searchable in the clear.
+  phoneHash       String?
   phoneEncrypted  String?
   mobileEncrypted String?
 
@@ -472,13 +476,16 @@ model Contact {
   preferredContactMethod PreferredContactMethod @default(ANY)
   preferredLocale        String                 @default("el")
 
-  notes         Note[]
-  leads         Lead[]
-  viewings      Viewing[]
-  buyerRequests BuyerRequest[]
-  offers        Offer[]
-  properties    Property[]     @relation("PropertyOwner")
-  documents     Document[]
+  notes           Note[]
+  leads           Lead[]
+  viewings        Viewing[]
+  buyerRequests   BuyerRequest[]
+  offers          Offer[]
+  properties      Property[]           @relation("PropertyOwner")
+  documents       Document[]
+  submissions     PropertySubmission[]
+  viewingRequests ViewingRequest[]
+  uploadedMedia   PropertyMedia[]
 
   marketingOptOutAt  DateTime?
   erasureRequestedAt DateTime?
@@ -488,6 +495,7 @@ model Contact {
   updatedAt DateTime @updatedAt
 
   @@index([emailHash])
+  @@index([phoneHash])
   @@index([lastName])
   @@map("contacts")
 }
@@ -577,18 +585,19 @@ model Property {
   createdById String?
   createdBy   User?   @relation("PropertyCreator", fields: [createdById], references: [id], onDelete: SetNull)
 
-  media          PropertyMedia[]
-  leads          Lead[]
-  viewings       Viewing[]
-  offers         Offer[]
-  documents      Document[]
-  portalListings PortalListing[]
-  tagAssignments PropertyTagAssignment[]
-  notes          Note[]
-  dmcaNotices    DmcaNotice[]
-  tasks          Task[]
-  statusHistory  PropertyStatusHistory[]
-  priceHistory   PropertyPriceHistory[]
+  media             PropertyMedia[]
+  leads             Lead[]
+  viewings          Viewing[]
+  offers            Offer[]
+  documents         Document[]
+  portalListings    PortalListing[]
+  submissionsLinked PropertySubmission[]
+  tagAssignments    PropertyTagAssignment[]
+  notes             Note[]
+  dmcaNotices       DmcaNotice[]
+  tasks             Task[]
+  statusHistory     PropertyStatusHistory[]
+  priceHistory      PropertyPriceHistory[]
 
   /// Commission is stored as a rate, not a hard-coded percentage.
   commissionRatePct  Decimal? @db.Decimal(5, 2)
@@ -599,8 +608,9 @@ model Property {
   /// Non-nullable retention anchor, used by the purge job.
   retentionExpiresAt DateTime?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  ViewingRequest ViewingRequest[]
 
   @@index([status])
   @@index([listingType])
@@ -656,9 +666,23 @@ model PropertyPriceHistory {
 }
 
 model PropertyMedia {
-  id         String   @id @default(cuid())
-  propertyId String
-  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  id                  String              @id @default(cuid())
+  /// Null while the file belongs to an owner submission and has not been
+  /// attached to a property. Such a row is private whatever its status says.
+  propertyId          String?
+  property            Property?           @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  submissionId        String?
+  submission          PropertySubmission? @relation(fields: [submissionId], references: [id], onDelete: SetNull)
+  /// Who supplied it, when it came from a customer rather than staff.
+  uploadedByContactId String?
+  uploadedByContact   Contact?            @relation(fields: [uploadedByContactId], references: [id], onDelete: SetNull)
+
+  source         MediaSource    @default(AGENT_UPLOAD)
+  lifecycle      MediaLifecycle @default(AVAILABLE)
+  /// Why a file was quarantined or rejected. Safe to show staff.
+  processingNote String?
+  /// SHA-256 of the original bytes, to spot an exact duplicate.
+  checksum       String?
 
   kind MediaKind @default(PHOTO)
 
@@ -690,6 +714,8 @@ model PropertyMedia {
 
   @@index([propertyId, kind, sortOrder])
   @@index([propertyId, isPrimary])
+  @@index([submissionId])
+  @@index([checksum])
   @@index([status])
   @@map("property_media")
 }
@@ -710,7 +736,20 @@ model Lead {
   message   String?
 
   status          LeadStatus @default(NEW)
+  /// What kind of opportunity this is, independent of where it came from.
+  type            LeadType   @default(GENERAL_INQUIRY)
   source          LeadSource @default(WEBSITE)
+  /// Coarse channel (GOOGLE, INSTAGRAM, ...), derived from the referrer or an
+  /// allowed UTM source. Never the raw referrer URL.
+  sourceChannel   String?
+  /// Path only (no host, no query string) of the page the form was on.
+  landingPage     String?
+  /// Hostname only of the referring site.
+  referrerHost    String?
+  /// Campaign tags are stored only when the visitor allowed measurement.
+  utmSource       String?
+  utmMedium       String?
+  utmCampaign     String?
   /// Portal-side identifiers, so a lead can be traced back to its origin.
   sourcePortalId  String?
   sourceListingId String?
@@ -728,13 +767,18 @@ model Lead {
   contactId String?
   contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
 
+  buyerRequestId String?
+  buyerRequest   BuyerRequest? @relation(fields: [buyerRequestId], references: [id], onDelete: SetNull)
+
   assignedToId String?
   assignedTo   User?   @relation("LeadAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
 
-  notes    Note[]
-  viewings Viewing[]
-  offers   Offer[]
-  tasks    Task[]
+  notes           Note[]
+  submissions     PropertySubmission[]
+  viewingRequests ViewingRequest[]
+  viewings        Viewing[]
+  offers          Offer[]
+  tasks           Task[]
 
   /// Compliance state for this enquiry.
   consentRecordId    String?
@@ -755,6 +799,7 @@ model Lead {
   updatedAt DateTime @updatedAt
 
   @@index([status])
+  @@index([type, status])
   @@index([source])
   @@index([sourcePortalId])
   @@index([assignedToId, status])
@@ -890,6 +935,7 @@ model BuyerRequest {
   clientEmail String?
   contactId   String?
   contact     Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  leads       Lead[]
 
   /// 1-5: how promising the client is.
   rating    Int?
@@ -953,12 +999,20 @@ model Document {
   contactId  String?
   contact    Contact?  @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
-  title      String
-  category   DocumentCategory @default(OTHER)
-  storageKey String
-  mimeType   String
-  byteSize   Int
-  checksum   String?
+  /// Set while the file belongs to an owner submission. CRM-private always.
+  submissionId String?
+  submission   PropertySubmission? @relation(fields: [submissionId], references: [id], onDelete: SetNull)
+
+  title          String
+  category       DocumentCategory @default(OTHER)
+  storageKey     String
+  mimeType       String
+  byteSize       Int
+  checksum       String?
+  originalName   String?
+  source         MediaSource      @default(AGENT_UPLOAD)
+  lifecycle      MediaLifecycle   @default(AVAILABLE)
+  processingNote String?
 
   /// Documents containing personal data are removed with the person.
   containsPersonalData Boolean   @default(false)
@@ -970,6 +1024,7 @@ model Document {
 
   @@index([propertyId])
   @@index([contactId])
+  @@index([submissionId])
   @@index([retentionExpiresAt])
   @@map("documents")
 }
@@ -1814,4 +1869,186 @@ model PortalFeedVersion {
   @@unique([portalId, version])
   @@index([portalId, generatedAt])
   @@map("portal_feed_versions")
+}
+
+// ---------------------------------------------------------------------------
+// Public intake
+//
+// Everything a visitor sends from the website lands here, then in the CRM for
+// review. A submission is NOT a property: nothing becomes inventory until an
+// agent converts or links it.
+// ---------------------------------------------------------------------------
+
+enum LeadType {
+  GENERAL_INQUIRY
+  SELLER_OWNER
+  SELLER_VALUATION
+  BUYER
+  PROPERTY_ENQUIRY
+  BUYER_VIEWING
+}
+
+enum SubmissionKind {
+  ASSIGNMENT
+  VALUATION
+}
+
+enum SubmissionStatus {
+  NEW
+  UNDER_REVIEW
+  CONTACTED
+  VALUATION
+  ASSIGNMENT
+  PROPERTY_CREATED
+  APPROVED
+  PUBLISHED
+  REJECTED
+  ARCHIVED
+}
+
+enum MediaLifecycle {
+  UPLOADING
+  PROCESSING
+  AVAILABLE
+  QUARANTINED
+  REJECTED
+  DELETED
+}
+
+enum MediaSource {
+  AGENT_UPLOAD
+  OWNER_SUBMISSION
+  IMPORT
+  PORTAL
+  MIGRATION
+  OTHER
+}
+
+enum ViewingRequestStatus {
+  REQUESTED
+  CONFIRMED
+  DECLINED
+  CANCELLED
+}
+
+/// An owner's offer of a property (assignment) or request for a valuation.
+model PropertySubmission {
+  id        String @id @default(cuid())
+  /// Customer-facing code, e.g. SUB-2026-000123. Never the database id.
+  reference String @unique
+
+  kind   SubmissionKind   @default(ASSIGNMENT)
+  status SubmissionStatus @default(NEW)
+
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  leadId    String?
+  lead      Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  titleEl       String
+  descriptionEl String
+  listingType   ListingType
+  propertyType  PropertyType
+  price         Decimal?     @db.Decimal(14, 2)
+  area          Decimal?     @db.Decimal(10, 2)
+  bedrooms      Int?
+  city          String?
+  neighborhood  String?
+
+  assignedToId String?
+  assignedTo   User?   @relation("SubmissionAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  /// Set when an agent creates a property from it, or links an existing one.
+  propertyId String?
+  property   Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+
+  reviewNotes        String?
+  rejectedReason     String?
+  /// Unconverted submissions are not kept forever; the period is configuration.
+  retentionExpiresAt DateTime?
+
+  media     PropertyMedia[]
+  documents Document[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([contactId])
+  @@index([assignedToId, status])
+  @@map("property_submissions")
+}
+
+/// A visitor's request for a viewing. It is a request until an agent confirms
+/// it, at which point a `Viewing` is created and linked.
+model ViewingRequest {
+  id        String @id @default(cuid())
+  reference String @unique
+
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  contactId  String?
+  contact    Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  leadId     String?
+  lead       Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  preferredStart DateTime?
+  note           String?
+  status         ViewingRequestStatus @default(REQUESTED)
+  /// The scheduled viewing, once an agent confirms.
+  viewingId      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([propertyId])
+  @@map("viewing_requests")
+}
+
+/// One row per accepted public submission, keyed by the browser's idempotency
+/// key, so a retried POST returns the original reference instead of creating a
+/// second contact, lead or submission.
+model IntakeReceipt {
+  id             String   @id @default(cuid())
+  idempotencyKey String   @unique
+  flow           String
+  reference      String
+  createdAt      DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("intake_receipts")
+}
+
+/// Quota ledger for anonymous uploads. The token's hash is stored, never the
+/// token; `prefix` is the random segment of the quarantine storage keys.
+model IntakeUploadSession {
+  id            String   @id @default(cuid())
+  tokenHash     String   @unique
+  prefix        String   @unique
+  photoCount    Int      @default(0)
+  documentCount Int      @default(0)
+  byteTotal     BigInt   @default(0)
+  expiresAt     DateTime
+  /// Set when the submission that claimed these uploads was created.
+  submissionId  String?
+  createdAt     DateTime @default(now())
+
+  @@index([expiresAt])
+  @@map("intake_upload_sessions")
+}
+
+/// In-app notice for staff. `userId` null means every manager.
+model CrmNotification {
+  id         String    @id @default(cuid())
+  kind       String
+  title      String
+  entityType String
+  entityId   String
+  userId     String?
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, readAt, createdAt])
+  @@map("crm_notifications")
 }
