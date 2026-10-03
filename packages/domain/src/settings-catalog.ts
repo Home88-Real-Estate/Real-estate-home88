@@ -845,6 +845,33 @@ export function portalCatalogEntry(code: string): PortalCatalogEntry | undefined
   return PORTAL_CATALOG.find((p) => p.code === code.toUpperCase());
 }
 
+export type ProviderVerification = {
+  /** Nothing is "VERIFIED" until someone has checked the provider's current contract and tested against it. */
+  status: "PROVIDER_CONFIRMATION_REQUIRED" | "VERIFIED";
+  note: string;
+};
+
+const CONFIRMATION_DEFAULT =
+  "Δεν έχει επιβεβαιωθεί η τρέχουσα τεκμηρίωση και η πρόσβαση του παρόχου. Επιβεβαιώστε με το portal πριν την ενεργοποίηση.";
+
+/**
+ * What has actually been checked against each provider. Adding an entry here
+ * with status VERIFIED is a claim that the current documentation was read and a
+ * test publication was accepted; leave it out until that is true.
+ */
+export const PORTAL_VERIFICATION_NOTES: Record<string, string> = {
+  JAMESEDITION:
+    "Η JamesEdition δημοσιεύει προδιαγραφή XML ροής (feed guidelines) και διαβάζει τη ροή περίπου τρεις φορές την ημέρα· η προδιαγραφή δεν ήταν προσβάσιμη κατά την ανάπτυξη, οπότε δεν υπάρχει ακόμη προσαρμογέας. Οι αλλαγές δεν είναι άμεσες.",
+  GREEN_ACRES:
+    "Δεν βρέθηκε δημόσια προδιαγραφή. Οι σημειώσεις ενσωμάτωσης αναφέρουν XML μέσω FTP ή HTTP και μοντέλο «cancel and replace» (ό,τι λείπει από τη ροή αφαιρείται)· ζητήστε την τρέχουσα προδιαγραφή από την Green Acres.",
+  PLOT_GR:
+    "Οι σημειώσεις ενσωμάτωσης αναφέρουν ότι το API v1 έχει λήξει (Απρίλιος 2026)· χρησιμοποιήστε μόνο την τρέχουσα έκδοση, αφού επιβεβαιωθεί από την τεκμηρίωση του παρόχου.",
+};
+
+export function portalVerification(code: string): ProviderVerification {
+  return { status: "PROVIDER_CONFIRMATION_REQUIRED", note: PORTAL_VERIFICATION_NOTES[code.toUpperCase()] ?? CONFIRMATION_DEFAULT };
+}
+
 export const PORTAL_STATUS_LABELS: Record<string, string> = {
   PLANNED: "Σε προγραμματισμό",
   NOT_CONFIGURED: "Δεν έχει ρυθμιστεί",

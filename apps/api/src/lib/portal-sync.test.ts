@@ -15,7 +15,7 @@ test("a feed portal is never reported as published merely because we generated t
 test("withdrawing from a feed is a removal, an API transport fails loudly", () => {
   assert.equal(executeTransport("XML_FEED", "REMOVE").state, "REMOVED");
   assert.equal(executeTransport("API", "PUBLISH").state, "FAILED");
-  assert.equal(executeTransport("API", "REMOVE").errorCode, "api_transport_unavailable");
+  assert.equal(executeTransport("API", "REMOVE").errorCode, "TRANSPORT_UNAVAILABLE");
 });
 
 test("manual portals stay queued for a human", () => {

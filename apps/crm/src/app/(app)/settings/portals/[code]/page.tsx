@@ -14,6 +14,7 @@ type Detail = PortalDetail & {
   status: string;
   integrationStatus: string;
   capabilities: Record<string, boolean>;
+  verification: { status: string; note: string };
   note: string | null;
   hasAdapter: boolean;
   lastSyncAt: string | null;
@@ -55,6 +56,11 @@ export default async function PortalSettingsPage({ params }: { params: Promise<{
             ? `Δυνατότητες: ${caps.length ? caps.join(", ") : "καμία"}. Το «Συνδεδεμένο» εμφανίζεται μόνο όταν έχει επιτύχει πραγματικός συγχρονισμός· η δημιουργία ροής δεν αποδεικνύει ότι το portal την εισήγαγε.`
             : "Δεν υπάρχει ακόμη προσαρμογέας για αυτό το portal· κάθε δυνατότητα παραμένει ανενεργή μέχρι να επιβεβαιωθεί η τρέχουσα τεκμηρίωση και η πρόσβαση του παρόχου."}
         </p>
+        {portal.verification.status !== "VERIFIED" && (
+          <p className="notice notice--warn" role="note">
+            <strong>Απαιτείται επιβεβαίωση παρόχου.</strong> {portal.verification.note}
+          </p>
+        )}
         {portal.lastError && <p className="notice notice--danger">Τελευταίο σφάλμα: {portal.lastError}</p>}
       </header>
       <div className="panel">

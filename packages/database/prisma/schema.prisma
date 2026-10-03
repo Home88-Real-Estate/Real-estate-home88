@@ -1028,12 +1028,19 @@ model PortalListing {
   propertyId String
   property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
-  externalId   String?
-  externalUrl  String?
-  state        PortalSyncState @default(NOT_PUBLISHED)
-  lastSyncedAt DateTime?
-  lastError    String?
-  retryCount   Int             @default(0)
+  externalId    String?
+  externalUrl   String?
+  state         PortalSyncState @default(NOT_PUBLISHED)
+  lastSyncedAt  DateTime?
+  lastError     String?
+  /// Normalised error code of the last failure (see PORTAL_ERROR_CODES).
+  lastErrorCode String?
+  retryCount    Int             @default(0)
+  /// Parked after a permanent error or an exhausted retry budget; a person
+  /// must fix the cause and republish. Never retried automatically.
+  needsReview   Boolean         @default(false)
+  /// Earliest time an automatic retry may run (exponential backoff).
+  nextRetryAt   DateTime?
 
   /// Hash of the payload last sent, so an unchanged property is not re-pushed.
   lastPayloadHash String?
@@ -1045,6 +1052,7 @@ model PortalListing {
 
   @@unique([portalId, propertyId])
   @@index([portalId, state])
+  @@index([portalId, needsReview])
   @@index([propertyId])
   @@index([state])
   @@map("portal_listings")

@@ -14,6 +14,8 @@ type Row = {
   externalUrl: string | null;
   lastSyncedAt: string | null;
   lastError: string | null;
+  needsReview: boolean;
+  nextRetryAt: string | null;
   outcome: "READY" | "BLOCKED" | "NOT_SELECTED";
   reasons: string[];
   warnings: string[];
@@ -66,6 +68,8 @@ export async function PropertyPortalPanel({ propertyId, canManage }: { propertyI
                   <td>
                     <StatusBadge value={row.state} kind="portal" />
                     {row.lastError && <div className="hint">{row.lastError}</div>}
+                    {row.needsReview && <div className="hint"><strong>Χρειάζεται έλεγχο</strong> — διορθώστε την αιτία και δημοσιεύστε ξανά.</div>}
+                    {!row.needsReview && row.nextRetryAt && <div className="hint">Νέα προσπάθεια: {formatDateTime(row.nextRetryAt)}</div>}
                   </td>
                   <td>
                     {row.outcome === "READY" ? (
