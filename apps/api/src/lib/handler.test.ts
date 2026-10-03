@@ -128,3 +128,10 @@ test("settings routes require a session and never answer anonymously", async () 
     assert.equal(response.status, 401, `${method} ${path}`);
   }
 });
+
+test("transaction routes require a session", async () => {
+  for (const [method, path] of [["GET", "/api/transactions"], ["POST", "/api/transactions"], ["GET", "/api/transactions/x"], ["POST", "/api/transactions/x/offers"], ["POST", "/api/transactions/x/commission"]] as const) {
+    const response = await handleApiRequest(new Request(`http://crm.test${path}`, { method, headers: { "content-type": "application/json" }, body: method === "GET" ? undefined : "{}" }));
+    assert.equal(response.status, 401, `${method} ${path}`);
+  }
+});

@@ -308,6 +308,7 @@ enum AuditEntity {
   EMAIL
   SETTINGS
   REQUEST
+  TRANSACTION
 }
 
 // ---------------------------------------------------------------------------
@@ -362,6 +363,7 @@ model User {
   buyerRequests       BuyerRequest[]  @relation("RequestAssignee")
   notes               Note[]
   offers              Offer[]         @relation("OfferAgent")
+  transactions        Transaction[]   @relation("TransactionAgent")
   auditLogs           AuditLog[]
   consents            ConsentRecord[]
   createdBy           User?           @relation("UserCreatedBy", fields: [createdById], references: [id])
@@ -472,13 +474,15 @@ model Contact {
   preferredContactMethod PreferredContactMethod @default(ANY)
   preferredLocale        String                 @default("el")
 
-  notes         Note[]
-  leads         Lead[]
-  viewings      Viewing[]
-  buyerRequests BuyerRequest[]
-  offers        Offer[]
-  properties    Property[]     @relation("PropertyOwner")
-  documents     Document[]
+  notes              Note[]
+  leads              Lead[]
+  viewings           Viewing[]
+  buyerRequests      BuyerRequest[]
+  offers             Offer[]
+  properties         Property[]     @relation("PropertyOwner")
+  buyerTransactions  Transaction[]  @relation("TransactionBuyer")
+  sellerTransactions Transaction[]  @relation("TransactionSeller")
+  documents          Document[]
 
   marketingOptOutAt  DateTime?
   erasureRequestedAt DateTime?
@@ -581,6 +585,7 @@ model Property {
   leads          Lead[]
   viewings       Viewing[]
   offers         Offer[]
+  transactions   Transaction[]
   documents      Document[]
   portalListings PortalListing[]
   tagAssignments PropertyTagAssignment[]
@@ -731,10 +736,11 @@ model Lead {
   assignedToId String?
   assignedTo   User?   @relation("LeadAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
 
-  notes    Note[]
-  viewings Viewing[]
-  offers   Offer[]
-  tasks    Task[]
+  notes        Note[]
+  viewings     Viewing[]
+  offers       Offer[]
+  tasks        Task[]
+  transactions Transaction[]
 
   /// Compliance state for this enquiry.
   consentRecordId    String?
@@ -850,6 +856,23 @@ model Offer {
   agentCommissionAmount Decimal?  @db.Decimal(14, 2)
   closedAt              DateTime?
 
+  /// Negotiation round. Rounds are never edited: a counter-offer is a new row
+  /// pointing at the round it answers, and the database refuses changes to a
+  /// round's terms (see migration 20261009010000_transactions).
+  transactionId String?
+  transaction   Transaction? @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  parentOfferId String?
+  parentOffer   Offer?       @relation("OfferCounter", fields: [parentOfferId], references: [id], onDelete: Restrict)
+  counters      Offer[]      @relation("OfferCounter")
+  /// Who proposed these terms: BUYER (or tenant) or SELLER (owner).
+  party         String       @default("BUYER")
+  round         Int          @default(1)
+  financing     String?
+  deposit       Decimal?     @db.Decimal(14, 2)
+  createdById   String?
+  respondedAt   DateTime?
+  respondedById String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -858,6 +881,7 @@ model Offer {
   @@index([leadId])
   @@index([createdAt])
   @@index([agentId, createdAt])
+  @@index([transactionId, round])
   @@map("offers")
 }
 
@@ -968,7 +992,12 @@ model Document {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  transactionId  String?
+  transaction    Transaction?               @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  checklistItems TransactionChecklistItem[]
+
   @@index([propertyId])
+  @@index([transactionId])
   @@index([contactId])
   @@index([retentionExpiresAt])
   @@map("documents")
@@ -1814,4 +1843,146 @@ model PortalFeedVersion {
   @@unique([portalId, version])
   @@index([portalId, generatedAt])
   @@map("portal_feed_versions")
+}
+
+// ---------------------------------------------------------------------------
+// Transactions (Συναλλαγές)
+//
+// The commercial record of a sale or rental, from the first offer to closing:
+// negotiation rounds (offers), status, agreed price, documents checklist,
+// commission and an append-only timeline. A transaction is never deleted;
+// it ends CLOSED or CANCELLED.
+// ---------------------------------------------------------------------------
+
+model Transaction {
+  id        String @id @default(cuid())
+  /// Public code, e.g. TRX-000001.
+  reference String @unique
+
+  /// SALE or RENT.
+  type   String
+  /// NEGOTIATION → AGREEMENT → CONTRACT → CLOSED, or CANCELLED.
+  status String @default("NEGOTIATION")
+
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+
+  buyerContactId  String?
+  buyerContact    Contact? @relation("TransactionBuyer", fields: [buyerContactId], references: [id], onDelete: SetNull)
+  sellerContactId String?
+  sellerContact   Contact? @relation("TransactionSeller", fields: [sellerContactId], references: [id], onDelete: SetNull)
+  leadId          String?
+  lead            Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  /// Snapshot of the buyer/tenant, kept even if the contact is later erased.
+  buyerName  String
+  buyerPhone String?
+  buyerEmail String?
+
+  agentId String?
+  agent   User?   @relation("TransactionAgent", fields: [agentId], references: [id], onDelete: SetNull)
+
+  /// Agreed price (SALE) or monthly rent (RENT), set when an offer is accepted.
+  agreedAmount    Decimal?  @db.Decimal(14, 2)
+  acceptedOfferId String?   @unique
+  agreementAt     DateTime?
+  contractAt      DateTime?
+  expectedCloseAt DateTime?
+  closedAt        DateTime?
+  cancelledAt     DateTime?
+  cancelReason    String?
+  notes           String?
+
+  offers     Offer[]
+  events     TransactionEvent[]
+  commission TransactionCommission?
+  checklist  TransactionChecklistItem[]
+  documents  Document[]
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status])
+  @@index([propertyId])
+  @@index([agentId, status])
+  @@index([createdAt])
+  @@map("transactions")
+}
+
+/// Timeline. Append-only: the database refuses updates and deletes.
+model TransactionEvent {
+  id            String      @id @default(cuid())
+  transactionId String
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  type          String
+  summary       String
+  data          Json?
+  actorId       String?
+  actorName     String?
+  createdAt     DateTime    @default(now())
+
+  @@index([transactionId, createdAt])
+  @@map("transaction_events")
+}
+
+/// The commission for one transaction, calculated from Settings and stored as
+/// a snapshot (rules used included), so a later change of rates never
+/// silently rewrites an agreed commission.
+model TransactionCommission {
+  id            String      @id @default(cuid())
+  transactionId String      @unique
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+
+  basis          String
+  rate           Decimal @db.Decimal(9, 4)
+  baseAmount     Decimal @db.Decimal(14, 2)
+  buyerSide      Decimal @db.Decimal(14, 2)
+  sellerSide     Decimal @db.Decimal(14, 2)
+  net            Decimal @db.Decimal(14, 2)
+  vat            Decimal @db.Decimal(14, 2)
+  gross          Decimal @db.Decimal(14, 2)
+  agentShare     Decimal @db.Decimal(14, 2)
+  agencyShare    Decimal @db.Decimal(14, 2)
+  minimumApplied Boolean @default(false)
+
+  /// Rules from Settings at the time of calculation.
+  rulesSnapshot  Json
+  overridden     Boolean @default(false)
+  overrideReason String?
+
+  /// EXPECTED, INVOICED, PARTIALLY_PAID, PAID, CANCELLED (OVERDUE is derived).
+  status        String    @default("EXPECTED")
+  invoiceNumber String?
+  dueDate       DateTime? @db.Date
+  paidAmount    Decimal   @default(0) @db.Decimal(14, 2)
+  paidAt        DateTime?
+
+  calculatedById String?
+  calculatedAt   DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([status])
+  @@map("transaction_commissions")
+}
+
+/// What documents a transaction needs and where each stands. Items are added
+/// per transaction: which documents apply is a business and legal decision,
+/// not a built-in list.
+model TransactionChecklistItem {
+  id            String      @id @default(cuid())
+  transactionId String
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  label         String
+  status        String      @default("REQUESTED")
+  note          String?
+  documentId    String?
+  document      Document?   @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  sortOrder     Int         @default(0)
+  updatedById   String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([transactionId])
+  @@map("transaction_checklist_items")
 }

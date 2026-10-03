@@ -26,8 +26,10 @@ test("rls_auto_enable is locked down by a versioned migration", () => {
 });
 
 test("every migration that creates a table also enables RLS on it", () => {
-  for (const dir of readdirSync(MIGRATIONS).filter((d) => /^\d{14}_/.test(d))) {
-    const sql = readFileSync(join(MIGRATIONS, dir, "migration.sql"), "utf8");
+  const dirs = readdirSync(MIGRATIONS).filter((d) => /^\d{14}_/.test(d)).sort();
+  for (const [i, dir] of dirs.entries()) {
+    // A table may be locked in the same migration or a later one.
+    const sql = dirs.slice(i).map((d) => readFileSync(join(MIGRATIONS, d, "migration.sql"), "utf8")).join("\n");
     // Tables created before 20261004000000_lock_public_api got RLS from that migration.
     if (dir.slice(0, 14) <= "20261004000000") continue;
     for (const [, table] of sql.matchAll(/CREATE TABLE "([a-z_]+)"/g)) {

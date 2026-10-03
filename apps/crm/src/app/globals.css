@@ -1101,3 +1101,28 @@ button.ptoggle:focus-visible { outline: 3px solid var(--focus); outline-offset: 
 .stats > div { border: 1px solid var(--line); border-radius: var(--radius-lg, 10px); padding: 10px 14px; background: var(--surface, transparent); }
 .stats dt { font-size: 0.78rem; color: var(--ink-muted); }
 .stats dd { margin: 2px 0 0; font-size: 1.4rem; font-weight: 700; }
+
+/* Transactions */
+.trx-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
+.trx-main, .trx-side { display: grid; gap: 18px; min-width: 0; }
+.trx-main > .panel + .panel, .trx-side > .panel + .panel { margin-top: 0; }
+.trx-summary { display: grid; justify-items: end; gap: 2px; }
+.trx-summary strong { font-size: 1.5rem; font-variant-numeric: tabular-nums; }
+.rounds { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.round { border: 1px solid var(--line); border-left: 4px solid var(--link); border-radius: var(--radius); padding: 10px 12px; background: var(--surface); display: grid; gap: 8px; }
+.round--seller { border-left-color: var(--warn); margin-left: 28px; }
+.round__head { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
+.round__head strong { font-variant-numeric: tabular-nums; font-size: 1.05rem; }
+.round__n { font-size: 0.72rem; font-weight: 750; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-muted); }
+.round__terms { margin: 0; font-size: 0.86rem; color: var(--ink-2); }
+.dl--money dd { font-variant-numeric: tabular-nums; }
+.steps { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 6px; }
+.steps li { padding-left: 24px; position: relative; color: var(--ink-muted); font-weight: 600; }
+.steps li::before { content: ""; position: absolute; left: 0; top: 4px; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line-strong); }
+.steps li.is-done { color: var(--ink); }
+.steps li.is-done::before { background: var(--success); border-color: var(--success); }
+.timeline { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 10px; font-size: 0.86rem; max-height: 520px; overflow-y: auto; }
+.timeline li { display: grid; gap: 2px; border-left: 2px solid var(--line); padding-left: 10px; }
+.timeline__when { font-size: 0.74rem; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.select--sm { padding: 5px 8px; font-size: 0.82rem; width: auto; }
+@media (max-width: 1100px) { .trx-grid { grid-template-columns: minmax(0, 1fr); } }
