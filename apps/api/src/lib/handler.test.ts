@@ -66,3 +66,22 @@ test("forgot-password: an unreachable database is a controlled 503", async () =>
   assert.equal(body.error.code, "database_unavailable");
   assert.ok(!JSON.stringify(body).includes("127.0.0.1"), "no connection details leak");
 });
+
+test("database diagnosis names the cause without secrets", async () => {
+  const { diagnoseDatabaseError, describeDatabaseUrl } = await import("../handler");
+  assert.match(diagnoseDatabaseError({ errorCode: "P1000", message: "x" }).reason, /password/);
+  assert.match(diagnoseDatabaseError({ message: "FATAL: Tenant or user not found" }).reason, /postgres\.<project-ref>/);
+  assert.match(diagnoseDatabaseError({ errorCode: "P1013" }).reason, /percent-encoded/);
+
+  const target = describeDatabaseUrl(
+    "postgresql://postgres.abc:s3cretPass@aws-0-eu-west-2.pooler.supabase.com:6543/postgres?pgbouncer=true",
+  );
+  assert.equal(target.user, "postgres.abc");
+  assert.equal(target.host, "aws-0-eu-west-2.pooler.supabase.com");
+  assert.equal(target.port, "6543");
+  assert.equal(target.pgbouncer, true);
+  assert.ok(!JSON.stringify(target).includes("s3cretPass"), "password never shown");
+
+  const broken = describeDatabaseUrl("postgresql://postgres.abc:pa?ss#@host:6543/postgres");
+  assert.ok(!JSON.stringify(broken).includes("pa?ss"), "password never shown");
+});
