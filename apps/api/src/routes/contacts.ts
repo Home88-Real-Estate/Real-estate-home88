@@ -105,7 +105,7 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         leads: { select: { id: true, reference: true, status: true, createdAt: true } },
       },
     });
-    if (!contact) throw notFound("Contact not found.");
+    if (!contact) throw notFound("Η επαφή δεν βρέθηκε.");
     return { contact: present(contact) };
   });
 }

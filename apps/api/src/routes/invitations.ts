@@ -111,7 +111,7 @@ export async function invitationRoutes(app: FastifyInstance): Promise<void> {
     }
 
     if (!canInviteRole(actor.role, input.role)) {
-      throw forbidden("You cannot invite a user at this role.");
+      throw forbidden("Δεν μπορείτε να προσκαλέσετε χρήστη με αυτόν τον ρόλο.");
     }
 
     const alreadyUser = await db().user.findUnique({ where: { email: input.email } });
@@ -182,8 +182,8 @@ export async function invitationRoutes(app: FastifyInstance): Promise<void> {
     const { id } = request.params as { id: string };
 
     const existing = await db().invitation.findUnique({ where: { id } });
-    if (!existing) throw notFound("Invitation not found.");
-    if (!isInviteUsable(existing)) throw badRequest("This invitation is no longer active.");
+    if (!existing) throw notFound("Η πρόσκληση δεν βρέθηκε.");
+    if (!isInviteUsable(existing)) throw badRequest("Η πρόσκληση δεν είναι πλέον ενεργή.");
 
     await db().invitation.update({ where: { id }, data: { revokedAt: new Date() } });
     await writeAudit({

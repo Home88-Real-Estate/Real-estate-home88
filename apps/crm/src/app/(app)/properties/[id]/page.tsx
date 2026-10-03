@@ -7,7 +7,10 @@ import { PropertyHistory, type PriceEntry, type StatusEntry } from "@/components
 import { PropertyStatusActions } from "@/components/PropertyStatusActions";
 import { StatusBadge } from "@/components/StatusBadge";
 import { apiFetch } from "@/lib/api";
-import { formatArea, formatDate, formatDateTime, formatMoney } from "@/lib/format";
+import { CONDITION_LABELS, describeProperty, listingProfileFor, profileFor, type PropertyCondition } from "@home88/domain";
+import { LISTING_TYPE_LABELS, PROPERTY_TYPE_LABELS, label } from "@home88/types";
+
+import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { hasRole, requireRole } from "@/lib/session";
 
 type PortalListing = {
@@ -60,21 +63,8 @@ type Property = {
   portalListings: PortalListing[];
 };
 
-const BOOL_KEYS = [
-  ["parking", "Parking"],
-  ["storage", "Storage"],
-  ["balcony", "Balcony"],
-  ["garden", "Garden"],
-  ["pool", "Pool"],
-  ["furnished", "Furnished"],
-  ["petsAllowed", "Pets allowed"],
-  ["seaView", "Sea view"],
-  ["hasSolar", "Solar"],
-  ["newConstruction", "New construction"],
-] as const;
-
-function yesNo(value: boolean): string {
-  return value ? "Yes" : "No";
+function listingPriceLabel(listingType: string): string {
+  return listingProfileFor(listingType).priceLabel;
 }
 
 export default async function PropertyDetailPage({
@@ -100,7 +90,13 @@ export default async function PropertyDetailPage({
   const p = result.data.property;
   const { allowedTransitions, canEdit } = result.data;
   const media = mediaResult.ok ? mediaResult.data.media : [];
-  const features = p as unknown as Record<string, boolean>;
+  const described = describeProperty(p as unknown as Record<string, unknown>);
+  const pricing = listingProfileFor(p.listingType);
+  const priceValue = pricing.priceField === "price" ? p.price : p.monthlyRent;
+  const perSqm =
+    pricing.priceField === "price" && Number(p.price) > 0 && Number(p.area) > 0
+      ? formatMoney(Number(p.price) / Number(p.area))
+      : null;
 
   return (
     <>
@@ -109,11 +105,11 @@ export default async function PropertyDetailPage({
           <div className="row" style={{ marginBottom: 4 }}>
             <span className="mono muted">{p.reference}</span>
             <StatusBadge value={p.status} kind="property" />
-            {p.featured && <span className="badge badge--warn">Featured</span>}
+            {p.featured && <span className="badge badge--warn">Προβεβλημένο</span>}
             {p.publishedOnWebsite ? (
-              <span className="badge badge--ok">On website</span>
+              <span className="badge badge--ok">Στον ιστότοπο</span>
             ) : (
-              <span className="badge badge--muted">Not on website</span>
+              <span className="badge badge--muted">Εκτός ιστότοπου</span>
             )}
           </div>
           <h1 style={{ margin: 0 }}>{p.titleEl}</h1>
@@ -122,7 +118,7 @@ export default async function PropertyDetailPage({
         {canEdit && (
           <div className="row">
             <Link href={`/properties/${id}/edit`} className="btn btn--primary btn--sm">
-              Edit
+              Επεξεργασία
             </Link>
           </div>
         )}
@@ -134,47 +130,37 @@ export default async function PropertyDetailPage({
       </div>
 
       <div className="panel">
-        <h2>Overview</h2>
+        <h2>Βασικά στοιχεία</h2>
         <dl className="dl">
-          <dt>Listing type</dt>
-          <dd>{p.listingType}</dd>
-          <dt>Property type</dt>
-          <dd>{p.propertyType}</dd>
-          <dt>Condition</dt>
-          <dd>{p.condition}</dd>
-          <dt>Price</dt>
-          <dd>{p.priceOnRequest ? "On request" : formatMoney(p.price)}</dd>
-          <dt>Monthly rent</dt>
-          <dd>{formatMoney(p.monthlyRent)}</dd>
-          <dt>Area</dt>
-          <dd>{formatArea(p.area)}</dd>
-          <dt>Plot / built</dt>
+          <dt>Είδος αγγελίας</dt>
+          <dd>{label(LISTING_TYPE_LABELS, p.listingType, "el")}</dd>
+          <dt>Τύπος ακινήτου</dt>
+          <dd>{label(PROPERTY_TYPE_LABELS, p.propertyType, "el")}</dd>
+          {profileFor(p.propertyType).conditions && (
+            <>
+              <dt>Κατάσταση ακινήτου</dt>
+              <dd>{CONDITION_LABELS[p.condition as PropertyCondition] ?? p.condition}</dd>
+            </>
+          )}
+          <dt>{listingPriceLabel(p.listingType)}</dt>
           <dd>
-            {formatArea(p.plotArea)} / {formatArea(p.builtArea)}
+            {p.priceOnRequest ? "Κατόπιν επικοινωνίας" : formatMoney(priceValue)}
+            {pricing.priceField === "monthlyRent" && !p.priceOnRequest && priceValue != null ? " / μήνα" : ""}
+            {perSqm && !p.priceOnRequest ? <span className="muted"> · {perSqm} ανά m²</span> : null}
           </dd>
-          <dt>Bedrooms / bathrooms</dt>
-          <dd>
-            {p.bedrooms ?? "-"} / {p.bathrooms ?? "-"}
-          </dd>
-          <dt>Floor</dt>
-          <dd>
-            {p.floor ?? "-"} of {p.totalFloors ?? "-"}
-          </dd>
-          <dt>Year built / renovated</dt>
-          <dd>
-            {p.yearBuilt ?? "-"} / {p.yearRenovated ?? "-"}
-          </dd>
-          <dt>Heating / energy</dt>
-          <dd>
-            {p.heating} / {p.energyClass}
-          </dd>
-          <dt>Location</dt>
+          {described.pricing.map(([name, value]) => (
+            <div key={name} style={{ display: "contents" }}>
+              <dt>{name}</dt>
+              <dd>{value}</dd>
+            </div>
+          ))}
+          <dt>Τοποθεσία</dt>
           <dd>
             {[p.address, p.neighborhood, p.areaName, p.city, p.region].filter(Boolean).join(", ") || "-"}
           </dd>
-          <dt>Agent</dt>
+          <dt>Σύμβουλος</dt>
           <dd>{p.agent ? `${p.agent.firstName} ${p.agent.lastName}`.trim() : "-"}</dd>
-          <dt>Owner</dt>
+          <dt>Ιδιοκτήτης</dt>
           <dd>
             {p.owner ? (
               <Link href={`/contacts/${p.owner.id}`}>
@@ -184,12 +170,12 @@ export default async function PropertyDetailPage({
               "-"
             )}
           </dd>
-          <dt>Video / tour</dt>
+          <dt>Βίντεο / εικονική περιήγηση</dt>
           <dd>
-            {p.videoUrl ? <a href={p.videoUrl}>{p.videoUrl}</a> : "-"} /{" "}
-            {p.virtualTourUrl ? <a href={p.virtualTourUrl}>{p.virtualTourUrl}</a> : "-"}
+            {p.videoUrl ? <a href={p.videoUrl}>Βίντεο</a> : "-"} /{" "}
+            {p.virtualTourUrl ? <a href={p.virtualTourUrl}>Περιήγηση</a> : "-"}
           </dd>
-          <dt>Created / updated</dt>
+          <dt>Δημιουργία / ενημέρωση</dt>
           <dd>
             {formatDateTime(p.createdAt)} / {formatDateTime(p.updatedAt)}
           </dd>
@@ -197,23 +183,38 @@ export default async function PropertyDetailPage({
       </div>
 
       <div className="panel">
-        <h2>Features</h2>
-        <dl className="dl">
-          {BOOL_KEYS.map(([key, text]) => (
-            <div key={key} style={{ display: "contents" }}>
-              <dt>{text}</dt>
-              <dd>{yesNo(features[key] === true)}</dd>
-            </div>
-          ))}
-        </dl>
+        <h2>{profileFor(p.propertyType).title}</h2>
+        {described.characteristics.length === 0 ? (
+          <div className="empty">Δεν έχουν συμπληρωθεί χαρακτηριστικά ακόμη.</div>
+        ) : (
+          <dl className="dl">
+            {described.characteristics.map(([name, value]) => (
+              <div key={name} style={{ display: "contents" }}>
+                <dt>{name}</dt>
+                <dd>{value}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
       </div>
 
+      {described.features.length > 0 && (
+        <div className="panel">
+          <h2>Παροχές</h2>
+          <ul className="feature-list">
+            {described.features.map((name) => (
+              <li key={name}>{name}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="panel">
-        <h2>Description (GR)</h2>
+        <h2>Περιγραφή</h2>
         <p style={{ whiteSpace: "pre-wrap" }}>{p.descriptionEl}</p>
         {p.descriptionEn && (
           <>
-            <h3>Description (EN)</h3>
+            <h3>Περιγραφή (αγγλικά)</h3>
             <p style={{ whiteSpace: "pre-wrap" }}>{p.descriptionEn}</p>
           </>
         )}
@@ -235,18 +236,18 @@ export default async function PropertyDetailPage({
       </div>
 
       <div className="panel">
-        <h2>Portal listings</h2>
+        <h2>Δημοσιεύσεις σε portals</h2>
         {p.portalListings.length === 0 ? (
-          <div className="empty">Not published to any portal.</div>
+          <div className="empty">Δεν έχει δημοσιευτεί σε κανένα portal.</div>
         ) : (
           <div className="table-wrap">
             <table className="data">
               <thead>
                 <tr>
                   <th>Portal</th>
-                  <th>State</th>
-                  <th>Last synced</th>
-                  <th>Link</th>
+                  <th>Κατάσταση</th>
+                  <th>Τελευταίος συγχρονισμός</th>
+                  <th>Σύνδεσμος</th>
                 </tr>
               </thead>
               <tbody>
@@ -258,7 +259,7 @@ export default async function PropertyDetailPage({
                     </td>
                     <td>{listing.lastSyncedAt ? formatDate(listing.lastSyncedAt) : "-"}</td>
                     <td>
-                      {listing.externalUrl ? <a href={listing.externalUrl}>Open</a> : "-"}
+                      {listing.externalUrl ? <a href={listing.externalUrl}>Άνοιγμα</a> : "-"}
                     </td>
                   </tr>
                 ))}

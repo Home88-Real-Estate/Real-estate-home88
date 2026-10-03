@@ -10,13 +10,13 @@ export default async function NewPropertyPage() {
   return (
     <>
       <div className="between" style={{ marginBottom: 18 }}>
-        <h1 style={{ margin: 0 }}>New property</h1>
+        <h1 style={{ margin: 0 }}>Νέο ακίνητο</h1>
         <Link href="/properties" className="btn btn--outline btn--sm">
-          Back to list
+          Επιστροφή στη λίστα
         </Link>
       </div>
 
-      <PropertyForm action={saveProperty} submitLabel="Create property" />
+      <PropertyForm action={saveProperty} submitLabel="Αποθήκευση ακινήτου" />
     </>
   );
 }

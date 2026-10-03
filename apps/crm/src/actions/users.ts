@@ -34,7 +34,7 @@ export async function saveUser(_previous: ActionState, formData: FormData): Prom
       return { ok: false, message: result.error.message, fields: result.error.fields };
     }
     refresh(id);
-    return { ok: true, message: "Saved." };
+    return { ok: true, message: "Αποθηκεύτηκε." };
   }
 
   payload.email = str(formData, "email") ?? "";
@@ -55,7 +55,7 @@ export async function setUserPassword(
   formData: FormData,
 ): Promise<ActionState> {
   const id = str(formData, "id");
-  if (!id) return { ok: false, message: "Missing user." };
+  if (!id) return { ok: false, message: "Λείπει ο χρήστης." };
 
   const result = await apiFetch(`/api/users/${id}/password`, {
     method: "POST",
@@ -66,7 +66,7 @@ export async function setUserPassword(
   }
 
   refresh(id);
-  return { ok: true, message: "Password updated. Their sessions were signed out." };
+  return { ok: true, message: "Ο κωδικός άλλαξε. Οι συνδέσεις του χρήστη τερματίστηκαν." };
 }
 
 /** Suspend or reactivate an account. */

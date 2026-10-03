@@ -5,7 +5,13 @@
  * posting to the API directly.
  */
 
-import { LEAD_CHANNELS, PROPERTY_CATEGORIES, PROPERTY_STATUSES } from "@home88/domain";
+import {
+  LEAD_CHANNELS,
+  normalizeForProfile,
+  PROPERTY_CATEGORIES,
+  PROPERTY_STATUSES,
+  requiredIssues,
+} from "@home88/domain";
 import { z } from "zod";
 import { ageGateSchema } from "./age-gate";
 
@@ -31,7 +37,7 @@ const stripUnsafe = (s: string) =>
 const text = (max: number) => z.string().trim().max(max).transform(stripUnsafe);
 
 const requiredText = (max: number, label: string) =>
-  z.string().trim().min(1, `${label} is required.`).max(max).transform(stripUnsafe);
+  z.string().trim().min(1, `Συμπληρώστε: ${label}.`).max(max).transform(stripUnsafe);
 
 const optionalText = (max: number) => text(max).optional().or(z.literal(""));
 
@@ -41,7 +47,7 @@ const phoneSchema = z
   .trim()
   .transform(stripUnsafe)
   .transform((s) => s.replace(/[\s()\-.]/g, ""))
-  .refine((s) => s.length === 0 || (/^\+?\d{7,15}$/.test(s)), "Enter a valid phone number.")
+  .refine((s) => s.length === 0 || (/^\+?\d{7,15}$/.test(s)), "Δώστε έγκυρο αριθμό τηλεφώνου.")
   .optional()
   .or(z.literal(""));
 
@@ -66,8 +72,8 @@ export const propertyStatusSchema = z.enum(PROPERTY_STATUSES);
 const moneySchema = z
   .union([z.number(), z.string()])
   .transform((v) => (typeof v === "string" ? Number(v.replace(/[\s,]/g, "")) : v))
-  .refine((v) => Number.isFinite(v), "Enter a number.")
-  .refine((v) => v >= 0, "Cannot be negative.")
+  .refine((v) => Number.isFinite(v), "Δώστε έναν αριθμό.")
+  .refine((v) => v >= 0, "Δεν μπορεί να είναι αρνητικό.")
   .refine((v) => v <= 1_000_000_000, "Value out of range.")
   .optional()
   .nullable()
@@ -76,7 +82,7 @@ const moneySchema = z
 const areaSchema = z
   .union([z.number(), z.string()])
   .transform((v) => (typeof v === "string" ? Number(v.replace(/[\s,]/g, "")) : v))
-  .refine((v) => Number.isFinite(v) && v >= 0 && v <= 100_000, "Enter a valid area.")
+  .refine((v) => Number.isFinite(v) && v >= 0 && v <= 10_000_000, "Δώστε έγκυρο εμβαδόν.")
   .optional()
   .nullable()
   .transform((v) => (v == null ? null : v));
@@ -85,7 +91,7 @@ const yearSchema = z
   .union([z.number(), z.string()])
   .transform((v) => (typeof v === "string" ? Number(v) : v))
   .refine((v) => Number.isInteger(v) && v >= 1800 && v <= new Date().getUTCFullYear() + 3,
-    "Enter a valid year.")
+    "Δώστε έγκυρο έτος.")
   .optional()
   .nullable()
   .transform((v) => (v == null ? null : v));
@@ -105,7 +111,7 @@ export const leadCaptureSchema = z
   .object({
     ...ageGateSchema,
 
-    firstName: requiredText(80, "First name"),
+    firstName: requiredText(80, "Όνομα"),
     lastName: optionalText(80),
     email: emailSchema,
     phone: phoneSchema,
@@ -165,8 +171,8 @@ export const propertySubmissionSchema = z
   .object({
     ...ageGateSchema,
 
-    titleEl: requiredText(200, "Title"),
-    descriptionEl: requiredText(8000, "Description"),
+    titleEl: requiredText(200, "Τίτλος"),
+    descriptionEl: requiredText(8000, "Περιγραφή"),
 
     listingType: listingTypeSchema,
     propertyType: propertyTypeSchema,
@@ -177,7 +183,7 @@ export const propertySubmissionSchema = z
     city: optionalText(120),
     neighborhood: optionalText(120),
 
-    contactFirstName: requiredText(80, "First name"),
+    contactFirstName: requiredText(80, "Όνομα"),
     contactLastName: optionalText(80),
     contactEmail: emailSchema,
     contactPhone: phoneSchema,
@@ -216,12 +222,12 @@ export type PropertySubmissionInput = z.infer<typeof propertySubmissionSchema>;
  */
 const contactBaseSchema = z.object({
   ...ageGateSchema,
-  firstName: requiredText(80, "First name"),
+  firstName: requiredText(80, "Όνομα"),
   lastName: optionalText(80),
   email: emailSchema,
   phone: phoneSchema,
   subject: optionalText(200),
-  message: requiredText(4000, "Message"),
+  message: requiredText(4000, "Μήνυμα"),
   locale: z.enum(["el", "en"]).optional().default("el"),
   consent: z
     .object({
@@ -277,9 +283,9 @@ const propertyUpsertBaseSchema = z.object({
       .optional()
       .default("GOOD"),
 
-    titleEl: requiredText(200, "Title"),
+    titleEl: requiredText(200, "Τίτλος"),
     titleEn: optionalText(200),
-    descriptionEl: requiredText(20000, "Description"),
+    descriptionEl: requiredText(20000, "Περιγραφή"),
     descriptionEn: optionalText(20000),
 
     price: moneySchema,
@@ -331,8 +337,8 @@ const propertyUpsertBaseSchema = z.object({
     latitude: latitudeSchema,
     longitude: longitudeSchema,
 
-    videoUrl: z.string().trim().url("Enter a valid URL.").max(500).optional().or(z.literal("")),
-    virtualTourUrl: z.string().trim().url("Enter a valid URL.").max(500).optional().or(z.literal("")),
+    videoUrl: z.string().trim().url("Δώστε έγκυρο σύνδεσμο (https://…).").max(500).optional().or(z.literal("")),
+    virtualTourUrl: z.string().trim().url("Δώστε έγκυρο σύνδεσμο (https://…).").max(500).optional().or(z.literal("")),
 
     publishedOnWebsite: z.boolean().optional().default(false),
     featured: z.boolean().optional().default(false),
@@ -342,28 +348,33 @@ const propertyUpsertBaseSchema = z.object({
 
     commissionRatePct: z.coerce.number().min(0).max(100).optional().nullable(),
     agentCommissionPct: z.coerce.number().min(0).max(100).optional().nullable(),
+
+    /**
+     * Type- and listing-specific attributes (see property-profiles in
+     * @home88/domain). Validated and cleaned against the property's profile.
+     */
+    details: z.record(z.string(), z.unknown()).optional().nullable(),
   });
 
 export const propertyUpsertSchema = propertyUpsertBaseSchema.superRefine((val, ctx) => {
-    if (val.price == null && !val.priceOnRequest) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["price"],
-        message: "Give a price, or tick price on request.",
-      });
+    // What applies, what is required and which values are valid depend on the
+    // property type and listing type; one shared definition decides.
+    const { values, issues } = normalizeForProfile(val as unknown as Record<string, unknown>);
+    for (const issue of [...issues, ...requiredIssues(values)]) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: issue.path.split("."), message: issue.message });
     }
     if (val.floor != null && val.totalFloors != null && val.floor > val.totalFloors) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["floor"],
-        message: "Floor is above the number of floors in the building.",
+        message: "Ο όροφος είναι πάνω από τους ορόφους του κτιρίου.",
       });
     }
     if (val.yearRenovated != null && val.yearBuilt != null && val.yearRenovated < val.yearBuilt) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["yearRenovated"],
-        message: "Renovation year is before the build year.",
+        message: "Το έτος ανακαίνισης είναι πριν από το έτος κατασκευής.",
       });
     }
     if (
@@ -373,7 +384,7 @@ export const propertyUpsertSchema = propertyUpsertBaseSchema.superRefine((val, c
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["longitude"],
-        message: "Latitude and longitude must be given together.",
+        message: "Δώστε γεωγραφικό πλάτος και μήκος μαζί.",
       });
     }
   });
@@ -475,7 +486,7 @@ export const valuationInputSchema = z.object({
   area: z
     .union([z.number(), z.string()])
     .transform((v) => (typeof v === "string" ? Number(v.replace(/[\s,]/g, "")) : v))
-    .refine((v) => Number.isFinite(v) && v >= 15 && v <= 10_000, "Enter a valid area."),
+    .refine((v) => Number.isFinite(v) && v >= 15 && v <= 10_000, "Δώστε έγκυρο εμβαδόν."),
   city: optionalText(120),
   areaName: optionalText(120),
   condition: z
@@ -597,16 +608,16 @@ export const unsubscribeSchema = z.object({
 
 /** DMCA / copyright takedown notice from a rights holder. */
 export const dmcaNoticeSchema = z.object({
-  claimantName: requiredText(200, "Your name"),
+  claimantName: requiredText(200, "Ονοματεπώνυμο"),
   claimantEmail: z.string().trim().toLowerCase().email().max(254),
   claimantAddress: optionalText(500),
   originalWorkUrl: z.string().trim().url().max(1000).optional().or(z.literal("")),
-  workDescription: requiredText(4000, "Description of the original work"),
+  workDescription: requiredText(4000, "Περιγραφή του πρωτότυπου έργου"),
   infringingUrl: optionalText(1000),
   propertyReference: z
     .string().trim().toUpperCase().regex(/^H88-\d{6}$/).optional().or(z.literal("")),
-  goodFaithStatement: requiredText(2000, "Good faith statement"),
-  signature: requiredText(200, "Signature"),
+  goodFaithStatement: requiredText(2000, "Δήλωση καλής πίστης"),
+  signature: requiredText(200, "Υπογραφή"),
 });
 
 // --- User management -------------------------------------------------------
@@ -623,8 +634,8 @@ export const userStatusSchema = z.enum(USER_STATUSES);
 export const userCreateSchema = z
   .object({
     email: z.string().trim().toLowerCase().email("Enter a valid email address.").max(254),
-    firstName: requiredText(80, "First name"),
-    lastName: requiredText(80, "Last name"),
+    firstName: requiredText(80, "Όνομα"),
+    lastName: requiredText(80, "Επώνυμο"),
     phone: phoneSchema,
     role: userRoleSchema.default("AGENT"),
     password: passwordSchema,
@@ -636,8 +647,8 @@ export type UserCreateInput = z.infer<typeof userCreateSchema>;
 /** Admin edit. Email is immutable: it keys sessions, hashes and the audit trail. */
 export const userUpdateSchema = z
   .object({
-    firstName: requiredText(80, "First name").optional(),
-    lastName: requiredText(80, "Last name").optional(),
+    firstName: requiredText(80, "Όνομα").optional(),
+    lastName: requiredText(80, "Επώνυμο").optional(),
     phone: phoneSchema,
     role: userRoleSchema.optional(),
     status: userStatusSchema.optional(),
@@ -697,8 +708,8 @@ export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 export const invitationCreateSchema = z
   .object({
     email: z.string().trim().toLowerCase().email("Enter a valid email address.").max(254),
-    firstName: requiredText(80, "First name"),
-    lastName: requiredText(80, "Last name"),
+    firstName: requiredText(80, "Όνομα"),
+    lastName: requiredText(80, "Επώνυμο"),
     phone: phoneSchema,
     role: userRoleSchema.default("AGENT"),
   })

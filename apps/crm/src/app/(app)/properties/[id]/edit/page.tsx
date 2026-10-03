@@ -38,17 +38,17 @@ export default async function EditPropertyPage({
     <>
       <div className="between" style={{ marginBottom: 18 }}>
         <h1 style={{ margin: 0 }}>
-          Edit <span className="mono">{property.reference}</span>
+          Επεξεργασία <span className="mono">{property.reference}</span>
         </h1>
         <Link href={`/properties/${id}`} className="btn btn--outline btn--sm">
-          Back to property
+          Επιστροφή στο ακίνητο
         </Link>
       </div>
 
       <PropertyForm
         action={saveProperty}
         initial={property as unknown as Record<string, unknown>}
-        submitLabel="Save changes"
+        submitLabel="Αποθήκευση αλλαγών"
       />
     </>
   );

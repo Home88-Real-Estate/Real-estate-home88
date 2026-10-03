@@ -25,13 +25,13 @@ export class HttpError extends Error {
 export const badRequest = (message: string, fields?: FieldErrors) =>
   new HttpError(400, "bad_request", message, fields);
 
-export const unauthorized = (message = "Sign in to continue.") =>
+export const unauthorized = (message = "Συνδεθείτε για να συνεχίσετε.") =>
   new HttpError(401, "unauthorized", message);
 
 export const forbidden = (message = "You do not have access to this resource.") =>
   new HttpError(403, "forbidden", message);
 
-export const notFound = (message = "Not found.") => new HttpError(404, "not_found", message);
+export const notFound = (message = "Δεν βρέθηκε.") => new HttpError(404, "not_found", message);
 
 export const conflict = (message: string) => new HttpError(409, "conflict", message);
 

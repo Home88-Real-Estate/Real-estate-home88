@@ -94,8 +94,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    if (!user || !ok) throw unauthorized("Incorrect email or password.");
-    if (user.status !== "ACTIVE") throw forbidden("This account is not active.");
+    if (!user || !ok) throw unauthorized("Λάθος email ή κωδικός πρόσβασης.");
+    if (user.status !== "ACTIVE") throw forbidden("Ο λογαριασμός δεν είναι ενεργός.");
 
     const session = await createSession(user.id, {
       ttlHours: cfg.SESSION_TTL_HOURS,

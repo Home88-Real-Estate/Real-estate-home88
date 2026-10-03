@@ -5,6 +5,7 @@ import {
   can,
   CATEGORY_PROPERTY_TYPES,
   checkTransition,
+  normalizeForProfile,
   PERMISSIONS,
   PUBLIC_PROPERTY_STATUSES,
   type Actor,
@@ -48,7 +49,7 @@ async function transitionStatus(
         where: { id },
         select: { id: true, status: true, listingType: true, agentId: true, createdById: true },
       });
-      if (!existing) throw notFound("Property not found.");
+      if (!existing) throw notFound("Το ακίνητο δεν βρέθηκε.");
 
       const check = checkTransition(actor, existing, to);
       if (!check.ok) {
@@ -97,7 +98,12 @@ function nullableString(v: string | null | undefined): string | null {
 }
 
 /** Validated input mapped onto scalar columns (relations and keys are added by the caller). */
-function toScalars(input: PropertyUpsertInput): Omit<Prisma.PropertyUncheckedCreateInput, "reference" | "slug"> {
+function toScalars(raw: PropertyUpsertInput): Omit<Prisma.PropertyUncheckedCreateInput, "reference" | "slug"> {
+  // Store only what applies to this property type and listing type: fields of
+  // other types are cleared and details are cleaned (see property-profiles).
+  const input = normalizeForProfile(raw as unknown as Record<string, unknown>).values as unknown as PropertyUpsertInput & {
+    details: Record<string, unknown>;
+  };
   return {
     listingType: input.listingType,
     propertyType: input.propertyType,
@@ -148,6 +154,7 @@ function toScalars(input: PropertyUpsertInput): Omit<Prisma.PropertyUncheckedCre
     featured: input.featured,
     commissionRatePct: input.commissionRatePct ?? null,
     agentCommissionPct: input.agentCommissionPct ?? null,
+    details: input.details as Prisma.InputJsonValue,
   };
 }
 
@@ -209,6 +216,7 @@ function toComparable(e: Record<string, unknown>): Record<string, unknown> {
     ownerId: e.ownerId ?? undefined,
     commissionRatePct: num(e.commissionRatePct),
     agentCommissionPct: num(e.agentCommissionPct),
+    details: e.details && typeof e.details === "object" ? e.details : undefined,
   };
 }
 
@@ -336,7 +344,7 @@ export async function propertyRoutes(app: FastifyInstance): Promise<void> {
         },
       },
     });
-    if (!property) throw notFound("Property not found.");
+    if (!property) throw notFound("Το ακίνητο δεν βρέθηκε.");
     const actor = request.auth!.user;
     return {
       property,
@@ -349,7 +357,7 @@ export async function propertyRoutes(app: FastifyInstance): Promise<void> {
   app.get("/properties/:id/history", { preHandler: requireRole("AGENT") }, async (request) => {
     const { id } = request.params as { id: string };
     const exists = await db().property.findUnique({ where: { id }, select: { id: true } });
-    if (!exists) throw notFound("Property not found.");
+    if (!exists) throw notFound("Το ακίνητο δεν βρέθηκε.");
 
     const actorSelect = { select: { id: true, firstName: true, lastName: true } } as const;
     const [statuses, prices] = await Promise.all([
@@ -396,7 +404,7 @@ export async function propertyRoutes(app: FastifyInstance): Promise<void> {
     const actor = request.auth!.user;
     const input = parseInput(propertyUpsertSchema, request.body);
     if (!CREATABLE_STATUSES.includes(input.status)) {
-      throw badRequest("A new property starts as DRAFT or ACTIVE.", {
+      throw badRequest("Ένα νέο ακίνητο ξεκινά ως Πρόχειρο ή Ενεργό.", {
         status: ["Ένα νέο ακίνητο ξεκινά ως Πρόχειρο ή Ενεργό."],
       });
     }
@@ -455,9 +463,9 @@ export async function propertyRoutes(app: FastifyInstance): Promise<void> {
     const { id } = request.params as { id: string };
 
     const existing = await db().property.findUnique({ where: { id } });
-    if (!existing) throw notFound("Property not found.");
+    if (!existing) throw notFound("Το ακίνητο δεν βρέθηκε.");
     if (!can(actor, PERMISSIONS.PROPERTY_UPDATE, existing)) {
-      throw forbidden("Only the assigned agent, the creator or a manager can edit this property.");
+      throw forbidden("Μόνο ο ανατεθειμένος σύμβουλος, ο δημιουργός ή ένας υπεύθυνος μπορεί να επεξεργαστεί αυτό το ακίνητο.");
     }
 
     const patch = parseInput(propertyUpdateSchema, request.body) as Record<string, unknown>;
@@ -466,7 +474,7 @@ export async function propertyRoutes(app: FastifyInstance): Promise<void> {
     const input = parseInput(propertyUpsertSchema, merged);
     const after = toComparable(input as unknown as Record<string, unknown>);
     if (input.status !== existing.status) {
-      throw badRequest("Status is changed through POST /properties/:id/status.", {
+      throw badRequest("Η κατάσταση αλλάζει από τις ενέργειες κατάστασης του ακινήτου.", {
         status: ["Η κατάσταση αλλάζει από τις ενέργειες κατάστασης του ακινήτου."],
       });
     }

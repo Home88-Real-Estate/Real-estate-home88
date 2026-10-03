@@ -116,7 +116,7 @@ export async function leadRoutes(app: FastifyInstance): Promise<void> {
         tasks: { orderBy: { createdAt: "desc" }, select: { id: true, title: true, status: true, dueAt: true } },
       },
     });
-    if (!lead) throw notFound("Lead not found.");
+    if (!lead) throw notFound("Το lead δεν βρέθηκε.");
     return { lead };
   });
 
@@ -167,9 +167,9 @@ export async function leadRoutes(app: FastifyInstance): Promise<void> {
     const body = parseInput(leadStatusChangeSchema, request.body);
 
     const existing = await db().lead.findUnique({ where: { id } });
-    if (!existing) throw notFound("Lead not found.");
+    if (!existing) throw notFound("Το lead δεν βρέθηκε.");
     if (body.status === "LOST" && !body.lostReason && !existing.lostReason) {
-      throw badRequest("A reason is required when marking a lead lost.", { lostReason: ["Required."] });
+      throw badRequest("Δώστε λόγο όταν σημειώνετε ένα lead ως χαμένο.", { lostReason: ["Required."] });
     }
 
     const now = new Date();
@@ -212,8 +212,8 @@ export async function leadRoutes(app: FastifyInstance): Promise<void> {
       db().lead.findUnique({ where: { id } }),
       db().user.findUnique({ where: { id: body.assignedToId } }),
     ]);
-    if (!existing) throw notFound("Lead not found.");
-    if (!assignee || assignee.status !== "ACTIVE") throw badRequest("Assignee must be an active user.");
+    if (!existing) throw notFound("Το lead δεν βρέθηκε.");
+    if (!assignee || assignee.status !== "ACTIVE") throw badRequest("Η ανάθεση πρέπει να γίνει σε ενεργό χρήστη.");
 
     const lead = await db().$transaction(async (tx) => {
       const updated = await tx.lead.update({ where: { id }, data: { assignedToId: assignee.id } });

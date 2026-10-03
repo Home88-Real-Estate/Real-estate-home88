@@ -26,7 +26,7 @@ export default async function InvitationsPage() {
 
   return (
     <>
-      <h1 style={{ marginTop: 0 }}>Invitations</h1>
+      <h1 style={{ marginTop: 0 }}>Προσκλήσεις</h1>
       <p className="muted">
         Στείλτε πρόσκληση σε συνεργάτη. Ο λογαριασμός δημιουργείται μόλις ορίσει ο ίδιος τον κωδικό του.
       </p>
@@ -47,11 +47,11 @@ export default async function InvitationsPage() {
             <table className="data">
               <thead>
                 <tr>
-                  <th>Name</th>
+                  <th>Όνομα</th>
                   <th>Email</th>
-                  <th>Role</th>
-                  <th>Invited by</th>
-                  <th>Expires</th>
+                  <th>Ρόλος</th>
+                  <th>Από</th>
+                  <th>Λήξη</th>
                   <th />
                 </tr>
               </thead>

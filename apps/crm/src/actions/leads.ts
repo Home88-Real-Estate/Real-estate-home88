@@ -13,7 +13,7 @@ export async function changeLeadStatus(
   const status = str(formData, "status");
 
   if (!leadId || !status) {
-    return { ok: false, message: "Missing lead or status." };
+    return { ok: false, message: "Λείπει το lead ή η κατάσταση." };
   }
 
   const result = await apiFetch<{ lead: { id: string } }>(`/api/leads/${leadId}/status`, {
@@ -31,5 +31,5 @@ export async function changeLeadStatus(
 
   revalidatePath(`/leads/${leadId}`);
   revalidatePath("/leads");
-  return { ok: true, message: "Status updated." };
+  return { ok: true, message: "Η κατάσταση ενημερώθηκε." };
 }

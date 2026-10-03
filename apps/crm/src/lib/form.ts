@@ -100,5 +100,16 @@ export function readPropertyForm(formData: FormData): Record<string, unknown> {
     payload[field] = bool(formData, field);
   }
 
+  // Type- and listing-specific attributes arrive as "details.<key>". Only the
+  // fields the form shows are present; the API cleans and validates them.
+  const details: Record<string, unknown> = {};
+  for (const [name, value] of formData.entries()) {
+    if (!name.startsWith("details.") || typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (trimmed === "") continue;
+    details[name.slice("details.".length)] = trimmed === "on" ? true : trimmed;
+  }
+  payload.details = details;
+
   return payload;
 }

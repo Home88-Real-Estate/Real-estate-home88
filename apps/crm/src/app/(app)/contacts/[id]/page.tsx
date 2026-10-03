@@ -48,48 +48,48 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
                 {role}
               </span>
             ))}
-            {c.marketingOptOutAt && <span className="badge badge--danger">Marketing opted out</span>}
+            {c.marketingOptOutAt && <span className="badge badge--danger">Εξαίρεση από marketing</span>}
           </div>
           <h1 style={{ margin: 0 }}>{personName(c.firstName, c.lastName)}</h1>
           {c.company && <p className="muted" style={{ margin: 0 }}>{c.company}</p>}
         </div>
         <Link href="/contacts" className="btn btn--outline btn--sm">
-          Back to contacts
+          Επιστροφή στις επαφές
         </Link>
       </div>
 
       <div className="panel">
-        <h2>Details</h2>
+        <h2>Στοιχεία</h2>
         <dl className="dl">
           <dt>Email</dt>
           <dd>{c.email ? <a href={`mailto:${c.email}`}>{c.email}</a> : "-"}</dd>
-          <dt>Phone</dt>
+          <dt>Τηλέφωνο</dt>
           <dd>{c.phone ? <a href={`tel:${c.phone}`}>{c.phone}</a> : "-"}</dd>
-          <dt>Mobile</dt>
+          <dt>Κινητό</dt>
           <dd>{c.mobile ? <a href={`tel:${c.mobile}`}>{c.mobile}</a> : "-"}</dd>
-          <dt>Preferred contact</dt>
+          <dt>Προτιμώμενη επικοινωνία</dt>
           <dd>{c.preferredContactMethod}</dd>
-          <dt>Locale</dt>
+          <dt>Γλώσσα</dt>
           <dd>{c.preferredLocale}</dd>
-          <dt>Created</dt>
+          <dt>Δημιουργία</dt>
           <dd>{formatDateTime(c.createdAt)}</dd>
-          <dt>Updated</dt>
+          <dt>Ενημέρωση</dt>
           <dd>{formatDateTime(c.updatedAt)}</dd>
         </dl>
       </div>
 
       <div className="panel">
-        <h2>Properties ({c.properties.length})</h2>
+        <h2>Ακίνητα ({c.properties.length})</h2>
         {c.properties.length === 0 ? (
-          <div className="empty">No properties linked.</div>
+          <div className="empty">Δεν υπάρχουν συνδεδεμένα ακίνητα.</div>
         ) : (
           <div className="table-wrap">
             <table className="data">
               <thead>
                 <tr>
-                  <th>Reference</th>
-                  <th>Title</th>
-                  <th>Status</th>
+                  <th>Κωδικός</th>
+                  <th>Τίτλος</th>
+                  <th>Κατάσταση</th>
                 </tr>
               </thead>
               <tbody>
@@ -113,15 +113,15 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
       <div className="panel">
         <h2>Leads ({c.leads.length})</h2>
         {c.leads.length === 0 ? (
-          <div className="empty">No leads linked.</div>
+          <div className="empty">Δεν υπάρχουν συνδεδεμένα leads.</div>
         ) : (
           <div className="table-wrap">
             <table className="data">
               <thead>
                 <tr>
-                  <th>Reference</th>
-                  <th>Status</th>
-                  <th>Created</th>
+                  <th>Κωδικός</th>
+                  <th>Κατάσταση</th>
+                  <th>Δημιουργία</th>
                 </tr>
               </thead>
               <tbody>

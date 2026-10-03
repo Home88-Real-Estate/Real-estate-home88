@@ -22,7 +22,7 @@ export function parseInput<TOut>(schema: ZodType<TOut, ZodTypeDef, unknown>, dat
       bucket.push(issue.message);
       fields[key] = bucket;
     }
-    throw validationFailed("Some fields need attention.", fields);
+    throw validationFailed("Ελέγξτε τα πεδία που επισημαίνονται.", fields);
   }
   return result.data;
 }

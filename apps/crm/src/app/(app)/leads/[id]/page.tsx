@@ -58,24 +58,24 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
           <h1 style={{ margin: 0 }}>{personName(lead.firstName, lead.lastName)}</h1>
         </div>
         <Link href="/leads" className="btn btn--outline btn--sm">
-          Back to leads
+          Επιστροφή στα leads
         </Link>
       </div>
 
       <div className="panel">
-        <h2>Enquiry</h2>
+        <h2>Αίτημα</h2>
         <dl className="dl">
           <dt>Email</dt>
           <dd>{lead.email ? <a href={`mailto:${lead.email}`}>{lead.email}</a> : "-"}</dd>
-          <dt>Phone</dt>
+          <dt>Τηλέφωνο</dt>
           <dd>{lead.phone ? <a href={`tel:${lead.phone}`}>{lead.phone}</a> : "-"}</dd>
-          <dt>Source</dt>
+          <dt>Πηγή</dt>
           <dd>{label(LEAD_SOURCE_LABELS, lead.source, "el")}</dd>
-          <dt>Budget</dt>
+          <dt>Προϋπολογισμός</dt>
           <dd>
             {formatMoney(lead.budgetMin)} - {formatMoney(lead.budgetMax)}
           </dd>
-          <dt>Property</dt>
+          <dt>Ακίνητο</dt>
           <dd>
             {lead.property ? (
               <Link href={`/properties/${lead.property.id}`}>
@@ -85,7 +85,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
               "-"
             )}
           </dd>
-          <dt>Contact record</dt>
+          <dt>Επαφή</dt>
           <dd>
             {lead.contact ? (
               <Link href={`/contacts/${lead.contact.id}`}>
@@ -95,36 +95,36 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
               "-"
             )}
           </dd>
-          <dt>Assigned to</dt>
+          <dt>Ανάθεση σε</dt>
           <dd>{lead.assignedTo ? personName(lead.assignedTo.firstName, lead.assignedTo.lastName) : "-"}</dd>
-          <dt>Created</dt>
+          <dt>Δημιουργία</dt>
           <dd>{formatDateTime(lead.createdAt)}</dd>
-          <dt>Last contacted</dt>
+          <dt>Τελευταία επικοινωνία</dt>
           <dd>{lead.lastContactedAt ? formatDateTime(lead.lastContactedAt) : "-"}</dd>
           {lead.lostReason && (
             <>
-              <dt>Lost reason</dt>
+              <dt>Λόγος απώλειας</dt>
               <dd>{lead.lostReason}</dd>
             </>
           )}
         </dl>
         {lead.message && (
           <>
-            <h3>Message</h3>
+            <h3>Μήνυμα</h3>
             <p style={{ whiteSpace: "pre-wrap" }}>{lead.message}</p>
           </>
         )}
       </div>
 
       <div className="panel">
-        <h2>Update status</h2>
+        <h2>Ενημέρωση κατάστασης</h2>
         <LeadStatusForm leadId={lead.id} current={lead.status} />
       </div>
 
       <div className="panel">
-        <h2>Notes ({lead.notes.length})</h2>
+        <h2>Σημειώσεις ({lead.notes.length})</h2>
         {lead.notes.length === 0 ? (
-          <div className="empty">No notes yet.</div>
+          <div className="empty">Δεν υπάρχουν σημειώσεις ακόμη.</div>
         ) : (
           <ul className="stack" style={{ listStyle: "none", padding: 0 }}>
             {lead.notes.map((note) => (

@@ -117,7 +117,7 @@ export async function syncPropertyPortals(
     where: { id: propertyId },
     include: { media: true },
   });
-  if (!property) throw notFound("Property not found.");
+  if (!property) throw notFound("Το ακίνητο δεν βρέθηκε.");
 
   const portals = await db().portal.findMany({
     where: { enabled: true, ...(options.portalCode ? { code: options.portalCode } : {}) },

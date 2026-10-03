@@ -577,6 +577,8 @@ model Property {
   /// Commission is stored as a rate, not a hard-coded percentage.
   commissionRatePct Decimal? @db.Decimal(5, 2)
   agentCommissionPct Decimal? @db.Decimal(5, 2)
+  /// Type- and listing-specific attributes, validated by property-profiles in @home88/domain.
+  details            Json?
 
   /// Non-nullable retention anchor, used by the purge job.
   retentionExpiresAt DateTime?

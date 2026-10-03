@@ -11,9 +11,9 @@ export default async function NewUserPage() {
   return (
     <>
       <div className="between" style={{ marginBottom: 18 }}>
-        <h1 style={{ margin: 0 }}>New user</h1>
+        <h1 style={{ margin: 0 }}>Νέος χρήστης</h1>
         <Link href="/users" className="btn btn--outline btn--sm">
-          Back to list
+          Επιστροφή στη λίστα
         </Link>
       </div>
 
@@ -22,7 +22,7 @@ export default async function NewUserPage() {
         assignableRoles={assignableRoles(actor.role)}
         canEditRole
         canEditStatus={false}
-        submitLabel="Create user"
+        submitLabel="Δημιουργία χρήστη"
       />
     </>
   );

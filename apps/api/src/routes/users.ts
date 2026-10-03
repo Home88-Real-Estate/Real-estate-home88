@@ -126,7 +126,7 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
   app.get("/users/:id", { preHandler: requireRole("MANAGER") }, async (request) => {
     const { id } = request.params as { id: string };
     const user = await db().user.findUnique({ where: { id }, select: USER_SELECT });
-    if (!user) throw notFound("User not found.");
+    if (!user) throw notFound("Ο χρήστης δεν βρέθηκε.");
     return { user: toDto(user) };
   });
 
@@ -136,7 +136,7 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
     const input = parseInput(userCreateSchema, request.body);
 
     if (!canManageRole(actor.role, input.role)) {
-      throw forbidden("You cannot create a user at this role.");
+      throw forbidden("Δεν μπορείτε να δημιουργήσετε χρήστη με αυτόν τον ρόλο.");
     }
     const existing = await db().user.findUnique({ where: { email: input.email } });
     if (existing) {
@@ -184,17 +184,17 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
     const input = parseInput(userUpdateSchema, request.body);
 
     const existing = await db().user.findUnique({ where: { id } });
-    if (!existing) throw notFound("User not found.");
+    if (!existing) throw notFound("Ο χρήστης δεν βρέθηκε.");
 
     const isSelf = actor.id === id;
     if (!isSelf && !canManageRole(actor.role, existing.role)) {
-      throw forbidden("You cannot manage this user.");
+      throw forbidden("Δεν μπορείτε να διαχειριστείτε αυτόν τον χρήστη.");
     }
     if (input.role !== undefined && !canManageRole(actor.role, input.role)) {
-      throw forbidden("You cannot assign this role.");
+      throw forbidden("Δεν μπορείτε να αναθέσετε αυτόν τον ρόλο.");
     }
     if (isSelf && (input.role !== undefined || (input.status !== undefined && input.status !== existing.status))) {
-      throw forbidden("You cannot change your own role or status.");
+      throw forbidden("Δεν μπορείτε να αλλάξετε τον δικό σας ρόλο ή κατάσταση.");
     }
 
     const losingSuperAdmin =
@@ -205,7 +205,7 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
       const remaining = await db().user.count({
         where: { role: "SUPER_ADMIN", status: "ACTIVE", NOT: { id } },
       });
-      if (remaining === 0) throw badRequest("At least one active super admin is required.");
+      if (remaining === 0) throw badRequest("Χρειάζεται τουλάχιστον ένας ενεργός διαχειριστής συστήματος.");
     }
 
     const nextStatus = input.status ?? existing.status;
@@ -272,9 +272,9 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
     const input = parseInput(userPasswordSchema, request.body);
 
     const existing = await db().user.findUnique({ where: { id }, select: { id: true, role: true } });
-    if (!existing) throw notFound("User not found.");
+    if (!existing) throw notFound("Ο χρήστης δεν βρέθηκε.");
     if (actor.id !== id && !canManageRole(actor.role, existing.role)) {
-      throw forbidden("You cannot manage this user.");
+      throw forbidden("Δεν μπορείτε να διαχειριστείτε αυτόν τον χρήστη.");
     }
 
     await db().user.update({

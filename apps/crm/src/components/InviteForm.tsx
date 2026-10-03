@@ -43,13 +43,13 @@ export function InviteForm({ assignableRoles }: { assignableRoles: string[] }) {
         </div>
 
         <div className="field">
-          <label htmlFor="phone">Phone</label>
+          <label htmlFor="phone">Τηλέφωνο</label>
           <input id="phone" name="phone" type="text" className="input" />
           {error("phone") && <span className="error">{error("phone")}</span>}
         </div>
 
         <div className="field">
-          <label htmlFor="role">Role</label>
+          <label htmlFor="role">Ρόλος</label>
           <select id="role" name="role" className="select" defaultValue={defaultRole}>
             {assignableRoles.map((value) => (
               <option key={value} value={value}>

@@ -116,9 +116,9 @@ async function requireEditableProperty(id: string, actor: { id: string; role: st
     where: { id },
     select: { id: true, agentId: true, createdById: true },
   });
-  if (!property) throw notFound("Property not found.");
+  if (!property) throw notFound("Το ακίνητο δεν βρέθηκε.");
   if (!can(actor, PERMISSIONS.PROPERTY_UPDATE, property)) {
-    throw forbidden("Only the assigned agent, the creator or a manager can add media here.");
+    throw forbidden("Μόνο ο ανατεθειμένος σύμβουλος, ο δημιουργός ή ένας υπεύθυνος μπορεί να προσθέσει αρχεία εδώ.");
   }
 }
 
@@ -217,20 +217,20 @@ export async function mediaRoutes(app: FastifyInstance): Promise<void> {
       await requireEditableProperty(id, actor);
 
       const input = parseInput(mediaConfirmSchema, request.body);
-      if (!isIssuedKey(input.storageKey, id)) throw badRequest("Unknown upload key.");
+      if (!isIssuedKey(input.storageKey, id)) throw badRequest("Άγνωστο αρχείο μεταφόρτωσης.");
 
       const existing = await db().propertyMedia.findUnique({ where: { storageKey: input.storageKey } });
       if (existing) {
-        if (existing.propertyId !== id) throw badRequest("Unknown upload key.");
+        if (existing.propertyId !== id) throw badRequest("Άγνωστο αρχείο μεταφόρτωσης.");
         return { media: await toMediaDto(existing), duplicate: true };
       }
 
       const stored = await headObject(input.storageKey);
-      if (!stored) throw badRequest("The file has not finished uploading.");
+      if (!stored) throw badRequest("Η μεταφόρτωση του αρχείου δεν ολοκληρώθηκε.");
       const mime = stored.contentType.split(";")[0]!.trim().toLowerCase();
       if (!isAllowedUpload(mime) || stored.byteSize === 0 || stored.byteSize > cfg.MAX_UPLOAD_BYTES) {
         await deleteObject(input.storageKey).catch(() => undefined);
-        throw badRequest("The uploaded file was rejected.");
+        throw badRequest("Το αρχείο απορρίφθηκε.");
       }
 
       const kind = kindForMime(mime, input.kind);
@@ -240,7 +240,7 @@ export async function mediaRoutes(app: FastifyInstance): Promise<void> {
         // The declared type must match the bytes: a renamed file is removed.
         if (!dimensions && mustSniff(mime)) {
           await deleteObject(input.storageKey).catch(() => undefined);
-          throw badRequest("The uploaded file is not a valid image.");
+          throw badRequest("Το αρχείο δεν είναι έγκυρη εικόνα.");
         }
       }
 
@@ -302,7 +302,7 @@ export async function mediaRoutes(app: FastifyInstance): Promise<void> {
       const existing = await db().propertyMedia.findFirst({
         where: { id: mediaId, propertyId: id },
       });
-      if (!existing) throw notFound("Media not found.");
+      if (!existing) throw notFound("Το αρχείο δεν βρέθηκε.");
 
       const updated = await db().$transaction(async (tx) => {
         if (input.isPrimary === true) {
@@ -357,7 +357,7 @@ export async function mediaRoutes(app: FastifyInstance): Promise<void> {
       });
       const owned = new Set(existing.map((row) => row.id));
       if (input.ids.some((mediaId) => !owned.has(mediaId))) {
-        throw badRequest("One or more media ids do not belong to this property.");
+        throw badRequest("Κάποια αρχεία δεν ανήκουν σε αυτό το ακίνητο.");
       }
 
       await db().$transaction(
@@ -391,7 +391,7 @@ export async function mediaRoutes(app: FastifyInstance): Promise<void> {
       const existing = await db().propertyMedia.findFirst({
         where: { id: mediaId, propertyId: id },
       });
-      if (!existing) throw notFound("Media not found.");
+      if (!existing) throw notFound("Το αρχείο δεν βρέθηκε.");
 
       const updated = await db().propertyMedia.update({
         where: { id: mediaId },
@@ -427,7 +427,7 @@ export async function mediaRoutes(app: FastifyInstance): Promise<void> {
       const existing = await db().propertyMedia.findFirst({
         where: { id: mediaId, propertyId: id },
       });
-      if (!existing) throw notFound("Media not found.");
+      if (!existing) throw notFound("Το αρχείο δεν βρέθηκε.");
 
       try {
         for (const key of [existing.storageKey, existing.previewKey, existing.thumbnailKey]) {

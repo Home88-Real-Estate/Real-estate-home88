@@ -71,7 +71,7 @@ export function UserForm({
       )}
 
       <div className="panel">
-        <h2>Account</h2>
+        <h2>Λογαριασμός</h2>
         <div className="formgrid">
           <div className="field span2">
             <label htmlFor="email">Email{editing ? "" : " *"}</label>
@@ -84,25 +84,25 @@ export function UserForm({
               required={!editing}
               disabled={editing}
             />
-            {editing && <span className="hint">Email cannot be changed.</span>}
+            {editing && <span className="hint">Το email δεν αλλάζει.</span>}
             {error("email") && <span className="error">{error("email")}</span>}
           </div>
 
-          <TextField name="firstName" label="First name" defaultValue={text(initial, "firstName")} error={error("firstName")} required />
-          <TextField name="lastName" label="Last name" defaultValue={text(initial, "lastName")} error={error("lastName")} required />
-          <TextField name="phone" label="Phone" defaultValue={text(initial, "phone")} error={error("phone")} />
+          <TextField name="firstName" label="Όνομα" defaultValue={text(initial, "firstName")} error={error("firstName")} required />
+          <TextField name="lastName" label="Επώνυμο" defaultValue={text(initial, "lastName")} error={error("lastName")} required />
+          <TextField name="phone" label="Τηλέφωνο" defaultValue={text(initial, "phone")} error={error("phone")} />
 
           {canEditRole ? (
             <SelectField
               name="role"
-              label="Role"
+              label="Ρόλος"
               defaultValue={defaultRole}
               options={roleOptions}
               error={error("role")}
             />
           ) : (
             <div className="field">
-              <label>Role</label>
+              <label>Ρόλος</label>
               <p className="mono">{label(USER_ROLE_LABELS, initial?.role ?? "", "el")}</p>
             </div>
           )}
@@ -110,7 +110,7 @@ export function UserForm({
           {canEditStatus && (
             <SelectField
               name="status"
-              label="Status"
+              label="Κατάσταση"
               defaultValue={initial?.status ?? "ACTIVE"}
               options={STATUS_OPTIONS}
               error={error("status")}
@@ -121,7 +121,7 @@ export function UserForm({
 
       {!editing && (
         <div className="panel">
-          <h2>Initial password</h2>
+          <h2>Αρχικός κωδικός</h2>
           <div className="field">
             <label htmlFor="password">Password *</label>
             <input id="password" name="password" type="password" className="input" autoComplete="new-password" required />
@@ -135,7 +135,7 @@ export function UserForm({
 
       <div className="row" style={{ marginTop: 6 }}>
         <button type="submit" className="btn btn--primary" disabled={pending}>
-          {pending ? "Saving..." : submitLabel}
+          {pending ? "Αποθήκευση…" : submitLabel}
         </button>
       </div>
     </form>
