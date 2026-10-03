@@ -5,7 +5,25 @@ import { apiFetch } from "@/lib/api";
 
 type Row = { code: string; name: string; transport: string; enabled: boolean; status: string; hasAdapter: boolean; lastSuccessAt: string | null; lastError: string | null };
 
+export const CAPABILITY_LABELS: Record<string, string> = {
+  create: "δημιουργία",
+  update: "ενημέρωση",
+  unpublish: "απόσυρση",
+  delete: "διαγραφή",
+  pull: "το portal διαβάζει τη ροή",
+  push: "αποστολή μέσω API",
+  webhooks: "webhooks",
+  leads: "εισαγωγή leads",
+  images: "φωτογραφίες",
+  video: "βίντεο",
+  virtualTour: "virtual tour",
+  incrementalSync: "σταδιακός συγχρονισμός",
+  fullSync: "πλήρης συγχρονισμός",
+  dryRun: "προεπισκόπηση",
+};
+
 export const STATUS_CLASS: Record<string, string> = {
+  PLANNED: "badge badge--muted",
   NOT_CONFIGURED: "badge badge--muted",
   CONFIGURED: "badge badge--info",
   CONNECTED: "badge badge--ok",
@@ -46,7 +64,7 @@ export async function PortalsList() {
             {result.data.data.map((p) => (
               <tr key={p.code}>
                 <th scope="row"><Link href={`/settings/portals/${p.code}`}>{p.name}</Link></th>
-                <td>{TRANSPORT_LABEL[p.transport] ?? p.transport}{!p.hasAdapter && <span className="hint"> · προσαρμογέας στη Φάση 6</span>}</td>
+                <td>{TRANSPORT_LABEL[p.transport] ?? p.transport}{!p.hasAdapter && <span className="hint"> · χωρίς προσαρμογέα ακόμη</span>}</td>
                 <td><span className={STATUS_CLASS[p.status] ?? "badge"}>{PORTAL_STATUS_LABELS[p.status] ?? p.status}</span></td>
                 <td className="muted">{p.lastSuccessAt ? new Date(p.lastSuccessAt).toLocaleString("el-GR", { timeZone: "Europe/Athens" }) : "—"}</td>
               </tr>

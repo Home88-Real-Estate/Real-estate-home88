@@ -364,6 +364,24 @@ export const mandateTemplateDraftSchema = z
 
 const ruleModes = PUBLICATION_RULE_MODES.map((m) => m.value) as [string, ...string[]];
 
+const bound = z.number().finite().nonnegative().max(1e10).nullable().optional();
+
+/** Optional narrowing of a portal's publication rule. Bounds are data, never code. */
+export const publicationConditionsSchema = z
+  .object({
+    listingTypes: z.array(z.enum(["SALE", "RENT", "ASSIGNMENT"])).max(3).optional(),
+    propertyTypes: z.array(z.string().regex(/^[A-Z_]{2,30}$/)).max(30).optional(),
+    cities: z.array(z.string().trim().min(1).max(80)).max(100).optional(),
+    requireAnyTag: z.array(z.string().regex(/^[A-Z][A-Z0-9_]{1,39}$/)).max(50).optional(),
+    minPrice: bound,
+    maxPrice: bound,
+    minArea: bound,
+    maxArea: bound,
+  })
+  .strict()
+  .refine((c) => c.minPrice == null || c.maxPrice == null || c.minPrice <= c.maxPrice, { message: "Η ελάχιστη τιμή υπερβαίνει τη μέγιστη." })
+  .refine((c) => c.minArea == null || c.maxArea == null || c.minArea <= c.maxArea, { message: "Το ελάχιστο εμβαδόν υπερβαίνει το μέγιστο." });
+
 export const portalUpdateSchema = z
   .object({
     enabled: z.boolean(),
@@ -376,6 +394,7 @@ export const portalUpdateSchema = z
         propertyTypes: z.array(z.string().regex(/^[A-Z_]{2,30}$/)).max(30).default([]),
         includeTags: z.array(z.string().regex(/^[A-Z][A-Z0-9_]{1,39}$/)).max(50).default([]),
         excludeTags: z.array(z.string().regex(/^[A-Z][A-Z0-9_]{1,39}$/)).max(50).default([]),
+        conditions: publicationConditionsSchema.nullable().optional(),
       })
       .strict(),
   })

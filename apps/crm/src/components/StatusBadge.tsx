@@ -15,6 +15,7 @@ const PORTAL_LABELS: Record<string, string> = {
   FAILED: "Απέτυχε",
   REMOVED: "Αφαιρέθηκε",
   OUTDATED: "Χρειάζεται ενημέρωση",
+  IN_FEED: "Στη ροή · αναμονή portal",
 };
 
 function classFor(kind: Kind, value: string): string {
@@ -74,6 +75,8 @@ function classFor(kind: Kind, value: string): string {
       return "badge--ok";
     case "FAILED":
       return "badge--danger";
+    case "IN_FEED":
+      return "badge--info";
     case "QUEUED":
     case "PUBLISHING":
     case "OUTDATED":

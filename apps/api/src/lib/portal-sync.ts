@@ -10,7 +10,7 @@
 
 import type { Portal } from "@home88/database";
 import {
-  evaluatePublishEligibility,
+  evaluateCandidate,
   getAdapter,
   planSync,
   propertyContentHash,
@@ -22,6 +22,7 @@ import {
 } from "@home88/portals";
 import { loadConfig, type ApiConfig } from "../config";
 import { writeAudit } from "./audit";
+import { loadCandidateContext, loadTagCodes } from "./portal-distribution";
 import { notFound } from "./errors";
 import { mediaBase, toPortalProperty } from "./portal-map";
 import { db } from "./prisma";
@@ -56,22 +57,14 @@ export function buildContext(portal: Portal, cfg: ApiConfig): BuildContext {
   };
 }
 
-/** Per-portal overrides read from `Portal.settings`. */
-export function eligibilityOptions(portal: Portal): { allowAssignment: boolean; requirePhoto: boolean } {
-  const settings = (portal.settings ?? {}) as unknown as Record<string, unknown>;
-  return {
-    allowAssignment: settings.allowAssignment !== false,
-    requirePhoto: settings.requirePhoto !== false,
-  };
-}
-
 type Outcome = { state: PortalSyncState; detail: string; errorCode: string | null };
 
 /**
- * What a transport does with a plan. Feed portals are considered published once
- * the listing is in the feed we serve; manual portals stay queued until a human
- * posts them; the API transport is not implemented yet, so it fails loudly
- * rather than pretending success.
+ * What a transport does with a plan. A feed portal reads our document on its own
+ * schedule, so being in the feed is `IN_FEED`, never `PUBLISHED`: that word is
+ * kept for a listing the portal has confirmed. Manual portals stay queued until
+ * a human posts them; the API transport is not implemented yet, so it fails
+ * loudly rather than pretending success.
  */
 export function executeTransport(transport: string, action: SyncAction): Outcome {
   if (action === "REMOVE") {
@@ -84,10 +77,12 @@ export function executeTransport(transport: string, action: SyncAction): Outcome
     case "XML_FEED":
     case "CSV_FEED":
       return {
-        state: "PUBLISHED",
-        detail: `exported to ${transport === "XML_FEED" ? "XML" : "CSV"} feed`,
+        state: "IN_FEED",
+        detail: `in ${transport === "XML_FEED" ? "XML" : "CSV"} feed, awaiting portal import`,
         errorCode: null,
       };
+    case "JSON_FEED":
+      return { state: "IN_FEED", detail: "in JSON feed, awaiting portal import", errorCode: null };
     case "MANUAL":
       return { state: "QUEUED", detail: "posting sheet ready for manual upload", errorCode: null };
     default:
@@ -126,6 +121,7 @@ export async function syncPropertyPortals(
 
   const view = toPortalProperty(property, base);
   const currentHash = propertyContentHash(view);
+  const tagCodes = (await loadTagCodes([propertyId])).get(propertyId) ?? [];
   const outcomes: PortalSyncOutcome[] = [];
 
   for (const portal of portals) {
@@ -145,9 +141,11 @@ export async function syncPropertyPortals(
       where: { portalId_propertyId: { portalId: portal.id, propertyId } },
     });
 
-    const eligibility = evaluatePublishEligibility(view, eligibilityOptions(portal));
+    // The same gate the dry run and the feed use: market status, this portal's
+    // publication rule and flags, its validation profile and taxonomy mapping.
+    const verdict = evaluateCandidate({ property: view, tagCodes }, await loadCandidateContext(portal));
     const plan = planSync({
-      eligible: eligibility.eligible,
+      eligible: verdict.outcome === "READY",
       currentHash,
       lastPayloadHash: existing?.lastPayloadHash ?? null,
       state: existing?.state ?? "NOT_PUBLISHED",
@@ -160,7 +158,7 @@ export async function syncPropertyPortals(
         portalCode: portal.code,
         action: null,
         state: existing?.state ?? "NOT_PUBLISHED",
-        detail: plan.reason,
+        detail: verdict.outcome === "READY" ? plan.reason : [plan.reason, ...verdict.reasons].join(" — "),
       });
       continue;
     }

@@ -160,6 +160,49 @@ export async function updateArea(_previous: ActionState, formData: FormData): Pr
 
 // --- Portals ---------------------------------------------------------------------
 
+function num(formData: FormData, key: string): number | null {
+  const raw = str(formData, key);
+  if (!raw) return null;
+  const n = Number(raw.replace(",", "."));
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Publication-rule narrowing from the form; null when nothing was filled in. */
+function readConditions(formData: FormData) {
+  const listingTypes = formData.getAll("condListing").map(String);
+  const cities = (str(formData, "condCities") ?? "").split(/[\n,]/).map((c) => c.trim()).filter(Boolean);
+  const bounds = {
+    minPrice: num(formData, "condMinPrice"),
+    maxPrice: num(formData, "condMaxPrice"),
+    minArea: num(formData, "condMinArea"),
+    maxArea: num(formData, "condMaxArea"),
+  };
+  const empty = listingTypes.length === 0 && cities.length === 0 && Object.values(bounds).every((v) => v === null);
+  if (empty) return null;
+  return { ...(listingTypes.length ? { listingTypes } : {}), ...(cities.length ? { cities } : {}), ...bounds };
+}
+
+export async function approvePortalFeed(formData: FormData): Promise<void> {
+  const code = str(formData, "_code") ?? "";
+  await apiFetch(`/api/portals/${encodeURIComponent(code)}/feed/approve`, { method: "POST", json: {} });
+  revalidatePath(`/settings/portals/${code}`);
+}
+
+export async function savePortalMappings(_previous: ActionState, formData: FormData): Promise<ActionState> {
+  const code = str(formData, "_code") ?? "";
+  const entries: Array<{ kind: string; internalCode: string; status: string; externalValue: string | null }> = [];
+  for (const [name, value] of formData.entries()) {
+    const m = /^map\.(TYPE|FEATURE)\.([A-Z0-9_]+)$/.exec(name);
+    if (!m || typeof value !== "string" || !value) continue; // blank status = not mapped yet
+    const external = (str(formData, `ext.${m[1]}.${m[2]}`) ?? null);
+    entries.push({ kind: m[1]!, internalCode: m[2]!, status: value, externalValue: value === "UNSUPPORTED" ? null : external });
+  }
+  const result = await apiFetch(`/api/portals/${encodeURIComponent(code)}/mappings`, { method: "PUT", json: { entries } });
+  if (!result.ok) return fail(result.error);
+  revalidatePath(`/settings/portals/${code}`);
+  return { ok: true, message: "Οι αντιστοιχίσεις αποθηκεύτηκαν." };
+}
+
 export async function savePortal(_previous: ActionState, formData: FormData): Promise<ActionState> {
   const code = str(formData, "_code") ?? "";
   const values: Record<string, string> = {};
@@ -183,6 +226,7 @@ export async function savePortal(_previous: ActionState, formData: FormData): Pr
         propertyTypes: formData.getAll("ruleTypes").map(String),
         includeTags: formData.getAll("ruleInclude").map(String),
         excludeTags: formData.getAll("ruleExclude").map(String),
+        conditions: readConditions(formData),
       },
     },
   });

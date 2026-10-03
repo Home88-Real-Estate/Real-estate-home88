@@ -846,6 +846,7 @@ export function portalCatalogEntry(code: string): PortalCatalogEntry | undefined
 }
 
 export const PORTAL_STATUS_LABELS: Record<string, string> = {
+  PLANNED: "Σε προγραμματισμό",
   NOT_CONFIGURED: "Δεν έχει ρυθμιστεί",
   CONFIGURED: "Ρυθμίστηκε",
   CONNECTED: "Συνδεδεμένο",

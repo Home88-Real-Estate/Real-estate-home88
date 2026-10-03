@@ -17,6 +17,12 @@ export type PortalSyncState =
   | "QUEUED"
   | "PUBLISHING"
   | "PUBLISHED"
+  /**
+   * Included in a feed we serve, but the portal has not confirmed it imported
+   * the listing. Feed portals read on their own schedule, so generating the
+   * document is not the same as being published.
+   */
+  | "IN_FEED"
   | "FAILED"
   | "REMOVED"
   | "OUTDATED";
@@ -164,6 +170,8 @@ export type FeedDocument = {
 
 export interface PortalAdapter {
   readonly code: string;
+  /** Overrides the transport defaults in `capabilitiesFor` when a portal differs. */
+  readonly capabilities?: Partial<import("./capabilities").PortalCapabilities>;
   readonly transport: PortalTransport;
   readonly label: string;
   /** Whether this portal will accept the listing at all. */

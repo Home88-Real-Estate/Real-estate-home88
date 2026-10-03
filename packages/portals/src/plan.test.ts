@@ -42,3 +42,10 @@ test("force republishes a live listing and publishes a dark one", () => {
   assert.equal(planSync({ ...base, force: true }).action, "REPUBLISH");
   assert.equal(planSync({ ...base, state: "NOT_PUBLISHED", force: true }).action, "PUBLISH");
 });
+
+test("a listing that is only in a feed is treated as listed, and unchanged content is left alone", () => {
+  assert.equal(planSync({ ...base, state: "IN_FEED" }).action, null);
+  assert.equal(planSync({ ...base, state: "IN_FEED", lastPayloadHash: "old" }).action, "UPDATE");
+  assert.equal(planSync({ ...base, state: "IN_FEED", eligible: false }).action, "REMOVE");
+  assert.equal(planSync({ ...base, state: "IN_FEED", force: true }).action, "REPUBLISH");
+});
