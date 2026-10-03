@@ -104,9 +104,14 @@ export default async function HomePage() {
           {/*
             A plain GET form. It works with JavaScript disabled, it is
             crawlable, and it produces a shareable, server-rendered result URL.
+
+            Structure is deliberately two rows only: the transaction tabs, then
+            a single row of controls with the submit button inside that same
+            grid. The button used to live in a separate row underneath, which
+            made the panel a tall block instead of a compact search bar.
           */}
-          <form className="search-overlay" action="/properties" method="get">
-            <div className="tabs" role="group" aria-label="Τύπος συναλλαγής">
+          <form className="search-panel" action="/properties" method="get">
+            <div className="search-tabs" role="group" aria-label="Τύπος συναλλαγής">
               <label>
                 <input type="radio" name="listingType" value="SALE" defaultChecked />
                 <span>Αγορά</span>
@@ -117,47 +122,73 @@ export default async function HomePage() {
               </label>
             </div>
 
-            <div className="search-grid">
-              <div className="field">
+            <div className="search-controls">
+              <div className="control">
                 <label htmlFor="q">Περιοχή ή κωδικός</label>
-                <input
-                  id="q"
-                  name="q"
-                  className="input"
-                  placeholder="π.χ. Γλυφάδα ή H88-000001"
-                  autoComplete="off"
-                />
+                <div className="control__box">
+                  <svg className="control__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
+                    <circle cx="12" cy="10" r="3" />
+                  </svg>
+                  <input
+                    id="q"
+                    name="q"
+                    className="input"
+                    placeholder="π.χ. Γλυφάδα"
+                    autoComplete="off"
+                  />
+                </div>
               </div>
 
-              <div className="field">
+              <div className="control">
                 <label htmlFor="propertyType">Τύπος ακινήτου</label>
-                <select id="propertyType" name="propertyType" className="select" defaultValue="">
-                  {TYPE_OPTIONS.map(([value, text]) => (
-                    <option key={value} value={value}>
-                      {text}
-                    </option>
-                  ))}
-                </select>
+                <div className="control__box">
+                  <svg className="control__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M3 21h18" />
+                    <path d="M5 21V7l7-4 7 4v14" />
+                    <path d="M9 21v-5h6v5" />
+                  </svg>
+                  <select id="propertyType" name="propertyType" className="select" defaultValue="">
+                    {TYPE_OPTIONS.map(([value, text]) => (
+                      <option key={value} value={value}>
+                        {text}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
-              <div className="field">
+              <div className="control">
                 <label htmlFor="minPrice">Τιμή από</label>
-                <input id="minPrice" name="minPrice" className="input" inputMode="numeric" placeholder="€" />
+                <div className="control__box">
+                  <svg className="control__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M12 5v14" />
+                    <path d="m19 12-7 7-7-7" />
+                  </svg>
+                  <input id="minPrice" name="minPrice" className="input" inputMode="numeric" placeholder="€" />
+                </div>
               </div>
 
-              <div className="field">
+              <div className="control">
                 <label htmlFor="maxPrice">Τιμή έως</label>
-                <input id="maxPrice" name="maxPrice" className="input" inputMode="numeric" placeholder="€" />
+                <div className="control__box">
+                  <svg className="control__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M12 19V5" />
+                    <path d="m5 12 7-7 7 7" />
+                  </svg>
+                  <input id="maxPrice" name="maxPrice" className="input" inputMode="numeric" placeholder="€" />
+                </div>
               </div>
-            </div>
 
-            <div className="search-overlay__actions">
-              <button type="submit" className="btn btn--primary btn--lg">
-                Αναζήτηση
-              </button>
-              <Link href="/properties" className="btn btn--outline">
-                Προηγμένη αναζήτηση
-              </Link>
+              <div className="control control--submit">
+                <button type="submit" className="search-submit">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="11" cy="11" r="7" />
+                    <path d="m20 20-3.5-3.5" />
+                  </svg>
+                  Αναζήτηση
+                </button>
+              </div>
             </div>
           </form>
 

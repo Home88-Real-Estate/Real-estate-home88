@@ -543,7 +543,18 @@ p { margin: 0 0 1em; }
   );
 }
 
-.hero__inner { padding-block: clamp(44px, 7vw, 76px) clamp(56px, 7vw, 96px); width: 100%; }
+/* The hero is a left-aligned column, not a centred 1280px wrap: on a wide
+   screen a centred wrapper pushes the headline ~17vw from the edge, which reads
+   as "too far toward the centre" next to the reference. Padding is viewport
+   relative (~6.5vw) and the inner is deliberately not centred, so the copy and
+   the search bar share one left edge and the right half stays open image. */
+.hero__inner {
+  width: 100%;
+  max-width: none;
+  margin-inline: 0;
+  padding-inline: clamp(20px, 6.5vw, 120px);
+  padding-block: clamp(44px, 7vw, 76px) clamp(56px, 7vw, 96px);
+}
 
 /* Narrow screens stack the copy and the search panel, so a horizontal ramp
    would leave the lower half unreadable: switch to a vertical one there. */
@@ -604,35 +615,132 @@ p { margin: 0 0 1em; }
 
 /* Search card that floats over the hero image. Opaque white so the labels and
    inputs keep full contrast over the photograph. */
-.search-overlay {
-  margin-top: clamp(24px, 3vw, 38px);
-  max-width: 1120px;
-  background: var(--paper);
+/* Compact floating search bar: tabs on top, one row of controls underneath,
+   submit button inside that same row. Two rows only — nothing reserves extra
+   vertical space, which is what previously turned the widget into a tall white
+   slab with a blank area beside the tabs. */
+.search-panel {
+  margin-top: clamp(20px, 2.4vw, 30px);
+  width: 100%;
+  max-width: 780px;
+  background: rgba(255, 255, 255, 0.97);
   border: 1px solid var(--line);
-  border-radius: var(--radius-xl);
-  padding: clamp(16px, 1.6vw, 22px);
+  border-radius: var(--radius-lg);
+  padding: 16px;
   box-shadow: var(--shadow-lg);
   color: var(--ink);
+  backdrop-filter: blur(2px);
 }
-.search-overlay .field { margin-bottom: 0; }
-/* Dark ink, not --ink-muted: at 0.86rem the muted grey lands at 4.4:1 on the
-   white panel, just under the AA threshold for normal text. */
-.search-overlay .field > label { color: var(--ink); }
-.search-overlay .btn--lg { flex: none; }
-.search-grid {
+
+.search-tabs {
+  display: inline-flex;
+  gap: 4px;
+  background: #eef2f6;
+  border-radius: 8px;
+  padding: 3px;
+  margin-bottom: 12px;
+}
+.search-tabs label {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 18px;
+  border-radius: 6px;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #5a6472;
+  cursor: pointer;
+}
+/* The radio stays in the accessibility tree and keeps keyboard focus; only its
+   painted box is removed, because the label is the visible control. */
+.search-tabs input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.search-tabs label:has(input:checked) { background: var(--brand); color: #ffffff; }
+.search-tabs label:has(input:focus-visible) {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.search-controls {
   display: grid;
-  gap: 14px;
+  gap: 10px;
   grid-template-columns: 1fr;
 }
-@media (min-width: 700px) {
-  .search-grid { grid-template-columns: 1.4fr 1fr 1fr 1fr; }
+.control { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.control > label {
+  font-size: 0.7rem;
+  /* line-height 1 makes the label box exactly the font size, so the submit
+     button — which has no label above it — can be bottom-aligned to sit on the
+     same line as the inputs. */
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  /* Darker than --ink-muted on purpose: at 0.7rem the muted grey is 4.4:1 on
+     white, below AA. */
+  color: #4a5568;
 }
-.search-overlay__actions {
-  display: flex;
-  flex-wrap: wrap;
+.control__box { position: relative; display: flex; align-items: center; }
+.control__icon {
+  position: absolute;
+  left: 10px;
+  width: 15px;
+  height: 15px;
+  color: var(--brand);
+  pointer-events: none;
+}
+.control__box .input,
+.control__box .select {
+  height: 42px;
+  padding: 0 10px 0 31px;
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+}
+/* No label sits above the button, so it is pushed to the bottom of its cell to
+   line up with the input row instead of floating at the top. */
+.control--submit { justify-content: flex-end; }
+.search-submit {
+  display: inline-flex;
   align-items: center;
-  gap: 12px;
-  margin-top: var(--space-4);
+  justify-content: center;
+  gap: 7px;
+  height: 42px;
+  width: 100%;
+  padding: 0 18px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--brand);
+  color: #ffffff;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease;
+}
+.search-submit svg { width: 16px; height: 16px; flex: none; }
+.search-submit:hover { background: var(--brand-dark); }
+
+/* Two rows on a laptop: location spans the full width, then two pairs, then a
+   full-width submit. No blank cells, no stretched rows. */
+@media (min-width: 640px) {
+  .search-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .control--submit { grid-column: 1 / -1; }
+}
+
+/* Desktop: the single compact row from the reference — four controls plus the
+   button, all on one line, about 780px wide. */
+@media (min-width: 1024px) {
+  .search-controls { grid-template-columns: 1.55fr 1.25fr 0.8fr 0.8fr auto; gap: 8px; }
+  .control--submit { grid-column: auto; }
+  .search-submit { width: auto; }
 }
 .hero__count {
   color: #cfe0ef;
