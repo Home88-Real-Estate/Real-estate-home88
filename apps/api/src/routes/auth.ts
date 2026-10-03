@@ -8,6 +8,7 @@ import { hashPassword, verifyStoredPassword } from "../lib/passwords";
 import { db } from "../lib/prisma";
 import { consume } from "../lib/rate-limit";
 import { createSession, revokeSessionToken, SESSION_COOKIE_NAME } from "../lib/sessions";
+import { supabaseAuthConfig, verifyWithSupabaseAuth } from "../lib/supabase-auth";
 import { requireAuth } from "../plugins/auth";
 
 /**
@@ -59,11 +60,40 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     const user = await db().user.findUnique({ where: { email: body.email } });
     // A missing user and a user with no password yet both fail in the same
     // time as a wrong password; neither can ever authenticate.
-    const ok = verifyStoredPassword(
+    let ok = verifyStoredPassword(
       body.password,
       user?.passwordHash,
       getDummyHash(cfg.PASSWORD_HASH_ROUNDS),
     );
+
+    // First sign-in of an account that has no CRM password yet but is linked
+    // to its owner's identity-provider user: check the password there, and
+    // only if the provider confirms that exact linked user, adopt it.
+    const supabase = supabaseAuthConfig();
+    if (!ok && user && !user.passwordHash && user.authUid && user.status === "ACTIVE" && supabase) {
+      ok = await verifyWithSupabaseAuth({
+        config: supabase,
+        email: user.email,
+        password: body.password,
+        expectedUid: user.authUid,
+      });
+      if (ok) {
+        await db().user.update({
+          where: { id: user.id },
+          data: { passwordHash: hashPassword(body.password, cfg.PASSWORD_HASH_ROUNDS) },
+        });
+        user.passwordHash = "set";
+        await writeAudit({
+          entity: "USER",
+          entityId: user.id,
+          action: "PASSWORD_ADOPTED_FROM_IDENTITY_PROVIDER",
+          actorId: user.id,
+          ipAddress: ip,
+          userAgent: userAgent(request),
+        });
+      }
+    }
+
     if (!user || !ok) throw unauthorized("Incorrect email or password.");
     if (user.status !== "ACTIVE") throw forbidden("This account is not active.");
 
