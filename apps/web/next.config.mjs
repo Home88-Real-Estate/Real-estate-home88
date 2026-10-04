@@ -16,6 +16,13 @@ const monorepoRoot = path.join(__dirname, "..", "..");
  */
 const isDev = process.env.NODE_ENV !== "production";
 
+let uploadOrigin = "";
+try {
+  uploadOrigin = process.env.S3_ENDPOINT ? new URL(process.env.S3_ENDPOINT).origin : "";
+} catch {
+  uploadOrigin = "";
+}
+
 /**
  * Next.js injects inline bootstrap scripts and, in dev, eval-based HMR.
  * Production still needs 'unsafe-inline' for the framework's inline scripts
@@ -35,7 +42,8 @@ const csp = [
   // No font-src wildcard either. Fonts are self-hosted (see globals.css).
   "font-src 'self'",
   "img-src 'self' data: blob: https://*.public.blob.vercel-storage.com",
-  "connect-src 'self'",
+  // Direct-to-storage uploads (owner photos) need the bucket origin; unset means uploads are off.
+  `connect-src 'self'${uploadOrigin ? ` ${uploadOrigin}` : ""}`,
   "media-src 'self'",
   "frame-src 'self' https://www.youtube-nocookie.com https://www.google.com",
   "frame-ancestors 'none'",
@@ -88,6 +96,7 @@ const nextConfig = {
   transpilePackages: [
     "@home88/database",
     "@home88/domain",
+    "@home88/intake",
     "@home88/types",
     "@home88/ui",
     "@home88/validation",

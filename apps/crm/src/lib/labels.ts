@@ -64,6 +64,50 @@ export function priceRange(min: unknown, max: unknown): string {
   return "—";
 }
 
+export const SUBMISSION_STATUS_LABEL: Record<string, string> = {
+  NEW: "Νέα",
+  UNDER_REVIEW: "Υπό εξέταση",
+  CONTACTED: "Έγινε επικοινωνία",
+  VALUATION: "Εκτίμηση",
+  ASSIGNMENT: "Ανάθεση",
+  PROPERTY_CREATED: "Δημιουργήθηκε ακίνητο",
+  APPROVED: "Εγκρίθηκε",
+  PUBLISHED: "Δημοσιεύτηκε",
+  REJECTED: "Απορρίφθηκε",
+  ARCHIVED: "Αρχειοθετήθηκε",
+};
+
+export const SUBMISSION_STATUS_CLASS: Record<string, string> = {
+  NEW: "badge badge--info",
+  UNDER_REVIEW: "badge badge--warn",
+  CONTACTED: "badge badge--warn",
+  VALUATION: "badge badge--warn",
+  ASSIGNMENT: "badge badge--warn",
+  PROPERTY_CREATED: "badge badge--ok",
+  APPROVED: "badge badge--ok",
+  PUBLISHED: "badge badge--ok",
+  REJECTED: "badge badge--danger",
+  ARCHIVED: "badge badge--muted",
+};
+
+export const MEDIA_LIFECYCLE_LABEL: Record<string, string> = {
+  UPLOADING: "Μεταφόρτωση",
+  PROCESSING: "Επεξεργασία",
+  AVAILABLE: "Διαθέσιμο",
+  QUARANTINED: "Σε καραντίνα",
+  REJECTED: "Απορρίφθηκε",
+  DELETED: "Διαγράφηκε",
+};
+
+export const MEDIA_SOURCE_LABEL: Record<string, string> = {
+  AGENT_UPLOAD: "Σύμβουλος",
+  OWNER_SUBMISSION: "Ιδιοκτήτης (ιστότοπος)",
+  IMPORT: "Εισαγωγή",
+  PORTAL: "Portal",
+  MIGRATION: "Μεταφορά",
+  OTHER: "Άλλο",
+};
+
 export const TRX_STATUS_CLASS: Record<string, string> = {
   NEGOTIATION: "badge badge--info",
   AGREEMENT: "badge badge--warn",

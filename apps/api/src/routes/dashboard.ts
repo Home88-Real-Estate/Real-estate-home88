@@ -431,11 +431,15 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     const scope: Scope = { all: roleAtLeast(actor.role, "MANAGER"), userId: actor.id };
     const now = new Date();
     const today = localDay(now);
-    const [properties, newLeads, dueTasks] = await Promise.all([
+    const [properties, newLeads, dueTasks, newSubmissions] = await Promise.all([
       db().property.count({ where: { ...propertyScope(scope), status: { not: "ARCHIVED" } } }),
       db().lead.count({ where: { ...leadScope(scope), status: "NEW" } }),
       db().task.count({ where: { assignedToId: actor.id, status: OPEN_TASK, dueAt: { lt: today.to } } }),
+      // Same visibility as the submissions list: everything for a manager, else mine or unassigned.
+      db().propertySubmission.count({
+        where: { status: "NEW", ...(scope.all ? {} : { OR: [{ assignedToId: actor.id }, { assignedToId: null }] }) },
+      }),
     ]);
-    return { properties, newLeads, dueTasks };
+    return { properties, newLeads, dueTasks, newSubmissions };
   });
 }

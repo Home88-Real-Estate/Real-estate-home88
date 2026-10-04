@@ -11,6 +11,8 @@
 
 import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
+import { normalisePhone } from "@home88/intake";
+
 function pepper(): string {
   return process.env.PII_HASH_PEPPER ?? "";
 }
@@ -24,6 +26,13 @@ export function hashEmail(raw: string | null | undefined): string | null {
   const email = normaliseEmail(raw);
   if (!email) return null;
   return createHash("sha256").update(`${pepper()}:${email}`).digest("hex");
+}
+
+/** Same formula as the website's, so a contact the public form created is found from the CRM and vice versa. */
+export function hashPhone(raw: string | null | undefined): string | null {
+  const phone = normalisePhone(raw);
+  if (!phone) return null;
+  return createHash("sha256").update(`${pepper()}:phone:${phone}`).digest("hex");
 }
 
 export function hashSubject(raw: string | null | undefined): string | null {

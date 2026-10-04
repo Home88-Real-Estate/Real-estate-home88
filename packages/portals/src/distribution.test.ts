@@ -318,3 +318,24 @@ test("legacy requirePhoto:false still lets a photo-less listing through", () => 
   assert.equal(validateForPortal(makePortalProperty({ media: [] }), profile).valid, true);
   assert.equal(validateForPortal(makePortalProperty({ media: [] }), BASELINE_PROFILE).valid, false);
 });
+
+// --- provider contract ---------------------------------------------------------
+
+import { checkProviderContract, type PortalProvider } from "./index";
+
+test("a provider that claims what it does not implement is caught", () => {
+  const base: PortalProvider = { code: "FAKE", schemaVersion: "1", capabilities: { ...NO_CAPABILITIES, push: true, create: true, update: true } };
+  const problems = checkProviderContract({ ...base, testConnection: async () => ({ ok: true, acknowledged: true }) });
+  assert.deepEqual(problems.sort(), ["claims create but has no publishProperty", "claims update but has no updateProperty"]);
+  assert.deepEqual(
+    checkProviderContract({
+      ...base,
+      testConnection: async () => ({ ok: true, acknowledged: true }),
+      publishProperty: async () => ({ ok: true, acknowledged: false }),
+      updateProperty: async () => ({ ok: true, acknowledged: false }),
+    }),
+    [],
+  );
+  assert.ok(checkProviderContract({ ...base, capabilities: { ...NO_CAPABILITIES, push: true } }).includes("an API provider must implement testConnection"));
+  assert.ok(checkProviderContract({ ...base, schemaVersion: "" }).includes("missing schemaVersion"));
+});

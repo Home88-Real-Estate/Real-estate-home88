@@ -250,14 +250,70 @@ const requireAReachableChannel = (val: { email?: string; phone?: string }, ctx: 
   }
 };
 
+/**
+ * Fields every public intake request may carry beyond its form fields. Parsed
+ * separately from the form schema because several form schemas are refined
+ * (and so strip unknown keys). Everything here is bounded: it comes straight
+ * from a browser.
+ */
+export const intakeMetaSchema = z.object({
+  idempotencyKey: z.string().regex(/^[A-Za-z0-9_-]{8,100}$/).optional(),
+  attribution: z
+    .object({
+      landingPage: z.string().max(300).optional(),
+      referrer: z.string().max(500).optional(),
+      utmSource: z.string().max(100).optional(),
+      utmMedium: z.string().max(100).optional(),
+      utmCampaign: z.string().max(100).optional(),
+    })
+    .optional(),
+  uploads: z
+    .object({
+      token: z.string().regex(/^[A-Za-z0-9_-]{40,60}$/),
+      files: z
+        .array(
+          z.object({
+            storageKey: z.string().max(300),
+            kind: z.enum(["PHOTO", "DOCUMENT"]),
+            fileName: z.string().max(200),
+            mimeType: z.string().max(100),
+            byteSize: z.number().int().positive().max(100 * 1024 * 1024),
+          }),
+        )
+        .max(40),
+    })
+    .optional(),
+});
+
+export const uploadPresignSchema = z.object({
+  token: z.string().regex(/^[A-Za-z0-9_-]{40,60}$/),
+  kind: z.enum(["PHOTO", "DOCUMENT"]),
+  fileName: z.string().min(1).max(200),
+  mimeType: z.string().min(1).max(100),
+  byteSize: z.number().int().positive().max(100 * 1024 * 1024),
+});
+
+/** Request a viewing of one property. */
+export const viewingRequestSchema = contactBaseSchema
+  .extend({
+    propertyReference: z.string().trim().toUpperCase().regex(/^H88-\d{6}$/),
+    preferredStart: z.string().max(40).optional(),
+  })
+  .superRefine(requireAReachableChannel);
+
 /** General contact form. */
 export const contactSchema = contactBaseSchema.superRefine(requireAReachableChannel);
 
 /** "Request a property" — a buyer's brief rather than a question. */
+const blankToUndefined = (v: unknown) => (typeof v === "string" && v.trim() === "" ? undefined : v);
+
 export const buyerRequestSchema = contactBaseSchema
   .extend({
-    listingType: listingTypeSchema.optional(),
-    propertyType: propertyTypeSchema.optional(),
+    // A buyer's free-text note is optional; the criteria are the substance.
+    message: optionalText(4000),
+    // An untouched select posts "", which must mean "any", not a validation error.
+    listingType: z.preprocess(blankToUndefined, listingTypeSchema.optional()),
+    propertyType: z.preprocess(blankToUndefined, propertyTypeSchema.optional()),
     city: optionalText(120),
     budgetMin: moneySchema,
     budgetMax: moneySchema,
@@ -736,6 +792,11 @@ export const RATE_LIMITS = {
   propertySubmission: { points: 3, durationSeconds: 3600 },
   contact: { points: 5, durationSeconds: 600 },
   login: { points: 8, durationSeconds: 900 },
+  viewingRequest: { points: 5, durationSeconds: 600 },
+  buyerRequest: { points: 5, durationSeconds: 600 },
+  /** Anonymous upload sessions and signed-URL requests; see @home88/intake quotas. */
+  uploadSession: { points: 6, durationSeconds: 3600 },
+  uploadPresign: { points: 60, durationSeconds: 3600 },
   dmcaNotice: { points: 3, durationSeconds: 3600 },
   /** Self-service credential changes. Tight: these are high-value operations. */
   passwordChange: { points: 5, durationSeconds: 900 },
