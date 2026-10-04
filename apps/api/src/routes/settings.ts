@@ -90,6 +90,69 @@ function assertTemplateFields(body: string) {
   }
 }
 
+export const portalScope = (code: string) => `portal:${code}`;
+
+/** A portal's settings view: catalogue entry, stored values, secret presence (never values) and status. */
+export async function portalView(code: string, includeFeedUrl: boolean) {
+  const entry = portalCatalogEntry(code);
+  if (!entry) throw notFound("Το portal δεν υποστηρίζεται.");
+  const row = await db().portal.findUnique({ where: { code: entry.code }, include: { publicationRule: true } });
+  const meta = await db().providerCredential.findMany({ where: { scope: portalScope(entry.code) }, select: { field: true, updatedAt: true } });
+  const stored = ((row?.settings ?? {}) as Record<string, unknown>) ?? {};
+  const values: Record<string, unknown> = {};
+  for (const f of entry.fields) if (f.type !== "secret") values[f.key] = typeof stored[f.key] === "string" ? stored[f.key] : null;
+  const secrets: Record<string, { configured: boolean; updatedAt: string | null }> = {};
+  for (const f of entry.fields) {
+    if (f.type !== "secret") continue;
+    const m = meta.find((x) => x.field === f.key);
+    secrets[f.key] = { configured: Boolean(m), updatedAt: m ? m.updatedAt.toISOString() : null };
+  }
+  const provider = portalProvider(entry.code)!;
+  const missing = provider.missing(values, Object.fromEntries(Object.entries(secrets).map(([k, v]) => [k, v.configured])));
+  const configured = Boolean(row) && missing.length === 0;
+  const adapter = getAdapter(entry.code);
+  const feedToken = typeof stored.feedToken === "string" ? stored.feedToken : null;
+  let feedUrl: string | null = null;
+  if (includeFeedUrl && adapter && typeof adapter.compose === "function" && feedToken) {
+    const cfg = loadConfig();
+    feedUrl = `${cfg.CRM_URL.replace(/\/+$/, "")}${cfg.CRM_BASE_PATH}/api/feeds/${entry.code}?token=${feedToken}`;
+  }
+  const status = portalStatus({ configured, enabled: row?.enabled ?? false, lastSuccessAt: row?.lastSuccessAt, lastErrorAt: row?.lastErrorAt });
+  // A portal with no adapter cannot do anything yet, whatever its fields say.
+  const integrationStatus: IntegrationStatus = adapter ? status : "PLANNED";
+  const capabilities = capabilitiesFor(entry.transport, adapter);
+  return {
+    code: entry.code,
+    name: entry.name,
+    transport: entry.transport,
+    note: entry.note ?? null,
+    capabilities,
+    verification: portalVerification(entry.code),
+    integrationStatus,
+    actions: availableActions(capabilities, integrationStatus),
+    fields: entry.fields,
+    enabled: row?.enabled ?? false,
+    values,
+    secrets,
+    missing,
+    hasAdapter: provider.hasAdapter,
+    feedUrl,
+    status,
+    lastSyncAt: row?.lastSyncAt?.toISOString() ?? null,
+    lastSuccessAt: row?.lastSuccessAt?.toISOString() ?? null,
+    lastError: row?.lastError ?? null,
+    rule: row?.publicationRule
+      ? {
+          mode: row.publicationRule.mode,
+          propertyTypes: row.publicationRule.propertyTypes,
+          includeTags: row.publicationRule.includeTags,
+          excludeTags: row.publicationRule.excludeTags,
+          conditions: parseConditions(row.publicationRule.conditions),
+        }
+      : { mode: "NONE", propertyTypes: [], includeTags: [], excludeTags: [], conditions: null },
+  };
+}
+
 export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   app.addHook("preHandler", requireAuth);
 
@@ -435,68 +498,6 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // --- Portals ---------------------------------------------------------------
-
-  const portalScope = (code: string) => `portal:${code}`;
-
-  async function portalView(code: string, includeFeedUrl: boolean) {
-    const entry = portalCatalogEntry(code);
-    if (!entry) throw notFound("Το portal δεν υποστηρίζεται.");
-    const row = await db().portal.findUnique({ where: { code: entry.code }, include: { publicationRule: true } });
-    const meta = await db().providerCredential.findMany({ where: { scope: portalScope(entry.code) }, select: { field: true, updatedAt: true } });
-    const stored = ((row?.settings ?? {}) as Record<string, unknown>) ?? {};
-    const values: Record<string, unknown> = {};
-    for (const f of entry.fields) if (f.type !== "secret") values[f.key] = typeof stored[f.key] === "string" ? stored[f.key] : null;
-    const secrets: Record<string, { configured: boolean; updatedAt: string | null }> = {};
-    for (const f of entry.fields) {
-      if (f.type !== "secret") continue;
-      const m = meta.find((x) => x.field === f.key);
-      secrets[f.key] = { configured: Boolean(m), updatedAt: m ? m.updatedAt.toISOString() : null };
-    }
-    const provider = portalProvider(entry.code)!;
-    const missing = provider.missing(values, Object.fromEntries(Object.entries(secrets).map(([k, v]) => [k, v.configured])));
-    const configured = Boolean(row) && missing.length === 0;
-    const adapter = getAdapter(entry.code);
-    const feedToken = typeof stored.feedToken === "string" ? stored.feedToken : null;
-    let feedUrl: string | null = null;
-    if (includeFeedUrl && adapter && typeof adapter.compose === "function" && feedToken) {
-      const cfg = loadConfig();
-      feedUrl = `${cfg.CRM_URL.replace(/\/+$/, "")}${cfg.CRM_BASE_PATH}/api/feeds/${entry.code}?token=${feedToken}`;
-    }
-    const status = portalStatus({ configured, enabled: row?.enabled ?? false, lastSuccessAt: row?.lastSuccessAt, lastErrorAt: row?.lastErrorAt });
-    // A portal with no adapter cannot do anything yet, whatever its fields say.
-    const integrationStatus: IntegrationStatus = adapter ? status : "PLANNED";
-    const capabilities = capabilitiesFor(entry.transport, adapter);
-    return {
-      code: entry.code,
-      name: entry.name,
-      transport: entry.transport,
-      note: entry.note ?? null,
-      capabilities,
-      verification: portalVerification(entry.code),
-      integrationStatus,
-      actions: availableActions(capabilities, integrationStatus),
-      fields: entry.fields,
-      enabled: row?.enabled ?? false,
-      values,
-      secrets,
-      missing,
-      hasAdapter: provider.hasAdapter,
-      feedUrl,
-      status,
-      lastSyncAt: row?.lastSyncAt?.toISOString() ?? null,
-      lastSuccessAt: row?.lastSuccessAt?.toISOString() ?? null,
-      lastError: row?.lastError ?? null,
-      rule: row?.publicationRule
-        ? {
-            mode: row.publicationRule.mode,
-            propertyTypes: row.publicationRule.propertyTypes,
-            includeTags: row.publicationRule.includeTags,
-            excludeTags: row.publicationRule.excludeTags,
-            conditions: parseConditions(row.publicationRule.conditions),
-          }
-        : { mode: "NONE", propertyTypes: [], includeTags: [], excludeTags: [], conditions: null },
-    };
-  }
 
   app.get("/settings/portals", async (request) => {
     await requireView(request, "portals");
