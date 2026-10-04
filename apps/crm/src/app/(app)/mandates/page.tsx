@@ -9,7 +9,7 @@ import { formatDate } from "@/lib/format";
 import { MANDATE_STATUS_CLASS } from "@/lib/labels";
 import { requireRole } from "@/lib/session";
 
-export const metadata: Metadata = { title: "Εντολές" };
+export const metadata: Metadata = { title: "Ψηφιακές Εντολές" };
 
 type Row = {
   id: string;
@@ -48,7 +48,7 @@ export default async function MandatesPage({ searchParams }: { searchParams: Pro
     <>
       <div className="page-head">
         <div>
-          <h1>Εντολές</h1>
+          <h1>Ψηφιακές Εντολές</h1>
           <p className="muted">Εντολές υπόδειξης και ανάθεσης: έκδοση από εγκεκριμένο κείμενο, υπογραφή και αρχείο.</p>
         </div>
         <Link href="/mandates/new" className="btn btn--primary">Νέα εντολή</Link>
