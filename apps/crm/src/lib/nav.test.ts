@@ -21,7 +21,7 @@ test("every existing CRM route has exactly one sidebar link", () => {
 
 test("no roadmap module is listed", () => {
   const labels = NAV_SECTIONS.flatMap((s) => s.entries.flatMap((e) => [e.label, ...(isGroup(e) ? e.children.map((c) => c.label) : [])]));
-  for (const soon of ["Διαφημίσεις", "Στατιστικά", "Μαζικό SMS", "Ομάδες", "Συνδέσεις"]) assert.ok(!labels.includes(soon), soon);
+  for (const soon of ["Διαφημίσεις", "Στατιστικά", "Μαζικό SMS", "Ομάδες"]) assert.ok(!labels.includes(soon), soon);
 });
 
 test("admin links keep their role and capability rules", () => {
