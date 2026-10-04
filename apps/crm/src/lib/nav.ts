@@ -125,6 +125,7 @@ export const NAV_SECTIONS: NavSection[] = [
           { href: "/users", label: "Χρήστες", icon: "userCog", min: "MANAGER" },
           { href: "/invitations", label: "Προσκλήσεις", icon: "send", min: "ADMIN" },
           { href: "/security", label: "Ασφάλεια", icon: "shield" },
+          { href: "/connections", label: "Συνδέσεις", icon: "plug", min: "MANAGER" },
         ],
       },
     ],

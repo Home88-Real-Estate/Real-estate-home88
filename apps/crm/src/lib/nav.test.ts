@@ -13,7 +13,7 @@ const viewer = { role: "VIEWER", canOpenSettings: false };
 test("every existing CRM route has exactly one sidebar link", () => {
   const routes = ["/", "/properties", "/leads", "/submissions", "/requests", "/media", "/sellers", "/valuations",
     "/mandates", "/transactions", "/calendar", "/reminders", "/contacts", "/documents", "/messages",
-    "/users", "/invitations", "/settings", "/security"];
+    "/users", "/invitations", "/settings", "/security", "/connections"];
   const hrefs = allHrefs(navFor(admin));
   for (const r of routes) assert.equal(hrefs.filter((h) => h === r).length, 1, r);
   assert.equal(new Set(hrefs).size, hrefs.length, "no duplicate links");
@@ -29,6 +29,8 @@ test("admin links keep their role and capability rules", () => {
   assert.ok(allHrefs(navFor({ role: "MANAGER", canOpenSettings: false })).includes("/users"));
   assert.ok(!allHrefs(navFor({ role: "MANAGER", canOpenSettings: false })).includes("/invitations"));
   assert.ok(allHrefs(navFor(admin)).includes("/settings"));
+  assert.ok(allHrefs(navFor({ role: "MANAGER", canOpenSettings: false })).includes("/connections"));
+  assert.ok(!allHrefs(navFor(agent)).includes("/connections"));
   assert.ok(!allHrefs(navFor(viewer)).includes("/properties/new"), "create needs AGENT");
 });
 
@@ -40,6 +42,7 @@ test("deep links resolve to the right child and open its group", () => {
     ["/leads", "/leads", "clients"],
     ["/reminders", "/reminders", "calendar"],
     ["/security", "/security", "settings"],
+    ["/connections", "/connections", "settings"],
     ["/settings/portals", "/settings", "settings"],
     ["/properties/new", "/properties/new", "properties"],
     ["/properties/123/edit", "/properties", "properties"],

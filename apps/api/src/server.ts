@@ -14,6 +14,7 @@ import { healthRoutes } from "./routes/health";
 import { invitationRoutes } from "./routes/invitations";
 import { leadRoutes } from "./routes/leads";
 import { mandateRoutes } from "./routes/mandates";
+import { connectionRoutes } from "./routes/connections";
 import { messageRoutes } from "./routes/messages";
 import { mediaRoutes } from "./routes/media";
 import { submissionRoutes } from "./routes/submissions";
@@ -126,6 +127,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(documentRoutes, { prefix: "/api" });
   await app.register(mandateRoutes, { prefix: "/api" });
   await app.register(messageRoutes, { prefix: "/api" });
+  await app.register(connectionRoutes, { prefix: "/api" });
 
   return app;
 }
