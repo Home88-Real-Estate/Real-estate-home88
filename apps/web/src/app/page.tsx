@@ -119,17 +119,34 @@ export default async function HomePage() {
         style={heroImage ? { backgroundImage: `url(${heroImage})` } : undefined}
       >
         <div className="wrap hero__inner">
-          <span className="hero__eyebrow">Πωλήσεις · Ενοικιάσεις · Αναθέσεις</span>
-          <span className="hero__rule" aria-hidden="true" />
-          <h1>
-            Βρείτε το επόμενο
-            <br />
-            <strong>ακίνητό σας</strong>
-          </h1>
-          <p className="lede">
-            Κατοικίες, επαγγελματικοί χώροι, γη και επενδυτικές ευκαιρίες με
-            επαγγελματική υποστήριξη σε κάθε βήμα.
-          </p>
+          {/* The mascot stands left of the copy and gestures toward the headline;
+              it is decorative, so it carries no alt text. */}
+          <div className="hero__lead">
+            <img
+              className="hero__mascot"
+              src="/images/fox/home88-fox-hero.webp"
+              srcSet="/images/fox/home88-fox-hero-400.webp 406w, /images/fox/home88-fox-hero.webp 771w"
+              sizes="(min-width: 900px) 24vw, 0px"
+              width={771}
+              height={760}
+              alt=""
+              aria-hidden="true"
+              fetchPriority="high"
+            />
+            <div className="hero__copy">
+              <span className="hero__eyebrow">Πωλήσεις · Ενοικιάσεις · Αναθέσεις</span>
+              <span className="hero__rule" aria-hidden="true" />
+              <h1>
+                Βρείτε το επόμενο
+                <br />
+                <strong>ακίνητό σας</strong>
+              </h1>
+              <p className="lede">
+                Κατοικίες, επαγγελματικοί χώροι, γη και επενδυτικές ευκαιρίες με
+                επαγγελματική υποστήριξη σε κάθε βήμα.
+              </p>
+            </div>
+          </div>
 
           {/*
             A plain GET form. It works with JavaScript disabled, it is

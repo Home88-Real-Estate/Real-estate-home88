@@ -579,6 +579,43 @@ p { margin: 0 0 1em; }
   .hero__inner { padding-block: clamp(72px, 8vw, 118px) clamp(96px, 9vw, 132px); }
 }
 
+/* Mascot + copy row. The fox stands on the left, feet just above the search
+   panel, and the copy sits beside it; the search panel keeps the hero's left
+   edge underneath. On narrow screens the fox is hidden and the copy is a
+   plain column again. */
+.hero__lead { display: block; }
+.hero__mascot { display: none; }
+
+@media (min-width: 900px) {
+  .hero__lead {
+    display: flex;
+    align-items: flex-end;
+    gap: clamp(24px, 2.6vw, 48px);
+  }
+  .hero__mascot {
+    display: block;
+    flex: none;
+    width: clamp(240px, 21vw, 390px);
+    height: auto;
+    /* the tail may reach into the hero's side padding */
+    margin-left: calc(-1 * clamp(0px, 2.6vw, 48px));
+    margin-bottom: calc(-1 * clamp(6px, 1.2vw, 18px));
+    /* soft contact shadow under the paws, away from the sunset on the right */
+    filter: drop-shadow(-3px 6px 6px rgba(0, 12, 30, 0.45));
+  }
+  .hero__copy { min-width: 0; padding-bottom: 4px; }
+  /* the copy now starts further right, so the readable ramp extends with it */
+  .hero::before {
+    background: linear-gradient(
+      90deg,
+      rgba(3, 34, 65, 0.9) 0%,
+      rgba(3, 34, 65, 0.76) 38%,
+      rgba(3, 34, 65, 0.4) 64%,
+      rgba(3, 34, 65, 0.08) 100%
+    );
+  }
+}
+
 .hero__eyebrow {
   display: inline-block;
   font-size: 0.76rem;
