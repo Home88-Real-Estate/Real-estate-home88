@@ -173,3 +173,47 @@ export function smtpFromSettings(): Promise<SmtpSettings | null> {
     null,
   );
 }
+
+// --- Commissions -----------------------------------------------------------------
+
+export type CommissionRulesConfig = {
+  saleCommissionPct: number | null;
+  rentCommissionMonths: number | null;
+  assignmentCommissionPct: number | null;
+  buyerSidePct: number | null;
+  sellerSidePct: number | null;
+  minimumFee: number | null;
+  agentSharePct: number | null;
+  agencySharePct: number | null;
+  vatMode: string | null;
+  vatRatePct: number | null;
+};
+
+const numOrNull = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+
+/** Commission rules from Settings → Προμήθειες; every value stays null until HOME88 sets it. */
+export function commissionRules(): Promise<CommissionRulesConfig> {
+  const empty: CommissionRulesConfig = {
+    saleCommissionPct: null, rentCommissionMonths: null, assignmentCommissionPct: null, buyerSidePct: null,
+    sellerSidePct: null, minimumFee: null, agentSharePct: null, agencySharePct: null, vatMode: null, vatRatePct: null,
+  };
+  return safely(
+    "commission settings",
+    async () => {
+      const v = await settings().config("commissions");
+      return {
+        saleCommissionPct: numOrNull(v.saleCommissionPct),
+        rentCommissionMonths: numOrNull(v.rentCommissionMonths),
+        assignmentCommissionPct: numOrNull(v.assignmentCommissionPct),
+        buyerSidePct: numOrNull(v.buyerSidePct),
+        sellerSidePct: numOrNull(v.sellerSidePct),
+        minimumFee: numOrNull(v.minimumFee),
+        agentSharePct: numOrNull(v.agentSharePct),
+        agencySharePct: numOrNull(v.agencySharePct),
+        vatMode: str(v.vatMode),
+        vatRatePct: numOrNull(v.vatRatePct),
+      };
+    },
+    empty,
+  );
+}
