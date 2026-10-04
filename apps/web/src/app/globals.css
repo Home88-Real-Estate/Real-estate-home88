@@ -581,10 +581,35 @@ p { margin: 0 0 1em; }
 
 /* Mascot + copy row. The fox stands on the left, feet just above the search
    panel, and the copy sits beside it; the search panel keeps the hero's left
-   edge underneath. On narrow screens the fox is hidden and the copy is a
-   plain column again. */
-.hero__lead { display: block; }
-.hero__mascot { display: none; }
+   edge underneath. On narrow screens the fox shrinks and stands beside the
+   eyebrow and headline, and the lede runs full width underneath. */
+@media (max-width: 899px) {
+  .hero__lead {
+    display: grid;
+    grid-template-columns: clamp(120px, 34vw, 240px) minmax(0, 1fr);
+    column-gap: clamp(10px, 3vw, 24px);
+    align-items: end;
+  }
+  .hero__copy { display: contents; }
+  .hero__copy > .hero__eyebrow,
+  .hero__copy > .hero__rule { grid-column: 1 / -1; justify-self: start; }
+  .hero__mascot {
+    grid-column: 1;
+    grid-row: 3;
+    align-self: end;
+    width: 100%;
+    height: auto;
+    margin-left: -6px;
+    filter: drop-shadow(-2px 4px 4px rgba(0, 12, 30, 0.45));
+  }
+  .hero__copy > h1 {
+    grid-column: 2;
+    grid-row: 3;
+    margin-bottom: 0;
+    font-size: clamp(1.55rem, 0.9rem + 3.4vw, 2.6rem);
+  }
+  .hero__copy > .lede { grid-column: 1 / -1; margin-top: var(--space-4); }
+}
 
 @media (min-width: 900px) {
   .hero__lead {

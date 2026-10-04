@@ -126,7 +126,7 @@ export default async function HomePage() {
               className="hero__mascot"
               src="/images/fox/home88-fox-hero.webp"
               srcSet="/images/fox/home88-fox-hero-400.webp 406w, /images/fox/home88-fox-hero.webp 771w"
-              sizes="(min-width: 900px) 24vw, 0px"
+              sizes="(min-width: 900px) 21vw, 30vw"
               width={771}
               height={760}
               alt=""
