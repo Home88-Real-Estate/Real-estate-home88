@@ -1167,3 +1167,12 @@ button.ptoggle:focus-visible { outline: 3px solid var(--focus); outline-offset: 
 }
 .data th.nocase { text-transform: none; }
 .data td .mono { white-space: nowrap; }
+
+/* Documents & mandates */
+.upload--compact { display: flex; flex-wrap: wrap; gap: 6px; align-items: end; }
+.upload--compact .field { margin: 0; }
+.upload--compact .input[type="file"] { padding: 4px; font-size: 0.8rem; max-width: 240px; }
+.legaltext { white-space: pre-wrap; }
+/* Long values (emails, checksums) wrap instead of widening the page. */
+.dl dd { min-width: 0; overflow-wrap: anywhere; }
+.trx-side .dl { grid-template-columns: 110px minmax(0, 1fr); }

@@ -31,6 +31,7 @@ import {
   slugify,
   subscriptionCountdown,
   TEMPLATE_LOCALES,
+  validateTemplate,
   type AreaLevel,
   type SettingsSectionKey,
 } from "@home88/domain";
@@ -79,6 +80,15 @@ async function requireManage(request: FastifyRequest, key: SettingsSectionKey) {
 }
 
 const sha256 = (s: string) => createHash("sha256").update(s, "utf8").digest("hex");
+
+/** A template may only use the documented merge fields; a typo would print into a legal document. */
+function assertTemplateFields(body: string) {
+  const { unknown, unclosed } = validateTemplate(body);
+  if (unknown.length || unclosed) {
+    const parts = [unknown.length ? `άγνωστα πεδία: ${unknown.map((u) => `{{${u}}}`).join(", ")}` : "", unclosed ? "πεδίο χωρίς κλείσιμο }}" : ""].filter(Boolean);
+    throw badRequest(`Το κείμενο δεν αποθηκεύτηκε — ${parts.join(" · ")}.`, { body: [parts.join(" · ")] });
+  }
+}
 
 export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   app.addHook("preHandler", requireAuth);
@@ -652,6 +662,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     const type = parseInput(mandateTypeSchema, params.type);
     const locale = parseInput(templateLocaleSchema, params.locale);
     const input = parseInput(mandateTemplateDraftSchema, request.body);
+    assertTemplateFields(input.body);
     const actor = actorOf(request);
     const version = await db().$transaction(async (tx) => {
       const template = await tx.mandateTemplate.upsert({ where: { type_locale: { type, locale } }, create: { type, locale }, update: {} });
@@ -672,6 +683,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     await requireManage(request, "mandates");
     const { id } = request.params as { id: string };
     const input = parseInput(mandateTemplateDraftSchema, request.body);
+    assertTemplateFields(input.body);
     const version = await db().mandateTemplateVersion.findUnique({ where: { id }, include: { template: true } });
     if (!version) throw notFound("Η έκδοση δεν βρέθηκε.");
     if (version.status !== "DRAFT") throw conflict("Μόνο πρόχειρη έκδοση αλλάζει. Για αλλαγή σε ενεργό κείμενο δημιουργήστε νέα έκδοση.");
