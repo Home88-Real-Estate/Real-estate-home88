@@ -14,9 +14,15 @@ async function postJson(url: string, body: unknown): Promise<unknown> {
     headers: { "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify(body),
   });
-  const data = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+  const data = (await response.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
   if (!response.ok) {
-    const message = data?.error?.message ?? `Σφάλμα ${response.status}`;
+    if (response.status >= 500) console.error("Upload API error", response.status, url, data?.error);
+    const message =
+      data?.error?.code === "storage_unavailable"
+        ? "Ο χώρος αποθήκευσης αρχείων δεν έχει ρυθμιστεί. Ενημερώστε τον διαχειριστή."
+        : response.status === 413
+          ? "Το αρχείο υπερβαίνει το επιτρεπόμενο μέγεθος."
+          : (data?.error?.message ?? `Σφάλμα ${response.status}`);
     // 4xx (except timeouts and rate limits) will not get better by retrying.
     const retryable = response.status >= 500 || response.status === 408 || response.status === 429;
     throw retryable ? new Error(message) : new PermanentUploadError(message);
@@ -32,11 +38,18 @@ function putWithProgress(target: SignedPut, body: Blob, onProgress?: (f: number)
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable && onProgress) onProgress(event.loaded / event.total);
     };
-    xhr.onload = () =>
-      xhr.status >= 200 && xhr.status < 300
-        ? resolve()
-        : reject(new Error(`Η αποθήκευση απάντησε ${xhr.status}`));
-    xhr.onerror = () => reject(new Error("Διακοπή σύνδεσης"));
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) return resolve();
+      console.error("Storage PUT failed", xhr.status, xhr.responseText.slice(0, 300));
+      const error = new Error(`Ο χώρος αποθήκευσης απέρριψε το αρχείο (${xhr.status}).`);
+      reject(xhr.status === 403 || xhr.status === 400 ? new PermanentUploadError(error.message) : error);
+    };
+    // A blocked cross-origin PUT (bucket CORS) and a dropped connection look the
+    // same to the page; the console carries the browser's own explanation.
+    xhr.onerror = () => {
+      console.error("Storage PUT did not complete: network error or the bucket's CORS rules do not allow this origin.", new URL(target.url).origin);
+      reject(new Error("Δεν ήταν δυνατή η σύνδεση με τον χώρο αποθήκευσης."));
+    };
     xhr.ontimeout = () => reject(new Error("Λήξη χρόνου"));
     xhr.send(body);
   });
@@ -61,7 +74,8 @@ export function browserIO(propertyId: string): UploadIO {
     requestTicket: (input) => postJson(`${base}/uploads`, input) as ReturnType<UploadIO["requestTicket"]>,
     put: putWithProgress,
     confirm: async (input) => {
-      await postJson(`${base}/confirm`, input);
+      const data = (await postJson(`${base}/confirm`, input)) as { media?: { id?: string } } | null;
+      return { mediaId: data?.media?.id };
     },
     async makeVariants(file) {
       // Honours EXIF orientation, so phone photos are not stored sideways.
@@ -83,3 +97,21 @@ export function browserIO(propertyId: string): UploadIO {
   };
 }
 
+
+/**
+ * Stores the agent's order (sortOrder = position) and makes the first item the
+ * cover, so the gallery matches what the form showed even when a retried file
+ * was recorded last.
+ */
+export async function persistOrder(propertyId: string, mediaIds: string[]): Promise<void> {
+  if (mediaIds.length === 0) return;
+  const base = `${CRM_BASE_PATH}/api/properties/${encodeURIComponent(propertyId)}/media`;
+  await postJson(`${base}/reorder`, { ids: mediaIds });
+  const response = await fetch(`${base}/${encodeURIComponent(mediaIds[0]!)}`, {
+    method: "PATCH",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ isPrimary: true }),
+  });
+  if (!response.ok) throw new Error(`Σφάλμα ${response.status}`);
+}

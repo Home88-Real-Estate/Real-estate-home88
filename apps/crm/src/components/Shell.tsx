@@ -7,6 +7,7 @@ import { USER_ROLE_LABELS, label } from "@home88/types";
 
 import { logoutAction } from "@/actions/auth";
 import { CRM_BASE_PATH } from "@/lib/paths";
+import { activeGroup, activeHref, isGroup, navFor, type NavGroup, type NavLink } from "@/lib/nav";
 import { displayName, hasRole, type CurrentUser } from "@/lib/user";
 
 import { Icon, type IconName } from "./Icon";
@@ -14,24 +15,6 @@ import { Logo, MARK_WHITE } from "./Logo";
 import { ThemeToggle } from "./ThemeToggle";
 
 export type NavCounters = { properties: number; newLeads: number; dueTasks: number; newSubmissions?: number; unreadNotifications?: number } | null;
-
-type NavItem = {
-  href: string;
-  label: string;
-  icon: IconName;
-  min?: string;
-  count?: number;
-  hot?: boolean;
-  countTitle?: string;
-};
-
-/** Modules on the roadmap. Listed so the plan is visible; never linked to a fake screen. */
-const COMING_SOON: Array<{ label: string; icon: IconName }> = [
-  { label: "Διαφημίσεις", icon: "megaphone" },
-  { label: "Στατιστικά", icon: "chart" },
-  { label: "Μαζικό SMS", icon: "message" },
-  { label: "Ομάδες", icon: "team" },
-];
 
 const NAV_COOKIE = "h88_nav";
 
@@ -68,6 +51,25 @@ export function Shell({
   const [collapsed, setCollapsed] = useState(initiallyCollapsed);
   const userMenu = useRef<HTMLDetailsElement>(null);
 
+  const sections = navFor(user);
+  const current = activeHref(sections, pathname);
+  const currentGroup = activeGroup(sections, pathname);
+  const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set(currentGroup ? [currentGroup] : []));
+
+  // A deep link (or any navigation) opens the group that holds the page.
+  useEffect(() => {
+    if (currentGroup) setOpenGroups((prev) => (prev.has(currentGroup) ? prev : new Set(prev).add(currentGroup)));
+  }, [currentGroup]);
+
+  function toggleGroup(key: string) {
+    setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
   // Close the drawer and the user menu on navigation.
   useEffect(() => {
     setOpen(false);
@@ -100,81 +102,59 @@ export function Shell({
   }
 
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
+  const countOf = (link: NavLink) => (link.counter ? counters?.[link.counter] || 0 : 0);
 
-  const main: NavItem[] = [
-    {
-      href: "/",
-      label: "Αρχική",
-      icon: "home",
-    },
-    {
-      href: "/properties",
-      label: "Ακίνητα",
-      icon: "building",
-      count: counters?.properties,
-      countTitle: "Ακίνητα (χωρίς τα αρχειοθετημένα)",
-    },
-    {
-      href: "/leads",
-      label: "Leads",
-      icon: "inbox",
-      count: counters?.newLeads || undefined,
-      hot: true,
-      countTitle: "Νέα leads",
-    },
-    {
-      href: "/submissions",
-      label: "Αναθέσεις",
-      icon: "table",
-      count: counters?.newSubmissions || undefined,
-      hot: true,
-      countTitle: "Νέες υποβολές ιδιοκτητών από τον ιστότοπο",
-    },
-    { href: "/requests", label: "Ζητήσεις", icon: "search" },
-    { href: "/media", label: "Πολυμέσα", icon: "image" },
-    { href: "/sellers", label: "Ιδιοκτήτες", icon: "team" },
-    { href: "/valuations", label: "Εκτιμήσεις", icon: "barChart" },
-    { href: "/mandates", label: "Ψηφιακές Εντολές", icon: "mandate" },
-    { href: "/transactions", label: "Συναλλαγές", icon: "key" },
-    { href: "/calendar", label: "Ημερολόγιο", icon: "calendar" },
-    {
-      href: "/reminders",
-      label: "Υπενθυμίσεις",
-      icon: "bell",
-      count: counters?.dueTasks || undefined,
-      hot: true,
-      countTitle: "Υπενθυμίσεις για σήμερα ή εκπρόθεσμες",
-    },
-    { href: "/contacts", label: "Πελάτες", icon: "users" },
-    { href: "/documents", label: "Έγγραφα", icon: "lock" },
-    { href: "/messages", label: "Επικοινωνία", icon: "message" },
-  ];
-  const admin: NavItem[] = (
-    [
-      { href: "/users", label: "Χρήστες", icon: "userCog", min: "MANAGER" },
-      { href: "/connections", label: "Συνδέσεις", icon: "plug", min: "MANAGER" },
-      { href: "/invitations", label: "Προσκλήσεις", icon: "send", min: "ADMIN" },
-    ] satisfies NavItem[]
-  ).filter((item) => hasRole(user.role, item.min));
-  if (user.canOpenSettings) admin.push({ href: "/settings", label: "Ρυθμίσεις", icon: "sliders" });
+  const renderLink = (link: NavLink, child = false) => {
+    const count = countOf(link);
+    return (
+      <Link
+        key={link.href}
+        href={link.href}
+        className={child ? "nav__item nav__item--child" : "nav__item"}
+        aria-current={current === link.href ? "page" : undefined}
+        title={collapsed ? link.label : undefined}
+      >
+        <Icon name={link.icon} size={child ? 16 : 20} />
+        <span className="nav__text">{link.label}</span>
+        {count > 0 && (
+          <span className="nav__count nav__count--hot" title={link.counterTitle}>
+            {formatCount(count)}
+          </span>
+        )}
+      </Link>
+    );
+  };
 
-  const renderItem = (item: NavItem) => (
-    <Link
-      key={item.href}
-      href={item.href}
-      className="nav__item"
-      aria-current={isActive(item.href) ? "page" : undefined}
-      title={collapsed ? item.label : undefined}
-    >
-      <Icon name={item.icon} />
-      <span className="nav__text">{item.label}</span>
-      {item.count !== undefined && (
-        <span className={item.hot ? "nav__count nav__count--hot" : "nav__count"} title={item.countTitle}>
-          {formatCount(item.count)}
-        </span>
-      )}
-    </Link>
-  );
+  const renderGroup = (group: NavGroup) => {
+    const expanded = openGroups.has(group.key);
+    const holdsCurrent = currentGroup === group.key;
+    // While closed, the group carries its children's actionable counts.
+    const hidden = expanded ? 0 : group.children.reduce((sum, child) => sum + countOf(child), 0);
+    const id = `nav-group-${group.key}`;
+    return (
+      <div key={group.key} className="nav__group" data-open={expanded}>
+        <button
+          type="button"
+          className="nav__item nav__parent"
+          data-active={holdsCurrent || undefined}
+          aria-expanded={expanded}
+          aria-controls={id}
+          onClick={() => toggleGroup(group.key)}
+          title={collapsed ? group.label : undefined}
+        >
+          <Icon name={group.icon} />
+          <span className="nav__text">{group.label}</span>
+          {hidden > 0 && <span className="nav__count nav__count--hot">{formatCount(hidden)}</span>}
+          <Icon name="chevronDown" size={14} className="nav__chev" />
+        </button>
+        {expanded && (
+          <div className="nav__children" id={id} role="group" aria-label={group.label}>
+            {group.children.map((child) => renderLink(child, true))}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const roleText = label(USER_ROLE_LABELS, user.role, "el");
 
@@ -207,33 +187,11 @@ export function Shell({
         </div>
 
         <div className="nav__scroll">
-          <nav aria-label="Ενότητες">{main.map(renderItem)}</nav>
-
-          {admin.length > 0 && (
-            <>
-              <p className="nav__label">Διαχείριση</p>
-              <nav aria-label="Διαχείριση">{admin.map(renderItem)}</nav>
-            </>
-          )}
-
-          <details className="nav__soon">
-            <summary title={collapsed ? "Σύντομα διαθέσιμα" : undefined}>
-              <span>Σύντομα διαθέσιμα</span>
-              <Icon name="chevronDown" size={14} />
-            </summary>
-            {COMING_SOON.map((item) => (
-              <div
-                key={item.label}
-                className="nav__item nav__item--soon"
-                aria-disabled="true"
-                title={`${item.label} — σύντομα`}
-              >
-                <Icon name={item.icon} />
-                <span className="nav__text">{item.label}</span>
-                <span className="nav__pill">Σύντομα</span>
-              </div>
-            ))}
-          </details>
+          {sections.map((section, index) => (
+            <nav key={section.key} aria-label={section.label} className={index ? "nav__section nav__section--sep" : "nav__section"}>
+              {section.entries.map((entry) => (isGroup(entry) ? renderGroup(entry) : renderLink(entry)))}
+            </nav>
+          ))}
         </div>
 
         <div className="nav__footer">
@@ -250,15 +208,6 @@ export function Shell({
               <Icon name="external" size={14} className="nav__text nav__ext" />
             </a>
           )}
-          <Link
-            href="/security"
-            className="nav__item"
-            aria-current={isActive("/security") ? "page" : undefined}
-            title={collapsed ? "Ασφάλεια" : undefined}
-          >
-            <Icon name="shield" />
-            <span className="nav__text">Ασφάλεια</span>
-          </Link>
           <div className="nav__user">
             <span className="nav__avatar" aria-hidden="true">
               {initials(user)}

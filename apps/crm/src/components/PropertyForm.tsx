@@ -14,9 +14,9 @@ import { useRouter } from "next/navigation";
 
 import { createPropertyForUpload } from "@/actions/properties";
 import { PendingMedia, type PendingFile } from "@/components/PendingMedia";
-import { browserIO } from "@/lib/browser-upload";
+import { browserIO, persistOrder } from "@/lib/browser-upload";
 import { uploadAll, type UploadUpdate } from "@/lib/upload-queue";
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import {
   CONDITION_LABELS,
   CORE_FIELDS,
@@ -106,12 +106,15 @@ export function PropertyForm({
   initial,
   submitLabel,
   withPhotos = false,
+  maxUploadBytes = 25 * 1024 * 1024,
 }: {
   action: (state: ActionState, formData: FormData) => Promise<ActionState>;
   initial?: Initial;
   submitLabel: string;
   /** New-property form only: lets the agent pick photos that upload right after the property is saved. */
   withPhotos?: boolean;
+  /** The API's per-file limit (MAX_UPLOAD_BYTES). */
+  maxUploadBytes?: number;
 }) {
   const router = useRouter();
   const [state, formAction, pending] = useActionState(action, idleState);
@@ -122,6 +125,7 @@ export function PropertyForm({
   const [created, setCreated] = useState<string | null>(null);
   const [progress, setProgress] = useState<Record<string, UploadUpdate> | undefined>(undefined);
   const [outcome, setOutcome] = useState<{ done: number; failed: number } | null>(null);
+  const [orderFailed, setOrderFailed] = useState(false);
 
   // Leaving mid-upload would abandon files that are only in memory.
   useEffect(() => {
@@ -131,13 +135,30 @@ export function PropertyForm({
     return () => window.removeEventListener("beforeunload", warn);
   }, [saving]);
 
+  // Latest per-file state, readable right after the uploads resolve.
+  const progressRef = useRef<Record<string, UploadUpdate>>({});
+
   async function runUploads(propertyId: string, list: PendingFile[]) {
     const io = browserIO(propertyId);
-    // One at a time, in the agent's order: the first confirmed photo becomes the cover.
-    const result = await uploadAll(io, list.map((p) => p.file), undefined, (index, update) =>
-      setProgress((cur) => ({ ...(cur ?? {}), [list[index]!.id]: update })), 1);
-    setOutcome((cur) => ({ done: (cur?.done ?? 0) + result.done, failed: result.failed }));
-    return result;
+    // Two at a time; the stored order is set explicitly once everything is in.
+    const result = await uploadAll(io, list.map((p) => p.file), "PHOTO", (index, update) => {
+      progressRef.current = { ...progressRef.current, [list[index]!.id]: update };
+      setProgress(progressRef.current);
+    }, 2);
+    let failed = result.failed;
+    if (failed === 0) {
+      // Every photo is recorded: store the form's order and its first photo as the cover.
+      const ids = photos.map((p) => progressRef.current[p.id]?.mediaId);
+      try {
+        if (ids.every((mediaId): mediaId is string => Boolean(mediaId))) await persistOrder(propertyId, ids);
+      } catch (error) {
+        console.error("Saving the photo order failed", error);
+        setOrderFailed(true);
+        failed = -1;
+      }
+    }
+    setOutcome((cur) => ({ done: (cur?.done ?? 0) + result.done, failed: Math.max(0, failed) }));
+    return { ...result, failed };
   }
 
   /**
@@ -157,6 +178,7 @@ export function PropertyForm({
       return;
     }
     setCreated(result.propertyId);
+    progressRef.current = {};
     setProgress({});
     const uploaded = await runUploads(result.propertyId, photos);
     setSaving(false);
@@ -377,7 +399,15 @@ export function PropertyForm({
       {withPhotos && (
         <section className="panel">
           <h2>Φωτογραφίες</h2>
-          <PendingMedia files={photos} onChange={setPhotos} progress={progress} disabled={saving || created !== null} />
+          <PendingMedia files={photos} onChange={setPhotos} progress={progress} disabled={saving || created !== null} maxBytes={maxUploadBytes} />
+          {created && orderFailed && !saving && (
+            <div className="notice notice--warn" role="alert">
+              Όλες οι φωτογραφίες ανέβηκαν, αλλά η σειρά και το εξώφυλλο δεν αποθηκεύτηκαν. Ορίστε τα από τη σελίδα του ακινήτου.
+              <div style={{ marginTop: 8 }}>
+                <button type="button" className="btn btn--primary btn--sm" onClick={() => router.push(`/properties/${created}`)}>Μετάβαση στο ακίνητο</button>
+              </div>
+            </div>
+          )}
           {created && outcome && outcome.failed > 0 && !saving && (
             <div className="notice notice--warn" role="alert">
               Το ακίνητο αποθηκεύτηκε, αλλά {outcome.failed} αρχεία δεν ανέβηκαν. Δεν θα δημιουργηθεί δεύτερο ακίνητο.

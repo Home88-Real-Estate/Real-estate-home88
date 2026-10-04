@@ -4,6 +4,12 @@ import { saveProperty } from "@/actions/properties";
 import { PropertyForm } from "@/components/PropertyForm";
 import { requireRole } from "@/lib/session";
 
+/** Same variable and default as the API's MAX_UPLOAD_BYTES, which enforces it. */
+function maxUploadBytes(): number {
+  const value = Number(process.env.MAX_UPLOAD_BYTES);
+  return Number.isInteger(value) && value >= 1024 ? value : 26214400;
+}
+
 export default async function NewPropertyPage() {
   await requireRole("AGENT");
 
@@ -16,7 +22,7 @@ export default async function NewPropertyPage() {
         </Link>
       </div>
 
-      <PropertyForm action={saveProperty} submitLabel="Αποθήκευση ακινήτου" withPhotos />
+      <PropertyForm action={saveProperty} submitLabel="Αποθήκευση ακινήτου" withPhotos maxUploadBytes={maxUploadBytes()} />
     </>
   );
 }

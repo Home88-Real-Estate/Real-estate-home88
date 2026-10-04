@@ -35,7 +35,7 @@ export type UploadIO = {
     kind?: string;
     hasPreview: boolean;
     hasThumbnail: boolean;
-  }): Promise<void>;
+  }): Promise<{ mediaId?: string } | void>;
   makeVariants(file: File): Promise<Variants>;
   /** Resolves when the device is (back) online. */
   waitForOnline(): Promise<void>;
@@ -47,7 +47,7 @@ export class PermanentUploadError extends Error {}
 
 export type UploadState = "queued" | "preparing" | "uploading" | "confirming" | "done" | "failed";
 
-export type UploadUpdate = { state: UploadState; progress: number; message?: string };
+export type UploadUpdate = { state: UploadState; progress: number; message?: string; mediaId?: string };
 
 export async function withRetry<T>(
   io: Pick<UploadIO, "waitForOnline" | "sleep">,
@@ -122,10 +122,10 @@ export async function uploadOne(
   }
 
   update({ state: "confirming", progress: 1 });
-  await withRetry(io, () =>
+  const confirmed = await withRetry(io, () =>
     io.confirm({ storageKey: ticket.storageKey, fileName: file.name, kind, hasPreview, hasThumbnail }),
   );
-  update({ state: "done", progress: 1 });
+  update({ state: "done", progress: 1, mediaId: confirmed ? confirmed.mediaId : undefined });
 }
 
 /** Runs uploads with limited parallelism; one failure does not stop the rest. */
