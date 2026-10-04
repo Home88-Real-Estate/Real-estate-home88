@@ -406,7 +406,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
       { key: "workdayEnd", label: "Λήξη", type: "time", group: "Ωράριο", appliesIn: "Φάση 3" },
       { key: "viewingMinutes", label: "Διάρκεια υπόδειξης (λεπτά)", type: "int", min: 10, maxValue: 480, group: "Διάρκειες", default: 30, help: "Προτείνεται στη φόρμα νέου ραντεβού." },
       { key: "defaultAppointmentMinutes", label: "Διάρκεια άλλων ραντεβού (λεπτά)", type: "int", min: 10, maxValue: 480, group: "Διάρκειες", default: 30, appliesIn: "Φάση 3" },
-      { key: "reminderMinutesBefore", label: "Υπενθύμιση πριν το ραντεβού (λεπτά)", type: "int", min: 0, maxValue: 10080, group: "Υπενθυμίσεις", appliesIn: "Φάση 6" },
+      { key: "reminderMinutesBefore", label: "Υπενθύμιση πριν το ραντεβού (λεπτά)", type: "int", min: 0, maxValue: 10080, group: "Υπενθυμίσεις" },
       { key: "enabledEventCategories", label: "Κατηγορίες συμβάντων", type: "multiselect", group: "Συμβάντα", options: CALENDAR_EVENT_CATEGORIES, default: CALENDAR_EVENT_CATEGORIES.map((c) => c.value), appliesIn: "Φάση 3" },
     ],
   },
@@ -475,8 +475,8 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
       { key: "fromName", label: "Όνομα αποστολέα", type: "text", max: 120, group: "Αποστολέας" },
       { key: "fromEmail", label: "Email αποστολέα", type: "email", max: 160, group: "Αποστολέας" },
       { key: "replyTo", label: "Reply-to", type: "email", max: 160, group: "Αποστολέας" },
-      { key: "disclaimerEl", label: "Μήνυμα disclaimer (Ελληνικά)", type: "textarea", max: 2000, group: "Υποσέλιδο", appliesIn: "Φάση 6" },
-      { key: "disclaimerEn", label: "Μήνυμα disclaimer (English)", type: "textarea", max: 2000, group: "Υποσέλιδο", appliesIn: "Φάση 6" },
+      { key: "disclaimerEl", label: "Μήνυμα disclaimer (Ελληνικά)", type: "textarea", max: 2000, group: "Υποσέλιδο" },
+      { key: "disclaimerEn", label: "Μήνυμα disclaimer (English)", type: "textarea", max: 2000, group: "Υποσέλιδο" },
     ],
   },
   {
@@ -677,6 +677,7 @@ export const NOTIFICATION_EVENTS = [
   opt("OFFER", "Προσφορά"),
   opt("TRANSACTION", "Συναλλαγή"),
   opt("TASK_DUE", "Εργασία προς λήξη"),
+  opt("PORTAL_FAILED", "Αποτυχία δημοσίευσης σε portal"),
 ] as const;
 
 /** In-CRM notices are on by default; email and SMS stay off until switched on. */

@@ -1187,3 +1187,18 @@ button.ptoggle:focus-visible { outline: 3px solid var(--focus); outline-offset: 
 /* Long values (emails, checksums) wrap instead of widening the page. */
 .dl dd { min-width: 0; overflow-wrap: anywhere; }
 .trx-side .dl { grid-template-columns: 110px minmax(0, 1fr); }
+
+/* Notifications & messages */
+.topbar__bell { position: relative; }
+.topbar__badge { position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--danger); color: #fff; font-size: 0.7rem; font-weight: 700; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
+.notif { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.notif:last-child { border-bottom: 0; }
+.notif.is-unread { background: color-mix(in srgb, var(--brand) 6%, transparent); }
+.notif.is-unread .notif__title { font-weight: 650; }
+.notif__dot { width: 8px; height: 8px; border-radius: 50%; background: transparent; }
+.notif.is-unread .notif__dot { background: var(--brand); }
+.msg { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; display: grid; gap: 4px; }
+.msg + .msg { margin-top: 8px; }
+.msg__head { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 0.82rem; }
+.msg__body { white-space: pre-wrap; font-size: 0.88rem; margin: 0; color: var(--ink-2); }
+.compose__meta { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 0.8rem; color: var(--ink-muted); }

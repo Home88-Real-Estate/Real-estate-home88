@@ -313,6 +313,7 @@ enum AuditEntity {
   SELLER_LEAD
   VALUATION
   MANDATE
+  MESSAGE
 }
 
 // ---------------------------------------------------------------------------
@@ -372,6 +373,7 @@ model User {
   sellerLeads         SellerLead[]         @relation("SellerLeadAgent")
   valuations          Valuation[]          @relation("ValuationAgent")
   mandates            Mandate[]            @relation("MandateAgent")
+  messagesSent        Message[]            @relation("MessageSender")
   auditLogs           AuditLog[]
   consents            ConsentRecord[]
   createdBy           User?                @relation("UserCreatedBy", fields: [createdById], references: [id])
@@ -501,6 +503,9 @@ model Contact {
   uploadedMedia      PropertyMedia[]
 
   marketingOptOutAt  DateTime?
+  /// Set when the person replied STOP or asked for no SMS.
+  smsOptOutAt        DateTime?
+  messages           Message[]
   erasureRequestedAt DateTime?
   retentionExpiresAt DateTime?
 
@@ -607,6 +612,7 @@ model Property {
   valuations        Valuation[]
   comparableIn      ValuationComparable[]
   mandates          Mandate[]
+  messages          Message[]
   documents         Document[]
   portalListings    PortalListing[]
   tagAssignments    PropertyTagAssignment[]
@@ -876,7 +882,9 @@ model Viewing {
   agentId String
   agent   User   @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
-  tasks Task[]
+  tasks          Task[]
+  /// When the agent was reminded of the appointment (sent once).
+  reminderSentAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1011,6 +1019,9 @@ model Task {
   property   Property? @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   viewingId  String?
   viewing    Viewing?  @relation(fields: [viewingId], references: [id], onDelete: Cascade)
+
+  /// When the assignee was told the task is due (sent once).
+  dueNotifiedAt DateTime?
 
   createdById String?
   createdAt   DateTime @default(now())
@@ -2535,4 +2546,76 @@ model MandateEvent {
 
   @@index([mandateId, createdAt])
   @@map("mandate_events")
+}
+
+// ---------------------------------------------------------------------------
+// Client communications (Phase 5)
+// ---------------------------------------------------------------------------
+
+/// A message template written by HOME88 (the system ships none).
+model MessageTemplate {
+  id      String  @id @default(cuid())
+  name    String
+  /// EMAIL or SMS.
+  channel String
+  /// SERVICE or MARKETING.
+  purpose String  @default("SERVICE")
+  locale  String  @default("el")
+  subject String?
+  body    String
+  active  Boolean @default(true)
+
+  messages Message[]
+
+  createdById String?
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([channel, active])
+  @@map("message_templates")
+}
+
+/// Every email or SMS sent to a client from the CRM, including the ones the
+/// rules blocked. Address and body are personal data and stored encrypted.
+model Message {
+  id      String @id @default(cuid())
+  /// EMAIL or SMS.
+  channel String
+  /// SERVICE or MARKETING.
+  purpose String
+  /// SENT, LOGGED (no provider), FAILED or BLOCKED.
+  status  String
+
+  contactId     String?
+  contact       Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  propertyId    String?
+  property      Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  /// Optional context the message was sent from.
+  leadId        String?
+  transactionId String?
+  sellerLeadId  String?
+  viewingId     String?
+
+  templateId String?
+  template   MessageTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  toEncrypted       String?
+  subject           String?
+  bodyEncrypted     String?
+  segments          Int?
+  emailLogId        String?
+  providerMessageId String?
+  error             String?
+
+  sentById  String?
+  sentBy    User?     @relation("MessageSender", fields: [sentById], references: [id], onDelete: SetNull)
+  sentAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([contactId, createdAt])
+  @@index([propertyId])
+  @@index([status, createdAt])
+  @@index([providerMessageId])
+  @@map("messages")
 }

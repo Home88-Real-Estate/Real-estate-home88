@@ -9,6 +9,7 @@ import { clientIp, parseInput, userAgent } from "../lib/http";
 import { db } from "../lib/prisma";
 import { allocateReference } from "../lib/references";
 import { requireRole } from "../plugins/auth";
+import { notify } from "../lib/notify";
 
 const LEAD_STATUSES = [
   "NEW", "CONTACTED", "QUALIFIED", "VIEWING", "OFFER", "WON", "LOST", "NOT_INTERESTED",
@@ -156,6 +157,9 @@ export async function leadRoutes(app: FastifyInstance): Promise<void> {
       },
       { isolationLevel: "Serializable" },
     );
+    if (lead.assignedToId && lead.assignedToId !== actor.id) {
+      await notify({ event: "LEAD_NEW", title: `Νέο lead ${lead.reference}`, entityType: "LEAD", entityId: lead.id, userIds: [lead.assignedToId], link: `/leads/${lead.id}` });
+    }
 
     reply.code(201);
     return { lead };

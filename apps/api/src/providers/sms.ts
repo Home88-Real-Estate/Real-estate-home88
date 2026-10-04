@@ -1,6 +1,7 @@
 /**
  * SMS providers. No vendor adapter is installed yet: until HOME88 chooses a
- * provider, sending is refused with a clear error and nothing is queued.
+ * provider, sending is refused with a clear error and nothing is queued. An
+ * adapter must verify webhook signatures before reporting anything handled.
  */
 
 import { settings } from "../settings";
@@ -23,7 +24,15 @@ function notConfigured(provider: string | null, state: ProviderHealth["state"]):
   };
 }
 
+let override: SmsProvider | null = null;
+
+/** Test seam: a fake provider. `null` restores the configured one. */
+export function setSmsProvider(next: SmsProvider | null): void {
+  override = next;
+}
+
 export async function resolveSmsProvider(): Promise<SmsProvider> {
+  if (override) return override;
   let provider: string | null = null;
   try {
     const v = await settings().config("sms");

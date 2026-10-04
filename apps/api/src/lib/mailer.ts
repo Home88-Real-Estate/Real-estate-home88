@@ -31,6 +31,7 @@ export type SendMailInput = {
   template?: string;
   consentRecordId?: string | null;
   metadata?: Record<string, unknown>;
+  headers?: Record<string, string>;
 };
 
 export type SendMailResult =
@@ -67,7 +68,7 @@ export async function sendMail(input: SendMailInput): Promise<SendMailResult> {
   });
 
   const provider = await resolveEmailProvider();
-  const result = await provider.send({ to, subject: input.subject, text: input.text, html: input.html });
+  const result = await provider.send({ to, subject: input.subject, text: input.text, html: input.html, headers: input.headers });
   if (!result.delivered) {
     console.log(`[home88:api] (log-only) ${input.category} -> ${redactEmail(to)}: ${input.subject}`);
     return { ok: true, emailLogId: log.id, delivered: false };

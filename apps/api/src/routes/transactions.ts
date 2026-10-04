@@ -28,6 +28,7 @@ import {
 } from "@home88/domain";
 
 import { writeAudit } from "../lib/audit";
+import { notify } from "../lib/notify";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors";
 import { clientIp, parseInput, userAgent } from "../lib/http";
 import { db } from "../lib/prisma";
@@ -128,6 +129,12 @@ async function event(
   await tx.transactionEvent.create({
     data: { transactionId, type, summary, data: data as Prisma.InputJsonValue | undefined, actorId: actor.id, actorName: nameOf(actor) },
   });
+}
+
+/** Tell the transaction's agent about something someone else did on it. */
+async function notifyAgent(trx: { id: string; agentId: string | null }, actor: Actor, event: "OFFER" | "TRANSACTION", title: string) {
+  if (!trx.agentId || trx.agentId === actor.id) return;
+  await notify({ event, title, entityType: "TRANSACTION", entityId: trx.id, userIds: [trx.agentId], link: `/transactions/${trx.id}` });
 }
 
 function meta(request: FastifyRequest) {
@@ -379,6 +386,7 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
       return offer;
     });
     await writeAudit({ entity: "OFFER", entityId: result.id, action: "create", changes: { amount: input.amount, party: input.party, round: result.round }, actorId: actor.id, ...meta(request) });
+    await notifyAgent(trx, actor, "OFFER", `${trx.reference}: νέα ${input.party === "SELLER" ? "αντιπρόταση ιδιοκτήτη" : "προσφορά"} ${fmt(input.amount)}`);
     return { offer: { id: result.id, reference: result.reference, round: result.round } };
   });
 
@@ -411,6 +419,7 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
       }
     });
     await writeAudit({ entity: "OFFER", entityId: offerId, action: status.toLowerCase(), changes: { status }, actorId: actor.id, ...meta(request) });
+    await notifyAgent(trx, actor, "OFFER", `${trx.reference}: η προσφορά ${fmt(amount)} — ${OFFER_STATUS_LABELS[status] ?? status}`);
     return { ok: true };
   });
 
@@ -444,6 +453,7 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
       }
     });
     await writeAudit({ entity: "TRANSACTION", entityId: id, action: "status", changes: { from: trx.status, to: input.status }, actorId: actor.id, ...meta(request) });
+    await notifyAgent(trx, actor, "TRANSACTION", `${trx.reference}: ${TRANSACTION_STATUS_LABELS[trx.status as keyof typeof TRANSACTION_STATUS_LABELS]} → ${TRANSACTION_STATUS_LABELS[input.status]}`);
     return { ok: true };
   });
 

@@ -8,3 +8,4 @@ export * from "./settings-catalog";
 export * from "./commission";
 export * from "./valuation";
 export * from "./mandate";
+export * from "./communications";
