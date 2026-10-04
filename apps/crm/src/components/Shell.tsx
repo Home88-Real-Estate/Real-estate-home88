@@ -13,7 +13,7 @@ import { Icon, type IconName } from "./Icon";
 import { Logo, MARK_WHITE } from "./Logo";
 import { ThemeToggle } from "./ThemeToggle";
 
-export type NavCounters = { properties: number; newLeads: number; dueTasks: number; newSubmissions?: number } | null;
+export type NavCounters = { properties: number; newLeads: number; dueTasks: number; newSubmissions?: number; unreadNotifications?: number } | null;
 
 type NavItem = {
   href: string;
@@ -149,6 +149,7 @@ export function Shell({
     },
     { href: "/contacts", label: "Πελάτες", icon: "users" },
     { href: "/documents", label: "Έγγραφα", icon: "lock" },
+    { href: "/messages", label: "Επικοινωνία", icon: "message" },
   ];
   const admin: NavItem[] = (
     [
@@ -290,6 +291,17 @@ export function Shell({
             <Link href="/properties/new" className="btn btn--primary btn--sm topbar__new">
               <Icon name="plus" size={16} />
               Νέο ακίνητο
+            </Link>
+          )}
+          {hasRole(user.role, "AGENT") && (
+            <Link
+              href="/notifications"
+              className="icon-btn topbar__bell"
+              aria-label={counters?.unreadNotifications ? `Ειδοποιήσεις: ${counters.unreadNotifications} νέες` : "Ειδοποιήσεις"}
+              aria-current={isActive("/notifications") ? "page" : undefined}
+            >
+              <Icon name="bell" />
+              {counters?.unreadNotifications ? <span className="topbar__badge">{counters.unreadNotifications > 99 ? "99+" : counters.unreadNotifications}</span> : null}
             </Link>
           )}
           <ThemeToggle />

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { SELLER_STAGE_LABELS } from "@home88/domain";
 
+import { ContactCommunication } from "@/components/messages/ContactCommunication";
 import { OwnerReport } from "@/components/sellers/OwnerReport";
 import { StatusBadge } from "@/components/StatusBadge";
 import { apiFetch } from "@/lib/api";
@@ -135,6 +136,8 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
           </div>
         </div>
       )}
+
+      <ContactCommunication contactId={c.id} />
 
       {c.properties.length > 0 && <OwnerReport contactId={c.id} />}
 

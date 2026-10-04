@@ -27,7 +27,15 @@ export type ProviderHealth = { state: ProviderState; provider: string | null; de
  * and `status` (SENT, VIEWED, SIGNED, DECLINED, EXPIRED) move the mandate.
  * Adapters must verify the vendor's signature before returning handled: true.
  */
-export type WebhookResult = { handled: boolean; status?: string; envelopeId?: string };
+export type WebhookResult = {
+  handled: boolean;
+  status?: string;
+  envelopeId?: string;
+  /** SMS: a verified inbound reply (STOP handling). */
+  inbound?: { from: string; text: string };
+  /** Email/SMS: a verified delivery report for a message the CRM sent. */
+  delivery?: { providerMessageId: string; status: "DELIVERED" | "FAILED"; detail?: string };
+};
 
 export class ProviderNotConfiguredError extends Error {
   constructor(kind: string) {
@@ -44,6 +52,8 @@ export type OutboundEmail = {
   text: string;
   html?: string;
   replyTo?: string | null;
+  /** Extra headers, e.g. List-Unsubscribe for marketing mail (RFC 8058). */
+  headers?: Record<string, string>;
 };
 
 export type EmailSendResult = { delivered: boolean; providerMessageId: string | null };

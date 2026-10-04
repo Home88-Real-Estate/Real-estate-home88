@@ -30,6 +30,7 @@ import { loadCandidateContext, loadTagCodes } from "./portal-distribution";
 import { notFound } from "./errors";
 import { mediaBase, toPortalProperty } from "./portal-map";
 import { db } from "./prisma";
+import { notify } from "./notify";
 
 export function portalConfigFromRow(portal: Portal): PortalConfig {
   return {
@@ -245,6 +246,11 @@ export async function syncPropertyPortals(
 
       return saved;
     });
+
+    // A listing parked for review needs a person; tell the managers once, when it is parked.
+    if (!ok && retry?.action === "DEAD_LETTER" && !existing?.needsReview) {
+      await notify({ event: "PORTAL_FAILED", title: `Αποτυχία δημοσίευσης στο ${portal.name}: χρειάζεται έλεγχο`, entityType: "PROPERTY", entityId: propertyId, link: `/properties/${propertyId}` });
+    }
 
     await writeAudit({
       entity: "PORTAL_LISTING",

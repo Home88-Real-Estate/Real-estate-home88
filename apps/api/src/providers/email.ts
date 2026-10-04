@@ -53,6 +53,7 @@ export function createSmtpEmailProvider(cfg: SmtpProviderConfig): EmailProvider 
         subject: message.subject,
         text: message.text,
         html: message.html,
+        headers: message.headers,
       });
       return { delivered: true, providerMessageId: info.messageId ?? null };
     },
@@ -95,7 +96,15 @@ function smtpFromEnvironment(): SmtpProviderConfig | null {
   };
 }
 
+let override: EmailProvider | null = null;
+
+/** Test seam: a fake provider. `null` restores the configured one. */
+export function setEmailProvider(next: EmailProvider | null): void {
+  override = next;
+}
+
 export async function resolveEmailProvider(): Promise<EmailProvider> {
+  if (override) return override;
   const fromSettings = await smtpFromSettings();
   if (fromSettings) return createSmtpEmailProvider({ ...fromSettings, source: "settings" });
   const fromEnv = smtpFromEnvironment();

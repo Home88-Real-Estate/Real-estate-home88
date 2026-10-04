@@ -15,6 +15,7 @@ import { badRequest, forbidden, notFound } from "../lib/errors";
 import { clientIp, parseInput, userAgent } from "../lib/http";
 import { db } from "../lib/prisma";
 import { requireRole, roleAtLeast } from "../plugins/auth";
+import { notify } from "../lib/notify";
 
 const STATUSES = ["SCHEDULED", "COMPLETED", "CANCELLED", "NO_SHOW"] as const;
 
@@ -133,6 +134,10 @@ export async function viewingRoutes(app: FastifyInstance): Promise<void> {
       ipAddress: clientIp(request),
       userAgent: userAgent(request),
     });
+    if (agentId !== actor.id) {
+      const when = new Intl.DateTimeFormat("el-GR", { timeZone: "Europe/Athens", dateStyle: "short", timeStyle: "short" }).format(input.startsAt);
+      await notify({ event: "VIEWING", title: `Νέο ραντεβού ${when} για ${input.propertyReference}`, entityType: "VIEWING", entityId: viewing.id, userIds: [agentId], link: "/calendar" });
+    }
     reply.code(201);
     return { viewing };
   });

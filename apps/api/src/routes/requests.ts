@@ -28,6 +28,7 @@ import { db } from "../lib/prisma";
 import { allocateReference } from "../lib/references";
 import { requestConfig } from "../settings";
 import { requireRole, roleAtLeast } from "../plugins/auth";
+import { notify } from "../lib/notify";
 
 const LISTING_TYPES = ["SALE", "RENT", "ASSIGNMENT"] as const;
 const PROPERTY_TYPES = [
@@ -274,6 +275,9 @@ export async function requestRoutes(app: FastifyInstance): Promise<void> {
       },
       { isolationLevel: "Serializable" },
     );
+    if (created.assignedToId && created.assignedToId !== actor.id) {
+      await notify({ event: "REQUEST_NEW", title: `Νέα ζήτηση ${created.reference}`, entityType: "REQUEST", entityId: created.id, userIds: [created.assignedToId], link: `/requests/${created.id}` });
+    }
     reply.code(201);
     return { request: created };
   });

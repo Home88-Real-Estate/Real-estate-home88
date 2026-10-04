@@ -32,7 +32,7 @@ import {
 import { writeAudit } from "../lib/audit";
 import { badRequest, conflict, notFound } from "../lib/errors";
 import { clientIp, parseInput, userAgent } from "../lib/http";
-import { decryptField, encryptField, hasEncryptionKey, hashEmail } from "../lib/pii";
+import { decryptField, encryptField, hasEncryptionKey, hashEmail, hashPhone } from "../lib/pii";
 import { db } from "../lib/prisma";
 import { allocateReference } from "../lib/references";
 import { requireRole, roleAtLeast } from "../plugins/auth";
@@ -268,6 +268,7 @@ export async function sellerRoutes(app: FastifyInstance): Promise<void> {
               emailHash,
               emailEncrypted: encryptField(input.email),
               phoneEncrypted: encryptField(input.phone),
+              phoneHash: hashPhone(input.phone),
             },
             select: { id: true },
           });

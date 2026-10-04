@@ -91,6 +91,10 @@ const schema = z.object({
   PII_ENCRYPTION_KEY: z.string().default(""),
   UNSUBSCRIBE_SECRET: z.string().default(""),
 
+  // --- Scheduled jobs ---------------------------------------------------------
+  /** Bearer token the scheduler sends to /api/cron/*. Empty = jobs refuse to run. */
+  CRON_SECRET: z.string().default(""),
+
   // --- Legal / company -----------------------------------------------------
   POLICY_VERSION: z.string().default("2026-10-01"),
   COMPANY_LEGAL_NAME: z.string().default("HOME88"),

@@ -39,6 +39,7 @@ import {
 import { label, PROPERTY_TYPE_LABELS } from "@home88/types";
 
 import { writeAudit } from "../lib/audit";
+import { notify } from "../lib/notify";
 import { documentKey, documentStore, sha256 } from "../lib/document-store";
 import { badRequest, conflict, notFound } from "../lib/errors";
 import { clientIp, parseInput, userAgent } from "../lib/http";
@@ -314,6 +315,10 @@ export async function applySignatureStatus(envelopeId: string, status: string): 
   });
   if (to === "SIGNED") await applyRetention(m.id);
   await writeAudit({ entity: "MANDATE", entityId: m.id, action: `provider_${to.toLowerCase()}`, changes: { envelopeId } });
+  const notifyEvent = to === "VIEWED" ? "MANDATE_VIEWED" : to === "SIGNED" ? "MANDATE_SIGNED" : to === "EXPIRED" ? "MANDATE_EXPIRED" : null;
+  if (notifyEvent) {
+    await notify({ event: notifyEvent, title: `Εντολή ${m.number ?? m.reference}: ${statusLabel(to).toLowerCase()}`, entityType: "MANDATE", entityId: m.id, userIds: [m.agentId], link: `/mandates/${m.id}` });
+  }
   return true;
 }
 
@@ -665,6 +670,9 @@ export async function mandateRoutes(app: FastifyInstance): Promise<void> {
       await event(tx, id, actor, "SENT", `Στάλθηκε για υπογραφή μέσω ${provider.name}`, { envelopeId: envelope.envelopeId });
     });
     await writeAudit({ entity: "MANDATE", entityId: id, action: "send", changes: { provider: provider.name, envelopeId: envelope.envelopeId }, actorId: actor.id, ...meta(request) });
+    if (full.agentId && full.agentId !== actor.id) {
+      await notify({ event: "MANDATE_SENT", title: `Εντολή ${full.number}: στάλθηκε για υπογραφή`, entityType: "MANDATE", entityId: id, userIds: [full.agentId], link: `/mandates/${id}` });
+    }
     return { ok: true, signingUrls: envelope.signingUrls };
   });
 
@@ -709,6 +717,9 @@ export async function mandateRoutes(app: FastifyInstance): Promise<void> {
     });
     await applyRetention(id);
     await writeAudit({ entity: "MANDATE", entityId: id, action: "signed_copy", changes: { documentId: doc.id, checksum: doc.checksum }, actorId: actor.id, ...meta(request) });
+    if (m.agentId && m.agentId !== actor.id) {
+      await notify({ event: "MANDATE_SIGNED", title: `Εντολή ${m.number}: υπογράφηκε`, entityType: "MANDATE", entityId: id, userIds: [m.agentId], link: `/mandates/${id}` });
+    }
     return { ok: true };
   });
 
