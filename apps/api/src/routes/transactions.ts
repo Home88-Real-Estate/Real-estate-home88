@@ -141,7 +141,8 @@ const DETAIL_INCLUDE = {
   offers: { orderBy: { round: "asc" as const } },
   events: { orderBy: { createdAt: "desc" as const }, take: 200 },
   commission: true,
-  checklist: { orderBy: [{ sortOrder: "asc" as const }, { createdAt: "asc" as const }] },
+  checklist: { orderBy: [{ sortOrder: "asc" as const }, { createdAt: "asc" as const }], include: { document: { select: { id: true, title: true } } } },
+  documents: { orderBy: { createdAt: "desc" as const }, select: { id: true, title: true, category: true, createdAt: true } },
 } satisfies Prisma.TransactionInclude;
 
 type Detail = Prisma.TransactionGetPayload<{ include: typeof DETAIL_INCLUDE }>;
@@ -215,7 +216,8 @@ function serialize(t: Detail, now = new Date()) {
           calculatedAt: t.commission.calculatedAt,
         }
       : null,
-    checklist: t.checklist.map((c) => ({ id: c.id, label: c.label, status: c.status, note: c.note, updatedAt: c.updatedAt })),
+    checklist: t.checklist.map((c) => ({ id: c.id, label: c.label, status: c.status, note: c.note, updatedAt: c.updatedAt, document: c.document })),
+    documents: t.documents,
   };
 }
 

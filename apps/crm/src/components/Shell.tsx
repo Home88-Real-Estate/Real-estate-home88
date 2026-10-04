@@ -136,6 +136,7 @@ export function Shell({
     { href: "/media", label: "Πολυμέσα", icon: "image" },
     { href: "/sellers", label: "Ιδιοκτήτες", icon: "team" },
     { href: "/valuations", label: "Εκτιμήσεις", icon: "barChart" },
+    { href: "/mandates", label: "Εντολές", icon: "mandate" },
     { href: "/transactions", label: "Συναλλαγές", icon: "key" },
     { href: "/calendar", label: "Ημερολόγιο", icon: "calendar" },
     {
@@ -147,6 +148,7 @@ export function Shell({
       countTitle: "Υπενθυμίσεις για σήμερα ή εκπρόθεσμες",
     },
     { href: "/contacts", label: "Πελάτες", icon: "users" },
+    { href: "/documents", label: "Έγγραφα", icon: "lock" },
   ];
   const admin: NavItem[] = (
     [

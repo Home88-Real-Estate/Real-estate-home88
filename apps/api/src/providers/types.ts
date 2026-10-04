@@ -22,7 +22,12 @@ export type ProviderState =
 
 export type ProviderHealth = { state: ProviderState; provider: string | null; detail?: string };
 
-export type WebhookResult = { handled: boolean; status?: string };
+/**
+ * What an adapter learned from a verified webhook. For e-signature, `envelopeId`
+ * and `status` (SENT, VIEWED, SIGNED, DECLINED, EXPIRED) move the mandate.
+ * Adapters must verify the vendor's signature before returning handled: true.
+ */
+export type WebhookResult = { handled: boolean; status?: string; envelopeId?: string };
 
 export class ProviderNotConfiguredError extends Error {
   constructor(kind: string) {
@@ -75,6 +80,8 @@ export type SigningRequest = {
   documentId: string;
   /** SHA-256 of the exact PDF being signed. */
   documentChecksum: string;
+  /** The PDF itself, byte-for-byte what the checksum covers. */
+  pdf: Buffer;
   title: string;
   signers: Array<{ name: string; email: string | null; phone: string | null }>;
   level: "SIMPLE" | "ADVANCED" | "QUALIFIED";
@@ -87,6 +94,8 @@ export interface SignatureProvider {
   readonly name: string;
   createSigningRequest(request: SigningRequest): Promise<SigningEnvelope>;
   getEnvelopeStatus(envelopeId: string): Promise<"SENT" | "VIEWED" | "SIGNED" | "DECLINED" | "EXPIRED">;
+  /** The signed PDF (with the provider's signature/audit trail), once SIGNED. */
+  downloadSigned?(envelopeId: string): Promise<Buffer>;
   getStatus(): ProviderHealth;
   handleWebhook(payload: unknown, headers: Record<string, string>): Promise<WebhookResult>;
 }

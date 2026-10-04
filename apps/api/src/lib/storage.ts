@@ -29,6 +29,11 @@ export function storageConfigured(cfg: ApiConfig = loadConfig()): boolean {
   return cfg.S3_ENDPOINT.length > 0 && cfg.S3_ACCESS_KEY.length > 0 && cfg.S3_SECRET_KEY.length > 0;
 }
 
+/** The shared S3 client, for modules with their own object rules (documents). */
+export function storageClient(cfg: ApiConfig = loadConfig()): S3Client {
+  return client(cfg);
+}
+
 function client(cfg: ApiConfig): S3Client {
   cachedClient ??= new S3Client({
     region: cfg.S3_REGION,

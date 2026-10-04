@@ -1,7 +1,8 @@
 /**
  * E-signature providers. The adapter for HOME88's chosen provider (and
- * signature level) is added in Phase 5; until then no signing request can be
- * created, so no client can be sent an unsigned or untracked mandate.
+ * signature level) is added once HOME88 chooses the provider; until then no
+ * signing request can be created, so no client can be sent an untracked
+ * mandate. Mandates can still be signed on paper and the signed copy uploaded.
  */
 
 import { settings } from "../settings";
@@ -9,7 +10,15 @@ import { ProviderNotConfiguredError, type SignatureProvider } from "./types";
 
 const ADAPTERS: Record<string, () => SignatureProvider> = {};
 
+let override: SignatureProvider | null = null;
+
+/** Test seam: a fake adapter. `null` restores the configured provider. */
+export function setSignatureProvider(next: SignatureProvider | null): void {
+  override = next;
+}
+
 export async function resolveSignatureProvider(): Promise<SignatureProvider> {
+  if (override) return override;
   let provider: string | null = null;
   try {
     const v = await settings().config("mandates");

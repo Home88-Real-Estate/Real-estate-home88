@@ -3,6 +3,7 @@ import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 
 import { NewVersionForm } from "./TemplateForms";
+import { MergeFields } from "./MergeFields";
 
 type Slot = {
   type: string;
@@ -67,6 +68,7 @@ export async function MandateTemplates() {
           );
         })}
       </div>
+      {canManage && <MergeFields />}
     </div>
   );
 }

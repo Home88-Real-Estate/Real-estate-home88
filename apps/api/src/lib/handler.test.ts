@@ -129,9 +129,14 @@ test("settings routes require a session and never answer anonymously", async () 
   }
 });
 
-test("transaction, owner and valuation routes require a session", async () => {
-  for (const [method, path] of [["GET", "/api/transactions"], ["POST", "/api/transactions"], ["GET", "/api/transactions/x"], ["POST", "/api/transactions/x/offers"], ["POST", "/api/transactions/x/commission"], ["GET", "/api/sellers"], ["POST", "/api/sellers"], ["GET", "/api/sellers/x"], ["POST", "/api/sellers/x/stage"], ["GET", "/api/contacts/x/owner-report"], ["GET", "/api/valuations"], ["POST", "/api/valuations"], ["GET", "/api/valuations/x/comparables/search"], ["POST", "/api/valuations/x/finalize"]] as const) {
-    const response = await handleApiRequest(new Request(`http://crm.test${path}`, { method, headers: { "content-type": "application/json" }, body: method === "GET" ? undefined : "{}" }));
+test("transaction, owner, valuation, document and mandate routes require a session", async () => {
+  for (const [method, path] of [["GET", "/api/transactions"], ["POST", "/api/transactions"], ["GET", "/api/transactions/x"], ["POST", "/api/transactions/x/offers"], ["POST", "/api/transactions/x/commission"], ["GET", "/api/sellers"], ["POST", "/api/sellers"], ["GET", "/api/sellers/x"], ["POST", "/api/sellers/x/stage"], ["GET", "/api/contacts/x/owner-report"], ["GET", "/api/valuations"], ["POST", "/api/valuations"], ["GET", "/api/valuations/x/comparables/search"], ["POST", "/api/valuations/x/finalize"], ["GET", "/api/documents"], ["POST", "/api/documents/uploads"], ["POST", "/api/documents"], ["GET", "/api/documents/x/download"], ["DELETE", "/api/documents/x"], ["GET", "/api/mandates"], ["POST", "/api/mandates"], ["GET", "/api/mandates/x"], ["POST", "/api/mandates/x/issue"], ["POST", "/api/mandates/x/send"], ["POST", "/api/mandates/x/signed-copy"]] as const) {
+    const response = await handleApiRequest(new Request(`http://crm.test${path}`, method === "GET" || method === "DELETE" ? { method } : { method, headers: { "content-type": "application/json" }, body: "{}" }));
     assert.equal(response.status, 401, `${method} ${path}`);
   }
+});
+
+test("the signature webhook changes nothing without a provider adapter", async () => {
+  const response = await handleApiRequest(new Request("http://crm.test/api/webhooks/signature", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ envelope: "x", status: "SIGNED" }) }));
+  assert.equal(response.status, 404);
 });

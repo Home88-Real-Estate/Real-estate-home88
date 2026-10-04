@@ -100,7 +100,12 @@ export default async function SellerPage({ params }: { params: Promise<{ id: str
           <section className="panel">
             <div className="panel__head">
               <div><h2>Εκτιμήσεις</h2><p className="panel__sub">Συγκριτική εκτίμηση αγοράς για τη συζήτηση με τον ιδιοκτήτη.</p></div>
-              {open && <Link href={`/valuations/new?seller=${s.id}`} className="btn btn--outline btn--sm">Νέα εκτίμηση</Link>}
+              {open && (
+                <div className="row">
+                  <Link href={`/valuations/new?seller=${s.id}`} className="btn btn--outline btn--sm">Νέα εκτίμηση</Link>
+                  <Link href={`/mandates/new?seller=${s.id}${s.property ? `&property=${s.property.reference}` : ""}`} className="btn btn--outline btn--sm">Νέα εντολή</Link>
+                </div>
+              )}
             </div>
             {s.valuations.length === 0 ? (
               <p className="muted">Δεν υπάρχει εκτίμηση ακόμη.</p>

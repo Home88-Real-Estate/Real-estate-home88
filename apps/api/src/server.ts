@@ -9,9 +9,11 @@ import { accountRoutes } from "./routes/account";
 import { authRoutes } from "./routes/auth";
 import { contactRoutes } from "./routes/contacts";
 import { dashboardRoutes } from "./routes/dashboard";
+import { documentRoutes } from "./routes/documents";
 import { healthRoutes } from "./routes/health";
 import { invitationRoutes } from "./routes/invitations";
 import { leadRoutes } from "./routes/leads";
+import { mandateRoutes } from "./routes/mandates";
 import { mediaRoutes } from "./routes/media";
 import { submissionRoutes } from "./routes/submissions";
 import { portalRoutes } from "./routes/portals";
@@ -120,6 +122,8 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(transactionRoutes, { prefix: "/api" });
   await app.register(sellerRoutes, { prefix: "/api" });
   await app.register(valuationRoutes, { prefix: "/api" });
+  await app.register(documentRoutes, { prefix: "/api" });
+  await app.register(mandateRoutes, { prefix: "/api" });
 
   return app;
 }

@@ -211,6 +211,7 @@ enum DocumentCategory {
   INSPECTION
   APPRAISAL
   INVOICE
+  MANDATE
   OTHER
 }
 
@@ -311,6 +312,7 @@ enum AuditEntity {
   TRANSACTION
   SELLER_LEAD
   VALUATION
+  MANDATE
 }
 
 // ---------------------------------------------------------------------------
@@ -369,6 +371,7 @@ model User {
   transactions        Transaction[]        @relation("TransactionAgent")
   sellerLeads         SellerLead[]         @relation("SellerLeadAgent")
   valuations          Valuation[]          @relation("ValuationAgent")
+  mandates            Mandate[]            @relation("MandateAgent")
   auditLogs           AuditLog[]
   consents            ConsentRecord[]
   createdBy           User?                @relation("UserCreatedBy", fields: [createdById], references: [id])
@@ -491,6 +494,7 @@ model Contact {
   buyerTransactions  Transaction[]        @relation("TransactionBuyer")
   sellerTransactions Transaction[]        @relation("TransactionSeller")
   sellerLeads        SellerLead[]
+  mandateParties     MandateParty[]
   documents          Document[]
   submissions        PropertySubmission[]
   viewingRequests    ViewingRequest[]
@@ -602,6 +606,7 @@ model Property {
   sellerLeads       SellerLead[]
   valuations        Valuation[]
   comparableIn      ValuationComparable[]
+  mandates          Mandate[]
   documents         Document[]
   portalListings    PortalListing[]
   tagAssignments    PropertyTagAssignment[]
@@ -1054,9 +1059,11 @@ model Document {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  transactionId  String?
-  transaction    Transaction?               @relation(fields: [transactionId], references: [id], onDelete: SetNull)
-  checklistItems TransactionChecklistItem[]
+  transactionId   String?
+  transaction     Transaction?               @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  checklistItems  TransactionChecklistItem[]
+  mandatePdfOf    Mandate?                   @relation("MandatePdf")
+  mandateSignedOf Mandate?                   @relation("MandateSignedCopy")
 
   @@index([propertyId])
   @@index([transactionId])
@@ -1622,6 +1629,7 @@ model MandateTemplateVersion {
   id            String          @id @default(cuid())
   templateId    String
   template      MandateTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  mandates      Mandate[]
   version       Int
   status        String          @default("DRAFT")
   body          String
@@ -2283,6 +2291,7 @@ model SellerLead {
 
   events     SellerLeadEvent[]
   valuations Valuation[]
+  mandates   Mandate[]
 
   createdById String?
   createdAt   DateTime @default(now())
@@ -2405,4 +2414,125 @@ model ValuationComparable {
 
   @@index([valuationId])
   @@map("valuation_comparables")
+}
+
+// ---------------------------------------------------------------------------
+// Digital mandates (Phase 4)
+// ---------------------------------------------------------------------------
+
+/// A mandate built from the lawyer-approved template version active at the
+/// time. Once issued, its text, terms and PDF are frozen by the database.
+model Mandate {
+  id        String  @id @default(cuid())
+  /// Internal code, e.g. MND-000001.
+  reference String  @unique
+  /// Official number from Settings → Ψηφιακές Εντολές, allocated on issue.
+  number    String? @unique
+
+  /// VIEWING, SIMPLE_ASSIGNMENT or EXCLUSIVE_ASSIGNMENT.
+  type   String
+  locale String @default("el")
+  /// DRAFT → ISSUED → SENT → VIEWED → SIGNED, or DECLINED / EXPIRED / CANCELLED.
+  status String @default("DRAFT")
+
+  propertyId   String?
+  property     Property?   @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  sellerLeadId String?
+  sellerLead   SellerLead? @relation(fields: [sellerLeadId], references: [id], onDelete: SetNull)
+
+  startsAt DateTime?
+  endsAt   DateTime?
+  /// Agreed values entered by the agent (price, commission, special terms…).
+  terms    Json      @default("{}")
+
+  templateVersionId     String?
+  templateVersion       MandateTemplateVersion? @relation(fields: [templateVersionId], references: [id], onDelete: Restrict)
+  templateChecksum      String?
+  /// The filled-in text. Contains personal data, so it is stored encrypted.
+  renderedTextEncrypted String?
+  /// SHA-256 of the filled-in text, to verify a copy later.
+  renderedChecksum      String?
+
+  pdfDocumentId    String?   @unique
+  pdfDocument      Document? @relation("MandatePdf", fields: [pdfDocumentId], references: [id], onDelete: Restrict)
+  pdfChecksum      String?
+  signedDocumentId String?   @unique
+  signedDocument   Document? @relation("MandateSignedCopy", fields: [signedDocumentId], references: [id], onDelete: Restrict)
+  signedChecksum   String?
+
+  /// PROVIDER (e-signature) or PAPER (signed copy uploaded).
+  signatureMethod   String?
+  signatureProvider String?
+  signatureLevel    String?
+  envelopeId        String?   @unique
+  signingExpiresAt  DateTime?
+
+  issuedAt     DateTime?
+  sentAt       DateTime?
+  viewedAt     DateTime?
+  signedAt     DateTime?
+  declinedAt   DateTime?
+  expiredAt    DateTime?
+  cancelledAt  DateTime?
+  cancelReason String?
+
+  agentId String?
+  agent   User?   @relation("MandateAgent", fields: [agentId], references: [id], onDelete: SetNull)
+
+  parties MandateParty[]
+  events  MandateEvent[]
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status])
+  @@index([propertyId, type, status])
+  @@index([sellerLeadId])
+  @@index([agentId, status])
+  @@index([createdAt])
+  @@map("mandates")
+}
+
+/// Who signs: the owner(s) of an assignment, the client of a viewing mandate.
+/// Identity details are personal data and stored encrypted.
+model MandateParty {
+  id        String   @id @default(cuid())
+  mandateId String
+  mandate   Mandate  @relation(fields: [mandateId], references: [id], onDelete: Restrict)
+  /// OWNER or CLIENT.
+  role      String
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  fullName  String
+
+  taxIdEncrypted    String?
+  idNumberEncrypted String?
+  addressEncrypted  String?
+  emailEncrypted    String?
+  phoneEncrypted    String?
+
+  sortOrder Int       @default(0)
+  signedAt  DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([mandateId])
+  @@index([contactId])
+  @@map("mandate_parties")
+}
+
+/// Timeline. Append-only: the database refuses updates and deletes.
+model MandateEvent {
+  id        String   @id @default(cuid())
+  mandateId String
+  mandate   Mandate  @relation(fields: [mandateId], references: [id], onDelete: Restrict)
+  type      String
+  summary   String
+  data      Json?
+  actorId   String?
+  actorName String?
+  createdAt DateTime @default(now())
+
+  @@index([mandateId, createdAt])
+  @@map("mandate_events")
 }
