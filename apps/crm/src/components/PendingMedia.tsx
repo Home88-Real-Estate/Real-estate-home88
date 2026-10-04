@@ -6,22 +6,34 @@ import { fileFingerprint, type UploadUpdate } from "@/lib/upload-queue";
 
 export type PendingFile = { id: string; file: File };
 
-const ACCEPT = "image/jpeg,image/png,image/webp,image/avif,image/gif,application/pdf";
+/** Photo types the gallery takes; the API enforces the same list for kind PHOTO. */
+const PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp", "image/avif"];
+const ACCEPT = [...PHOTO_TYPES, ".jpg", ".jpeg", ".png", ".webp", ".avif"].join(",");
+/** Photos per save; more can be added on the property page afterwards. */
+export const MAX_PENDING_PHOTOS = 40;
 const MB = 1024 * 1024;
 
 const STATE_LABEL: Record<UploadUpdate["state"], string> = {
-  queued: "Σε αναμονή",
-  preparing: "Προετοιμασία",
-  uploading: "Μεταφόρτωση",
-  confirming: "Καταχώριση",
+  queued: "Επιλεγμένο",
+  preparing: "Μεταφόρτωση…",
+  uploading: "Μεταφόρτωση…",
+  confirming: "Μεταφόρτωση…",
   done: "Ολοκληρώθηκε",
-  failed: "Απέτυχε",
+  failed: "Αποτυχία",
 };
 
+/** Some systems leave `type` empty for AVIF/WEBP; fall back to the extension. */
+function photoType(file: File): string | null {
+  if (PHOTO_TYPES.includes(file.type)) return file.type;
+  if (file.type) return null;
+  const ext = /\.([a-z0-9]+)$/i.exec(file.name)?.[1]?.toLowerCase();
+  return ext === "jpg" || ext === "jpeg" ? "image/jpeg" : ext && PHOTO_TYPES.includes(`image/${ext}`) ? `image/${ext}` : null;
+}
+
 function Thumb({ file }: { file: File }) {
-  const url = useMemo(() => (file.type.startsWith("image/") ? URL.createObjectURL(file) : null), [file]);
-  useEffect(() => () => void (url && URL.revokeObjectURL(url)), [url]);
-  return url ? <img src={url} alt="" width={72} height={72} className="pending-media__thumb" /> : <span className="pending-media__thumb pending-media__thumb--doc">PDF</span>;
+  const url = useMemo(() => URL.createObjectURL(file), [file]);
+  useEffect(() => () => URL.revokeObjectURL(url), [url]);
+  return <img src={url} alt="" width={72} height={72} className="pending-media__thumb" />;
 }
 
 /**
@@ -35,32 +47,55 @@ export function PendingMedia({
   onChange,
   progress,
   disabled,
+  maxBytes,
 }: {
   files: PendingFile[];
   onChange: (files: PendingFile[]) => void;
+  /** The server's per-file limit. */
+  maxBytes: number;
   /** Per-file upload state once saving has started. */
   progress?: Record<string, UploadUpdate>;
   disabled?: boolean;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
-  const [note, setNote] = useState<string | null>(null);
+  const [notes, setNotes] = useState<string[]>([]);
 
+  /** File picker and drop zone both land here: one validation, one queue. */
   function add(list: FileList | File[]) {
     const known = new Set(files.map((f) => fileFingerprint(f.file)));
     const fresh: PendingFile[] = [];
+    const rejected: string[] = [];
     let duplicates = 0;
-    for (const file of Array.from(list)) {
-      if (file.size === 0) continue;
-      const fp = fileFingerprint(file);
+    for (const original of Array.from(list)) {
+      const type = photoType(original);
+      if (!type) {
+        rejected.push(`${original.name}: δεν είναι φωτογραφία JPG, PNG, WEBP ή AVIF.`);
+        continue;
+      }
+      if (original.size === 0) {
+        rejected.push(`${original.name}: το αρχείο είναι κενό.`);
+        continue;
+      }
+      if (original.size > maxBytes) {
+        rejected.push(`${original.name}: ξεπερνά τα ${Math.floor(maxBytes / MB)} MB.`);
+        continue;
+      }
+      if (files.length + fresh.length >= MAX_PENDING_PHOTOS) {
+        rejected.push(`${original.name}: έως ${MAX_PENDING_PHOTOS} φωτογραφίες ανά αποθήκευση.`);
+        continue;
+      }
+      const fp = fileFingerprint(original);
       if (known.has(fp)) {
         duplicates += 1;
         continue;
       }
       known.add(fp);
+      // A typeless file gets its real type so the upload is signed for it.
+      const file = original.type ? original : new File([original], original.name, { type, lastModified: original.lastModified });
       fresh.push({ id: `${fp}-${Math.random().toString(36).slice(2)}`, file });
     }
-    setNote(duplicates > 0 ? `${duplicates} διπλότυπα αρχεία παραλείφθηκαν.` : null);
+    setNotes([...rejected, ...(duplicates > 0 ? [`${duplicates} διπλότυπα αρχεία παραλείφθηκαν.`] : [])]);
     if (input.current) input.current.value = "";
     if (fresh.length > 0) onChange([...files, ...fresh]);
   }
@@ -93,10 +128,28 @@ export function PendingMedia({
           Επιλογή αρχείων
         </button>
         <input ref={input} type="file" multiple accept={ACCEPT} hidden disabled={disabled} onChange={(e) => e.target.files && add(e.target.files)} aria-label="Επιλογή φωτογραφιών" />
-        <p className="hint">JPG, PNG, WEBP, AVIF ή PDF. Η πρώτη φωτογραφία γίνεται εξώφυλλο. Αποθηκεύονται μαζί με το ακίνητο και περιμένουν έγκριση πριν δημοσιευτούν.</p>
+        <p className="hint">
+          JPG, PNG, WEBP ή AVIF, έως {Math.floor(maxBytes / MB)} MB η καθεμία και έως {MAX_PENDING_PHOTOS} φωτογραφίες. Η πρώτη φωτογραφία
+          γίνεται εξώφυλλο. Αποθηκεύονται μαζί με το ακίνητο και περιμένουν έγκριση πριν δημοσιευτούν.
+        </p>
       </div>
 
-      {note && <p className="hint" role="status">{note}</p>}
+      {notes.length > 0 && (
+        <ul className="pending-media__notes error" role="alert">
+          {notes.map((n) => (
+            <li key={n}>{n}</li>
+          ))}
+        </ul>
+      )}
+
+      {files.length > 0 && (
+        <p className="hint" role="status" aria-live="polite">
+          {progress
+            ? `${files.filter((f) => progress[f.id]?.state === "done").length} / ${files.length} φωτογραφίες ολοκληρώθηκαν` +
+              (files.some((f) => progress[f.id]?.state === "failed") ? ` · ${files.filter((f) => progress[f.id]?.state === "failed").length} απέτυχαν` : "")
+            : `${files.length} ${files.length === 1 ? "φωτογραφία επιλεγμένη" : "φωτογραφίες επιλεγμένες"}`}
+        </p>
+      )}
 
       {files.length > 0 && (
         <ul className="pending-media__list" aria-label="Αρχεία προς μεταφόρτωση">
@@ -108,14 +161,14 @@ export function PendingMedia({
                 <div className="pending-media__meta">
                   <span className="pending-media__name">
                     {item.file.name}
-                    {index === 0 && !item.file.type.includes("pdf") && <span className="badge badge--info"> Εξώφυλλο</span>}
+                    {index === 0 && <span className="badge badge--info"> Εξώφυλλο</span>}
                   </span>
-                  <span className="hint">{(item.file.size / MB).toFixed(1)} MB</span>
-                  {update && (
-                    <span className={update.state === "failed" ? "error" : "hint"}>
-                      {STATE_LABEL[update.state]}
-                      {update.state === "uploading" && ` ${Math.round(update.progress * 100)}%`}
-                      {update.state === "failed" && update.message ? `: ${update.message}` : ""}
+                  <span className="hint">{item.file.size >= MB ? `${(item.file.size / MB).toFixed(1)} MB` : `${Math.max(1, Math.round(item.file.size / 1024))} KB`}</span>
+                  {(update || !progress) && (
+                    <span className={update?.state === "failed" ? "error" : update?.state === "done" ? "pending-media__ok" : "hint"}>
+                      {STATE_LABEL[update?.state ?? "queued"]}
+                      {update?.state === "uploading" && update.progress > 0 && ` ${Math.round(update.progress * 100)}%`}
+                      {update?.state === "failed" && update.message ? `: ${update.message}` : ""}
                     </span>
                   )}
                 </div>

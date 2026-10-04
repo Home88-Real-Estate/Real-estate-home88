@@ -35,6 +35,7 @@ import { HttpError, badRequest, forbidden, notFound } from "../lib/errors";
 import { clientIp, parseInput, userAgent } from "../lib/http";
 import { imageDimensions } from "../lib/image-size";
 import {
+  ALLOWED_UPLOAD_MIME,
   buildStorageKey,
   isAllowedUpload,
   kindForMime,
@@ -134,6 +135,13 @@ function nullIfBlank(value: string | undefined): string | null | undefined {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+/** A file filed as a photo must be a raster image type (a PDF is never a photo). */
+function requirePhotoMime(kind: string, mime: string): void {
+  if (kind === "PHOTO" && ALLOWED_UPLOAD_MIME[mime] !== "PHOTO") {
+    throw badRequest("Μόνο εικόνες (JPG, PNG, WEBP, AVIF) γίνονται δεκτές ως φωτογραφίες.");
+  }
+}
+
 /** A variant PUT: JPEG only; its size is checked when the upload is confirmed. */
 async function presignVariant(key: string) {
   return presignPut(key, VARIANT_MIME);
@@ -183,6 +191,7 @@ export async function mediaRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const kind = kindForMime(mime, input.kind);
+      requirePhotoMime(kind, mime);
       const storageKey = buildStorageKey({ propertyId: id, kind, mime, originalName: input.fileName });
       const upload = await presignPut(storageKey, mime, input.byteSize);
 
@@ -234,6 +243,10 @@ export async function mediaRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const kind = kindForMime(mime, input.kind);
+      if (kind === "PHOTO" && ALLOWED_UPLOAD_MIME[mime] !== "PHOTO") {
+        await deleteObject(input.storageKey).catch(() => undefined);
+        requirePhotoMime(kind, mime);
+      }
       let dimensions: { width: number; height: number } | null = null;
       if (kind !== "DOCUMENT" && mime.startsWith("image/")) {
         dimensions = imageDimensions(await readObjectStart(input.storageKey, SNIFF_BYTES));
@@ -349,6 +362,7 @@ export async function mediaRoutes(app: FastifyInstance): Promise<void> {
     async (request) => {
       const actor = request.auth!.user;
       const { id } = request.params as { id: string };
+      await requireEditableProperty(id, actor);
       const input = parseInput(mediaReorderSchema, request.body);
 
       const existing = await db().propertyMedia.findMany({
