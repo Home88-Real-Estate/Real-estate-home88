@@ -129,8 +129,8 @@ test("settings routes require a session and never answer anonymously", async () 
   }
 });
 
-test("transaction routes require a session", async () => {
-  for (const [method, path] of [["GET", "/api/transactions"], ["POST", "/api/transactions"], ["GET", "/api/transactions/x"], ["POST", "/api/transactions/x/offers"], ["POST", "/api/transactions/x/commission"]] as const) {
+test("transaction, owner and valuation routes require a session", async () => {
+  for (const [method, path] of [["GET", "/api/transactions"], ["POST", "/api/transactions"], ["GET", "/api/transactions/x"], ["POST", "/api/transactions/x/offers"], ["POST", "/api/transactions/x/commission"], ["GET", "/api/sellers"], ["POST", "/api/sellers"], ["GET", "/api/sellers/x"], ["POST", "/api/sellers/x/stage"], ["GET", "/api/contacts/x/owner-report"], ["GET", "/api/valuations"], ["POST", "/api/valuations"], ["GET", "/api/valuations/x/comparables/search"], ["POST", "/api/valuations/x/finalize"]] as const) {
     const response = await handleApiRequest(new Request(`http://crm.test${path}`, { method, headers: { "content-type": "application/json" }, body: method === "GET" ? undefined : "{}" }));
     assert.equal(response.status, 401, `${method} ${path}`);
   }

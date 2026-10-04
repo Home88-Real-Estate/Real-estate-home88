@@ -71,3 +71,18 @@ export const TRX_STATUS_CLASS: Record<string, string> = {
   CLOSED: "badge badge--ok",
   CANCELLED: "badge badge--muted",
 };
+
+export const SELLER_STAGE_CLASS: Record<string, string> = {
+  NEW: "badge badge--info",
+  CONTACTED: "badge badge--info",
+  VALUATION: "badge badge--warn",
+  PROPOSAL: "badge badge--warn",
+  MANDATE: "badge badge--warn",
+  LISTED: "badge badge--ok",
+  LOST: "badge badge--muted",
+};
+
+export const VALUATION_STATUS_CLASS: Record<string, string> = {
+  DRAFT: "badge badge--info",
+  FINAL: "badge badge--ok",
+};

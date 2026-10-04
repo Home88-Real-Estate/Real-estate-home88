@@ -1,9 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { SELLER_STAGE_LABELS } from "@home88/domain";
+
+import { OwnerReport } from "@/components/sellers/OwnerReport";
 import { StatusBadge } from "@/components/StatusBadge";
 import { apiFetch } from "@/lib/api";
-import { formatDateTime, personName } from "@/lib/format";
+import { formatDate, formatDateTime, personName } from "@/lib/format";
+import { SELLER_STAGE_CLASS } from "@/lib/labels";
 import { requireRole } from "@/lib/session";
 
 type Contact = {
@@ -23,6 +27,7 @@ type Contact = {
   updatedAt: string;
   properties: Array<{ id: string; reference: string; titleEl: string; status: string }>;
   leads: Array<{ id: string; reference: string; status: string; createdAt: string }>;
+  sellerLeads: Array<{ id: string; reference: string; stage: string; listingType: string; createdAt: string }>;
 };
 
 export default async function ContactDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -109,6 +114,29 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
           </div>
         )}
       </div>
+
+      {c.sellerLeads.length > 0 && (
+        <div className="panel">
+          <h2>Ως ιδιοκτήτης ({c.sellerLeads.length})</h2>
+          <div className="table-wrap">
+            <table className="data">
+              <thead><tr><th>Κωδικός</th><th>Ενδιαφέρον</th><th>Στάδιο</th><th>Δημιουργία</th></tr></thead>
+              <tbody>
+                {c.sellerLeads.map((s) => (
+                  <tr key={s.id}>
+                    <td className="mono"><Link href={`/sellers/${s.id}`}>{s.reference}</Link></td>
+                    <td>{s.listingType === "RENT" ? "Ενοικίαση" : "Πώληση"}</td>
+                    <td><span className={SELLER_STAGE_CLASS[s.stage] ?? "badge"}>{SELLER_STAGE_LABELS[s.stage as keyof typeof SELLER_STAGE_LABELS] ?? s.stage}</span></td>
+                    <td>{formatDate(s.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {c.properties.length > 0 && <OwnerReport contactId={c.id} />}
 
       <div className="panel">
         <h2>Leads ({c.leads.length})</h2>

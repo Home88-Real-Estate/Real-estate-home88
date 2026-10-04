@@ -16,10 +16,12 @@ import { mediaRoutes } from "./routes/media";
 import { portalRoutes } from "./routes/portals";
 import { propertyRoutes } from "./routes/properties";
 import { requestRoutes } from "./routes/requests";
+import { sellerRoutes } from "./routes/sellers";
 import { settingsRoutes } from "./routes/settings";
 import { taskRoutes } from "./routes/tasks";
 import { transactionRoutes } from "./routes/transactions";
 import { userRoutes } from "./routes/users";
+import { valuationRoutes } from "./routes/valuations";
 import { viewingRoutes } from "./routes/viewings";
 
 export async function buildServer(): Promise<FastifyInstance> {
@@ -114,6 +116,8 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(dashboardRoutes, { prefix: "/api" });
   await app.register(settingsRoutes, { prefix: "/api" });
   await app.register(transactionRoutes, { prefix: "/api" });
+  await app.register(sellerRoutes, { prefix: "/api" });
+  await app.register(valuationRoutes, { prefix: "/api" });
 
   return app;
 }
