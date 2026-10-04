@@ -1030,15 +1030,28 @@ p { margin: 0 0 1em; }
 .service-card p { margin: 0 0 14px; font-size: 0.94rem; color: var(--ink-muted); }
 .service-card__cta { margin-top: auto; font-weight: 700; color: var(--home88-blue); }
 
-/* --- call to action band --------------------------------------------------- */
-.cta-band {
-  background: linear-gradient(120deg, var(--home88-blue) 0%, var(--home88-blue-dark) 100%);
-  color: #fff;
-  border-radius: var(--radius-xl);
-  padding: clamp(28px, 5vw, 56px);
+/* --- contact call to action ----------------------------------------------- */
+/* Copy and buttons on one side, the HOME88 fox on the phone on the other.
+   The image keeps its own ratio (no crop); one column below 900px, copy first. */
+.contact-cta {
+  display: grid;
+  gap: clamp(24px, 4vw, 56px);
+  align-items: center;
 }
-.cta-band h2 { color: #fff; }
-.cta-band p { color: #dbe8f4; max-width: 60ch; }
+.contact-cta__copy h2 { margin-top: 0; }
+.contact-cta__copy p { color: var(--ink-muted); max-width: 52ch; }
+.contact-cta__visual {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1674 / 940;
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  background: #dfeaf3;
+}
+@media (min-width: 900px) {
+  .contact-cta { grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr); }
+}
 
 /* Owner / valuation call-to-action: copy on one side, a short checklist of
    what actually happens on the other. No invented promises or figures. */
@@ -1163,6 +1176,43 @@ p { margin: 0 0 1em; }
 
 /* --- footer ---------------------------------------------------------------- */
 .site-footer { border-top: 1px solid var(--line); margin-top: 64px; background: var(--home88-blue-dark); color: #cdddec; }
+/* HOME88 fox as a decorative background layer (one shared asset, CSS only).
+   The image box (--fox-h tall, at the image's 1819:865 ratio) sits bottom
+   right, beside the link columns; two gradient layers of the same box fade
+   its edges into the footer navy so it reads as part of the footer. Below
+   1020px the columns stack, so the footer reserves a band for the fox above
+   the legal line instead of putting it behind text. */
+.site-footer {
+  --fox-h: 300px;
+  --fox-box: calc(var(--fox-h) * 2.103) var(--fox-h);
+  --fox-pos: right max(-50px, calc((100vw - var(--wrap)) / 2 - 120px)) bottom 0;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+.site-footer::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, var(--home88-blue-dark) 0%, rgba(5, 55, 85, 0) 22%, rgba(5, 55, 85, 0) 82%, var(--home88-blue-dark) 100%) var(--fox-pos) / var(--fox-box) no-repeat,
+    linear-gradient(90deg, var(--home88-blue-dark) 0%, var(--home88-blue-dark) 12%, rgba(5, 55, 85, 0.35) 34%, rgba(5, 55, 85, 0) 50%, rgba(5, 55, 85, 0) 88%, var(--home88-blue-dark) 100%) var(--fox-pos) / var(--fox-box) no-repeat,
+    url("/images/fox/home88-footer-mascot.webp") var(--fox-pos) / var(--fox-box) no-repeat;
+}
+.site-footer > * { position: relative; }
+@media (min-width: 1020px) and (max-width: 1279px) {
+  .site-footer { --fox-h: 240px; --fox-pos: right -30px bottom 0; }
+}
+@media (max-width: 1019px) {
+  .site-footer { --fox-h: 230px; --fox-pos: right -40px bottom 52px; }
+  .site-footer .site-footer__inner { padding-bottom: 210px; }
+}
+@media (max-width: 639px) {
+  .site-footer { --fox-h: 200px; --fox-pos: right -14px bottom 64px; }
+  .site-footer .site-footer__inner { padding-bottom: 180px; }
+}
 .site-footer a { color: #cdddec; }
 .site-footer a:hover { color: #fff; }
 .site-footer__inner { padding-block: 48px; display: grid; gap: 28px; grid-template-columns: 1fr; }
