@@ -125,6 +125,8 @@ export function Shell({
       countTitle: "Νέα leads",
     },
     { href: "/requests", label: "Ζητήσεις", icon: "search" },
+    { href: "/sellers", label: "Ιδιοκτήτες", icon: "team" },
+    { href: "/valuations", label: "Εκτιμήσεις", icon: "barChart" },
     { href: "/transactions", label: "Συναλλαγές", icon: "key" },
     { href: "/calendar", label: "Ημερολόγιο", icon: "calendar" },
     {
