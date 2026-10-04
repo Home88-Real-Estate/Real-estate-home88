@@ -11,7 +11,9 @@ import {
   type CommissionResult,
 } from "@home88/domain";
 
+import { downloadDocument } from "@/actions/mandates";
 import { respondOffer, setChecklistStatus } from "@/actions/transactions";
+import { DocumentUploader } from "@/components/documents/DocumentUploader";
 import { CalculateForm, ChecklistAddForm, CommissionStatusForm, NoteForm, OfferForm, StatusForm } from "@/components/transactions/Forms";
 import { apiFetch } from "@/lib/api";
 import { TRX_STATUS_CLASS } from "@/lib/labels";
@@ -29,7 +31,8 @@ type Trx = {
   offers: Offer[]; openOfferId: string | null;
   events: Array<{ id: string; type: string; summary: string; actorName: string | null; createdAt: string }>;
   commission: Commission | null;
-  checklist: Array<{ id: string; label: string; status: string; note: string | null }>;
+  checklist: Array<{ id: string; label: string; status: string; note: string | null; document: { id: string; title: string } | null }>;
+  documents: Array<{ id: string; title: string; category: string; createdAt: string }>;
 };
 
 const OFFER_CLASS: Record<string, string> = { SUBMITTED: "badge badge--info", COUNTERED: "badge badge--muted", ACCEPTED: "badge badge--ok", REJECTED: "badge badge--danger", WITHDRAWN: "badge badge--muted", EXPIRED: "badge badge--warn" };
@@ -172,6 +175,14 @@ export default async function TransactionPage({ params }: { params: Promise<{ id
                   <li key={i.id}>
                     <span className="list__main"><span className="list__title">{i.label}</span></span>
                     <span className={CHECK_CLASS[i.status] ?? "badge"}>{CHECKLIST_STATUS_LABELS[i.status] ?? i.status}</span>
+                    {i.document ? (
+                      <form action={downloadDocument}>
+                        <input type="hidden" name="documentId" value={i.document.id} />
+                        <button type="submit" className="btn btn--ghost btn--sm" title={i.document.title}>Λήψη</button>
+                      </form>
+                    ) : (
+                      !closed && <DocumentUploader compact transactionId={t.id} checklistItemId={i.id} defaultTitle={i.label} path={`/transactions/${t.id}`} />
+                    )}
                     {!closed && (
                       <form action={setChecklistStatus} className="row">
                         <input type="hidden" name="id" value={t.id} />
@@ -187,6 +198,29 @@ export default async function TransactionPage({ params }: { params: Promise<{ id
               </ul>
             )}
             {!closed && <ChecklistAddForm id={t.id} />}
+            {t.documents.length > 0 && (
+              <>
+                <h3 style={{ fontSize: "0.95rem", margin: "14px 0 6px" }}>Αρχεία συναλλαγής</h3>
+                <ul className="list">
+                  {t.documents.map((d) => (
+                    <li key={d.id}>
+                      <span className="list__main"><span className="list__title">{d.title}</span></span>
+                      <span className="muted">{formatDate(d.createdAt)}</span>
+                      <form action={downloadDocument}>
+                        <input type="hidden" name="documentId" value={d.id} />
+                        <button type="submit" className="btn btn--ghost btn--sm">Λήψη</button>
+                      </form>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {!closed && (
+              <details className="subpanel">
+                <summary>Ανέβασμα άλλου εγγράφου</summary>
+                <DocumentUploader transactionId={t.id} path={`/transactions/${t.id}`} />
+              </details>
+            )}
           </section>
         </div>
 

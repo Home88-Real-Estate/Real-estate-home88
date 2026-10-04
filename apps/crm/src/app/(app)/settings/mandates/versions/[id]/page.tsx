@@ -6,6 +6,7 @@ import { activateTemplateVersion } from "@/actions/settings";
 import { VERSION_STATUS } from "@/components/settings/MandateTemplates";
 import { EditDraftForm } from "@/components/settings/TemplateForms";
 import { apiFetch } from "@/lib/api";
+import { MergeFields } from "@/components/settings/MergeFields";
 
 type Version = { id: string; type: string; locale: string; version: number; status: string; body: string; checksum: string; notes: string | null; createdAt: string; activatedAt: string | null };
 
@@ -54,6 +55,7 @@ export default async function TemplateVersionPage({ params }: { params: Promise<
         ) : (
           <pre className="legaltext">{v.body}</pre>
         )}
+        {v.status === "DRAFT" && canManage && <MergeFields />}
       </div>
     </>
   );

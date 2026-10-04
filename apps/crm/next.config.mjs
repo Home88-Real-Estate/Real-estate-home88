@@ -139,16 +139,19 @@ const nextConfig = {
     "@aws-sdk/client-s3",
     "@aws-sdk/s3-request-presigner",
     "nodemailer",
+    "pdf-lib",
+    "@pdf-lib/fontkit",
   ],
 
   outputFileTracingRoot: monorepoRoot,
 
   /**
    * Prisma's query engine is a native file that file tracing cannot discover
-   * from imports alone; ship it with every server function.
+   * from imports alone; ship it with every server function. The same goes for
+   * the font embedded in mandate PDFs (read from disk by apps/api).
    */
   outputFileTracingIncludes: {
-    "/**": ["../../node_modules/.prisma/client/**"],
+    "/**": ["../../node_modules/.prisma/client/**", "../api/assets/fonts/**"],
   },
 
   experimental: {

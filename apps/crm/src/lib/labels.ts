@@ -130,3 +130,16 @@ export const VALUATION_STATUS_CLASS: Record<string, string> = {
   DRAFT: "badge badge--info",
   FINAL: "badge badge--ok",
 };
+
+export const MANDATE_STATUS_CLASS: Record<string, string> = {
+  DRAFT: "badge badge--muted",
+  ISSUED: "badge badge--info",
+  SENT: "badge badge--info",
+  VIEWED: "badge badge--warn",
+  SIGNED: "badge badge--ok",
+  ACTIVE: "badge badge--ok",
+  ENDED: "badge badge--muted",
+  DECLINED: "badge badge--danger",
+  EXPIRED: "badge badge--danger",
+  CANCELLED: "badge badge--muted",
+};
