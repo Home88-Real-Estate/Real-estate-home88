@@ -16,7 +16,7 @@ export default async function NewPropertyPage() {
         </Link>
       </div>
 
-      <PropertyForm action={saveProperty} submitLabel="Αποθήκευση ακινήτου" />
+      <PropertyForm action={saveProperty} submitLabel="Αποθήκευση ακινήτου" withPhotos />
     </>
   );
 }

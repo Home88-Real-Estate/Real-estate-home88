@@ -33,6 +33,20 @@ export async function saveProperty(
   redirect(`/properties/${savedId}`);
 }
 
+export type CreateResult = ActionState & { propertyId?: string };
+
+/**
+ * Creates a property and returns its id instead of redirecting, so the browser
+ * can then upload the photos the agent picked on the form to the new property.
+ * (The upload needs the id, and a redirect would leave the page first.)
+ */
+export async function createPropertyForUpload(formData: FormData): Promise<CreateResult> {
+  const result = await apiFetch<SavedProperty>("/api/properties", { method: "POST", json: readPropertyForm(formData) });
+  if (!result.ok) return { ok: false, message: result.error.message, fields: result.error.fields };
+  revalidatePath("/properties");
+  return { ok: true, propertyId: result.data.property.id };
+}
+
 /**
  * Ask the API to move a property to another status. The API decides whether
  * the move is allowed (lifecycle + permissions) and records the history.

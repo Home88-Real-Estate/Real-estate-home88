@@ -10,7 +10,13 @@
  * type are not sent; the form says which ones before saving.
  */
 
-import { useActionState, useState } from "react";
+import { useRouter } from "next/navigation";
+
+import { createPropertyForUpload } from "@/actions/properties";
+import { PendingMedia, type PendingFile } from "@/components/PendingMedia";
+import { browserIO } from "@/lib/browser-upload";
+import { uploadAll, type UploadUpdate } from "@/lib/upload-queue";
+import { useActionState, useEffect, useState } from "react";
 import {
   CONDITION_LABELS,
   CORE_FIELDS,
@@ -99,12 +105,73 @@ export function PropertyForm({
   action,
   initial,
   submitLabel,
+  withPhotos = false,
 }: {
   action: (state: ActionState, formData: FormData) => Promise<ActionState>;
   initial?: Initial;
   submitLabel: string;
+  /** New-property form only: lets the agent pick photos that upload right after the property is saved. */
+  withPhotos?: boolean;
 }) {
+  const router = useRouter();
   const [state, formAction, pending] = useActionState(action, idleState);
+  const [photos, setPhotos] = useState<PendingFile[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<{ message: string; fields?: Record<string, string[]> } | null>(null);
+  // Set once the property exists, so a retry never creates a second one.
+  const [created, setCreated] = useState<string | null>(null);
+  const [progress, setProgress] = useState<Record<string, UploadUpdate> | undefined>(undefined);
+  const [outcome, setOutcome] = useState<{ done: number; failed: number } | null>(null);
+
+  // Leaving mid-upload would abandon files that are only in memory.
+  useEffect(() => {
+    if (!saving) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [saving]);
+
+  async function runUploads(propertyId: string, list: PendingFile[]) {
+    const io = browserIO(propertyId);
+    // One at a time, in the agent's order: the first confirmed photo becomes the cover.
+    const result = await uploadAll(io, list.map((p) => p.file), undefined, (index, update) =>
+      setProgress((cur) => ({ ...(cur ?? {}), [list[index]!.id]: update })), 1);
+    setOutcome((cur) => ({ done: (cur?.done ?? 0) + result.done, failed: result.failed }));
+    return result;
+  }
+
+  /**
+   * With photos queued, saving is two steps: create the property, then upload.
+   * Without photos the form submits exactly as before.
+   */
+  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
+    if (!withPhotos || photos.length === 0 || id) return;
+    event.preventDefault();
+    if (created) return;
+    setSaving(true);
+    setSaveError(null);
+    const result = await createPropertyForUpload(new FormData(event.currentTarget));
+    if (!result.ok || !result.propertyId) {
+      setSaving(false);
+      setSaveError({ message: result.message ?? "Η αποθήκευση δεν ήταν δυνατή.", fields: result.fields });
+      return;
+    }
+    setCreated(result.propertyId);
+    setProgress({});
+    const uploaded = await runUploads(result.propertyId, photos);
+    setSaving(false);
+    if (uploaded.failed === 0) router.push(`/properties/${result.propertyId}`);
+  }
+
+  async function retryFailed() {
+    if (!created) return;
+    const failed = photos.filter((p) => progress?.[p.id]?.state === "failed");
+    if (failed.length === 0) return;
+    setSaving(true);
+    const uploaded = await runUploads(created, failed);
+    setSaving(false);
+    if (uploaded.failed === 0) router.push(`/properties/${created}`);
+  }
   const [values, setValues] = useState<Values>(() => initialValues(initial));
   const id = typeof initial?.id === "string" ? initial.id : "";
 
@@ -154,8 +221,14 @@ export function PropertyForm({
   };
 
   return (
-    <form action={formAction} className="pform">
+    <form action={formAction} onSubmit={onSubmit} className="pform">
       {id && <input type="hidden" name="id" value={id} />}
+
+      {saveError && (
+        <div className="notice notice--danger" role="alert">
+          {saveError.message}
+        </div>
+      )}
 
       {state.message && (
         <div className={state.ok ? "notice notice--ok" : "notice notice--danger"} role="alert">
@@ -301,6 +374,22 @@ export function PropertyForm({
         <Check name="featured" label="Προβεβλημένο" value={values.featured} onChange={set} />
       </section>
 
+      {withPhotos && (
+        <section className="panel">
+          <h2>Φωτογραφίες</h2>
+          <PendingMedia files={photos} onChange={setPhotos} progress={progress} disabled={saving || created !== null} />
+          {created && outcome && outcome.failed > 0 && !saving && (
+            <div className="notice notice--warn" role="alert">
+              Το ακίνητο αποθηκεύτηκε, αλλά {outcome.failed} αρχεία δεν ανέβηκαν. Δεν θα δημιουργηθεί δεύτερο ακίνητο.
+              <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+                <button type="button" className="btn btn--primary btn--sm" onClick={() => void retryFailed()}>Επανάληψη των αρχείων που απέτυχαν</button>
+                <button type="button" className="btn btn--outline btn--sm" onClick={() => router.push(`/properties/${created}`)}>Μετάβαση στο ακίνητο</button>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
       {hiddenWithValues.length > 0 && (
         <div className="notice notice--warn" role="status">
           Ορισμένα στοιχεία δεν ισχύουν για «{label(PROPERTY_TYPE_LABELS, type, "el")}» και δεν θα αποθηκευτούν:{" "}
@@ -318,8 +407,8 @@ export function PropertyForm({
           {score.missing.length > 0 && <span className="hint">Λείπουν: {score.missing.join(", ")}</span>}
           {!draft && <span className="hint">Τα πεδία με * είναι υποχρεωτικά για ενεργό ακίνητο.</span>}
         </div>
-        <button type="submit" className="btn btn--primary btn--lg" disabled={pending}>
-          {pending ? "Αποθήκευση…" : submitLabel}
+        <button type="submit" className="btn btn--primary btn--lg" disabled={pending || saving || created !== null}>
+          {pending || saving ? (created ? "Μεταφόρτωση φωτογραφιών…" : "Αποθήκευση…") : created ? "Αποθηκεύτηκε" : submitLabel}
         </button>
       </div>
     </form>
