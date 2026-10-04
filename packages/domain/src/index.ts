@@ -9,3 +9,4 @@ export * from "./commission";
 export * from "./valuation";
 export * from "./mandate";
 export * from "./communications";
+export * from "./connections";

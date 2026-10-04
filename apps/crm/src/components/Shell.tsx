@@ -31,7 +31,6 @@ const COMING_SOON: Array<{ label: string; icon: IconName }> = [
   { label: "Στατιστικά", icon: "chart" },
   { label: "Μαζικό SMS", icon: "message" },
   { label: "Ομάδες", icon: "team" },
-  { label: "Συνδέσεις", icon: "plug" },
 ];
 
 const NAV_COOKIE = "h88_nav";
@@ -153,6 +152,7 @@ export function Shell({
   const admin: NavItem[] = (
     [
       { href: "/users", label: "Χρήστες", icon: "userCog", min: "MANAGER" },
+      { href: "/connections", label: "Συνδέσεις", icon: "plug", min: "MANAGER" },
       { href: "/invitations", label: "Προσκλήσεις", icon: "send", min: "ADMIN" },
     ] satisfies NavItem[]
   ).filter((item) => hasRole(user.role, item.min));
