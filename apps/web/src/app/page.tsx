@@ -420,22 +420,36 @@ export default async function HomePage() {
 
       <section className="section">
         <div className="wrap">
-          <div className="cta-band">
-            <h2>Έχετε ερώτηση για ένα ακίνητο;</h2>
-            <p>
-              Επικοινωνήστε με την ομάδα της HOME88 για πληροφορίες, διαθεσιμότητα και
-              προγραμματισμό επίσκεψης.
-            </p>
-            <div className="row" style={{ marginTop: 18 }}>
-              <Link href="/contact" className="btn btn--onhero btn--lg">
-                Επικοινωνία
-              </Link>
-              {company.phone ? (
-                <a href={`tel:${company.phone.replace(/[^\d+]/g, "")}`} className="btn btn--onhero">
-                  {company.phone}
-                </a>
-              ) : null}
+          <div className="contact-cta">
+            <div className="contact-cta__copy">
+              <h2>Έχετε ερώτηση για ένα ακίνητο;</h2>
+              <p>
+                Επικοινωνήστε με την ομάδα της HOME88 για πληροφορίες, διαθεσιμότητα και
+                προγραμματισμό επίσκεψης.
+              </p>
+              <div className="row" style={{ marginTop: 18 }}>
+                <Link href="/contact" className="btn btn--primary btn--lg">
+                  Επικοινωνία
+                </Link>
+                {company.phone ? (
+                  <a href={`tel:${company.phone.replace(/[^\d+]/g, "")}`} className="btn btn--outline btn--lg">
+                    {company.phone}
+                  </a>
+                ) : null}
+              </div>
             </div>
+            {/* Shown whole at its own 16:9 ratio, so the fox, phone and pendant are never cropped. */}
+            <img
+              className="contact-cta__visual"
+              src="/images/fox/home88-fox-contact.webp"
+              srcSet="/images/fox/home88-fox-contact-840.webp 840w, /images/fox/home88-fox-contact.webp 1674w"
+              sizes="(min-width: 900px) 50vw, 100vw"
+              width={1674}
+              height={940}
+              alt="Η αλεπού της HOME88 σε παραθαλάσσια βεράντα"
+              loading="lazy"
+              decoding="async"
+            />
           </div>
         </div>
       </section>
