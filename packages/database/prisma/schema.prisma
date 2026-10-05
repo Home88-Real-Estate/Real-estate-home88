@@ -392,11 +392,12 @@ model User {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  sessions              Session[]
-  passwordResetTokens   PasswordResetToken[]
-  propertyStatusChanges PropertyStatusHistory[]
-  propertyPriceChanges  PropertyPriceHistory[]
-  invitationsSent       Invitation[]            @relation("InvitationInviter")
+  sessions                  Session[]
+  passwordResetTokens       PasswordResetToken[]
+  propertyStatusChanges     PropertyStatusHistory[]
+  propertyPriceChanges      PropertyPriceHistory[]
+  invitationsSent           Invitation[]            @relation("InvitationInviter")
+  assignedValuationRequests ValuationRequest[]      @relation("ValuationRequestAgent")
 
   @@index([role])
   @@index([status])
@@ -511,8 +512,9 @@ model Contact {
   erasureRequestedAt DateTime?
   retentionExpiresAt DateTime?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  valuationRequests ValuationRequest[]
 
   @@index([emailHash])
   @@index([phoneHash])
@@ -634,9 +636,10 @@ model Property {
   /// Non-nullable retention anchor, used by the purge job.
   retentionExpiresAt DateTime?
 
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  ViewingRequest ViewingRequest[]
+  createdAt                   DateTime                     @default(now())
+  updatedAt                   DateTime                     @updatedAt
+  ViewingRequest              ViewingRequest[]
+  valuationRequestComparables ValuationRequestComparable[]
 
   @@index([status])
   @@index([listingType])
@@ -822,8 +825,9 @@ model Lead {
   nextActionAt    DateTime?
   lostReason      String?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  valuationRequests ValuationRequest[]
 
   @@index([status])
   @@index([type, status])
@@ -1827,19 +1831,20 @@ model PropertyTagAssignment {
 
 /// Region › City › Area › Neighbourhood.
 model Area {
-  id        String                @id @default(cuid())
-  level     String
-  parentId  String?
-  parent    Area?                 @relation("AreaTree", fields: [parentId], references: [id], onDelete: Restrict)
-  children  Area[]                @relation("AreaTree")
-  nameEl    String
-  nameEn    String?
-  slug      String                @unique
-  active    Boolean               @default(true)
-  sortOrder Int                   @default(0)
-  mappings  AreaExternalMapping[]
-  createdAt DateTime              @default(now())
-  updatedAt DateTime              @updatedAt
+  id                 String                @id @default(cuid())
+  level              String
+  parentId           String?
+  parent             Area?                 @relation("AreaTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children           Area[]                @relation("AreaTree")
+  nameEl             String
+  nameEn             String?
+  slug               String                @unique
+  active             Boolean               @default(true)
+  sortOrder          Int                   @default(0)
+  mappings           AreaExternalMapping[]
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  marketObservations MarketObservation[]
 
   @@index([parentId])
   @@index([level])
@@ -2379,11 +2384,12 @@ model Valuation {
 
   comparables ValuationComparable[]
 
-  finalizedAt   DateTime?
-  finalizedById String?
-  createdById   String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  finalizedAt    DateTime?
+  finalizedById  String?
+  createdById    String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  sourceRequests ValuationRequest[]
 
   @@index([propertyId])
   @@index([sellerLeadId])
@@ -2695,4 +2701,193 @@ model AiRequest {
   @@index([userId, createdAt])
   @@index([createdAt])
   @@map("ai_requests")
+}
+
+// ---------------------------------------------------------------------------
+// Market data and automated valuation (V1)
+// ---------------------------------------------------------------------------
+
+/// Where market numbers may come from, and what each source's licence allows.
+/// A source is read by the valuation engine only when it is active AND marked
+/// usable for valuation; licence flags stay null until confirmed.
+model MarketDataSource {
+  id                  String              @id @default(cuid())
+  /// HOME88, MAMA, BANK_OF_GREECE, ELSTAT, OBJECTIVE_VALUES, a licensed feed...
+  code                String              @unique
+  name                String
+  /// INTERNAL, OFFICIAL_PUBLIC or LICENSED.
+  sourceType          String
+  /// What it provides: TRANSACTION, ASKING, INDEX, OBJECTIVE_VALUE, GEOGRAPHY.
+  dataKinds           String[]            @default([])
+  /// FILE, API, FEED or INTERNAL.
+  accessMethod        String?
+  endpoint            String?
+  updateFrequency     String?
+  licenseType         String?
+  licenseTermsUrl     String?
+  termsVersion        String?
+  permittedUse        String?
+  commercialUse       Boolean?
+  retentionAllowed    Boolean?
+  derivativeAnalytics Boolean?
+  redistribution      Boolean?
+  active              Boolean             @default(false)
+  usableForValuation  Boolean             @default(false)
+  notes               String?
+  lastSuccessAt       DateTime?
+  lastFailureAt       DateTime?
+  lastError           String?
+  observations        MarketObservation[]
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  @@map("market_data_sources")
+}
+
+/// One observed price from one source, with full provenance. Asking prices and
+/// recorded transactions are different things and are never mixed up:
+/// `observationType` says which one this is.
+model MarketObservation {
+  id                String           @id @default(cuid())
+  sourceId          String
+  source            MarketDataSource @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  /// The record's id in its source, so a re-import updates instead of duplicating.
+  sourceRecordId    String
+  /// TRANSACTION, ASKING, BANK_VALUATION, OBJECTIVE_VALUE or RENT_ASKING.
+  observationType   String
+  propertyType      String?
+  listingType       String?
+  region            String?
+  municipality      String?
+  city              String?
+  areaName          String?
+  /// Canonical area once the source name has been mapped.
+  areaId            String?
+  area              Area?            @relation(fields: [areaId], references: [id], onDelete: SetNull)
+  latitude          Decimal?         @db.Decimal(10, 7)
+  longitude         Decimal?         @db.Decimal(10, 7)
+  areaSqm           Decimal?         @db.Decimal(10, 2)
+  landAreaSqm       Decimal?         @db.Decimal(12, 2)
+  bedrooms          Int?
+  bathrooms         Int?
+  floor             Int?
+  totalFloors       Int?
+  yearBuilt         Int?
+  yearRenovated     Int?
+  condition         String?
+  features          Json?
+  price             Decimal          @db.Decimal(14, 2)
+  pricePerSqm       Decimal?         @db.Decimal(12, 2)
+  /// Contract date for a transaction, listing/observation date otherwise.
+  observedAt        DateTime
+  firstSeenAt       DateTime?
+  lastSeenAt        DateTime?
+  /// 0–100: source quality × completeness × location confidence.
+  quality           Int?
+  rawPayload        Json
+  normalizedPayload Json?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@unique([sourceId, sourceRecordId])
+  @@index([observationType, propertyType, observedAt])
+  @@index([city, areaName])
+  @@index([areaId])
+  @@map("market_observations")
+}
+
+/// A valuation requested on the website (or later from the CRM), with the
+/// automated result exactly as produced. Never rewritten: an agent's own view
+/// lives in a linked agent valuation (`valuations`).
+model ValuationRequest {
+  id                    String                       @id @default(cuid())
+  /// Public code, e.g. EKT-000001.
+  reference             String                       @unique
+  /// COMPLETED or INSUFFICIENT_DATA (the engine outcome; never changes).
+  status                String
+  /// Workflow: NEW, REVIEWING, CONTACTED, INSPECTION_REQUIRED, COMPLETED, CONVERTED, CLOSED.
+  stage                 String                       @default("NEW")
+  channel               String                       @default("WEBSITE")
+  listingType           String                       @default("SALE")
+  propertyType          String
+  region                String?
+  city                  String?
+  areaName              String?
+  areaSqm               Decimal                      @db.Decimal(10, 2)
+  bedrooms              Int?
+  bathrooms             Int?
+  floor                 Int?
+  totalFloors           Int?
+  yearBuilt             Int?
+  condition             String?
+  features              Json                         @default("{}")
+  estimatedMin          Decimal?                     @db.Decimal(14, 2)
+  estimatedValue        Decimal?                     @db.Decimal(14, 2)
+  estimatedMax          Decimal?                     @db.Decimal(14, 2)
+  pricePerSqm           Decimal?                     @db.Decimal(12, 2)
+  pricePerSqmLow        Decimal?                     @db.Decimal(12, 2)
+  pricePerSqmHigh       Decimal?                     @db.Decimal(12, 2)
+  confidence            String?
+  comparableCount       Int                          @default(0)
+  strongComparableCount Int                          @default(0)
+  transactionCount      Int                          @default(0)
+  askingCount           Int                          @default(0)
+  /// AREA, CITY or REGION: how far the comparable search had to widen.
+  scope                 String?
+  /// Explanation (confidence reasons, tier counts, outliers, size range).
+  explanation           Json                         @default("{}")
+  engineVersion         String
+  methodologyVersion    String
+  /// The engine configuration used, so the result can be reproduced.
+  config                Json
+  referenceDate         DateTime
+  /// Hash of the submitted data for de-duplicating double submits.
+  idempotencyKey        String?                      @unique
+  contactId             String?
+  contact               Contact?                     @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  leadId                String?
+  lead                  Lead?                        @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  valuationId           String?
+  valuation             Valuation?                   @relation(fields: [valuationId], references: [id], onDelete: SetNull)
+  assignedAgentId       String?
+  assignedAgent         User?                        @relation("ValuationRequestAgent", fields: [assignedAgentId], references: [id], onDelete: SetNull)
+  comparables           ValuationRequestComparable[]
+  createdAt             DateTime                     @default(now())
+  updatedAt             DateTime                     @updatedAt
+
+  @@index([stage, createdAt])
+  @@index([status])
+  @@index([leadId])
+  @@index([createdAt])
+  @@map("valuation_requests")
+}
+
+/// A comparable exactly as the engine used it (frozen copy, not a live link).
+model ValuationRequestComparable {
+  id              String           @id @default(cuid())
+  requestId       String
+  request         ValuationRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  /// e.g. property:<id>, transaction:<id>, observation:<id>.
+  observationRef  String
+  propertyId      String?
+  property        Property?        @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  source          String
+  observationType String
+  tier            String
+  price           Decimal          @db.Decimal(14, 2)
+  areaSqm         Decimal          @db.Decimal(10, 2)
+  pricePerSqm     Decimal          @db.Decimal(12, 2)
+  similarity      Decimal          @db.Decimal(5, 3)
+  recency         Decimal          @db.Decimal(5, 3)
+  weight          Decimal          @db.Decimal(8, 5)
+  ageMonths       Decimal          @db.Decimal(6, 1)
+  breakdown       Json
+  outlier         Boolean          @default(false)
+  rank            Int
+  snapshot        Json
+  createdAt       DateTime         @default(now())
+
+  @@index([requestId])
+  @@index([propertyId])
+  @@map("valuation_request_comparables")
 }

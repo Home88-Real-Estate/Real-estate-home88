@@ -18,7 +18,16 @@ type State =
   | { kind: "ok"; reference: string | null }
   | { kind: "error"; message: string; fields?: Record<string, string[]> };
 
-export function LeadForm({ propertyReference, kind }: { propertyReference?: string; kind?: "valuation" }) {
+export function LeadForm({
+  propertyReference,
+  kind,
+  valuationRequestId,
+}: {
+  propertyReference?: string;
+  kind?: "valuation";
+  /** Links the request to the indicative valuation the visitor just ran (server reads the details). */
+  valuationRequestId?: string;
+}) {
   const [state, setState] = useState<State>({ kind: "idle" });
   // Time trap: rendered once when the form mounts. The server rejects a
   // submission completed faster than a human could plausibly type.
@@ -51,6 +60,7 @@ export function LeadForm({ propertyReference, kind }: { propertyReference?: stri
       hpt: String(renderedAt),
       idempotencyKey,
       attribution: readAttribution(),
+      ...(valuationRequestId ? { valuationRequestId } : {}),
     };
 
     // A viewing request is its own flow: it stays a request until an agent confirms.

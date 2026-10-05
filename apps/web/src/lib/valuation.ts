@@ -1,67 +1,32 @@
 /**
- * Website-side glue for the indicative valuation engine.
- *
- * The maths lives in `@home88/valuation` and is pure; this file only fetches
- * real comparable listings and hands them over. If there is no database (or too
- * few comparables) the engine refuses to estimate and the page shows an honest
- * "not enough data" message instead of a made-up number.
+ * Website glue for the valuation engine. The numbers are computed and stored
+ * on the server (`@home88/valuation/service`); the browser only sends the
+ * property description and receives the public view.
  */
 
-import { PUBLIC_PROPERTY_STATUSES } from "@home88/domain";
-import type { Prisma } from "@home88/database";
-import {
-  estimateValuation,
-  type Comparable,
-  type EstimateOptions,
-  type ValuationEstimate,
-  type ValuationInput,
-} from "@home88/valuation";
+import { profileFor } from "@home88/domain";
+import type { ValuationInputDto } from "@home88/validation";
+import type { ConditionCode, FeatureKey, Subject } from "@home88/valuation";
 
-import { safeQuery } from "./db";
+const FEATURES: FeatureKey[] = ["parking", "storage", "balcony", "garden", "pool", "seaView", "elevator"];
 
-/** Only these statuses are ever visible on the public site (owned by @home88/domain). */
-const PUBLIC_STATUSES = PUBLIC_PROPERTY_STATUSES;
-
-function num(v: unknown): number | null {
-  if (v == null) return null;
-  const n = Number(String(v));
-  return Number.isFinite(n) ? n : null;
-}
-
-export async function fetchComparables(input: ValuationInput, take = 60): Promise<Comparable[]> {
-  const where: Prisma.PropertyWhereInput = {
-    publishedOnWebsite: true,
-    status: { in: [...PUBLIC_STATUSES] },
-    listingType: "SALE",
-    area: { not: null },
-    price: { not: null },
+/** Keeps only what applies to this property type (an apartment's floor, never a plot's). */
+export function subjectFromInput(input: ValuationInputDto): Subject {
+  const profile = profileFor(input.propertyType);
+  const has = (field: string) => profile.core.includes(field);
+  const features: Partial<Record<FeatureKey, boolean>> = {};
+  for (const key of FEATURES) {
+    if (profile.features.includes(key) && input[key] !== undefined) features[key] = Boolean(input[key]);
+  }
+  return {
+    propertyType: input.propertyType,
+    areaSqm: input.area,
+    location: { region: input.region || null, city: input.city || null, area: input.areaName || null },
+    condition: profile.conditions && input.condition ? (input.condition as ConditionCode) : null,
+    yearBuilt: has("yearBuilt") ? (input.yearBuilt ?? null) : null,
+    floor: has("floor") ? (input.floor ?? null) : null,
+    bedrooms: has("bedrooms") ? (input.bedrooms ?? null) : null,
+    bathrooms: has("bathrooms") ? (input.bathrooms ?? null) : null,
+    features,
   };
-  if (input.city) where.city = { equals: input.city, mode: "insensitive" };
-  if (input.areaName) where.areaName = { equals: input.areaName, mode: "insensitive" };
-
-  return safeQuery(
-    "fetchComparables",
-    async (db) => {
-      const rows = await db.property.findMany({
-        where,
-        take,
-        orderBy: { updatedAt: "desc" },
-        select: { price: true, area: true, propertyType: true },
-      });
-      return rows.map((r) => ({
-        price: num(r.price),
-        area: num(r.area),
-        propertyType: r.propertyType,
-      }));
-    },
-    [],
-  );
-}
-
-export async function estimateFromDatabase(
-  input: ValuationInput,
-  options: EstimateOptions = {},
-): Promise<{ comparables: Comparable[]; result: ValuationEstimate }> {
-  const comparables = await fetchComparables(input);
-  return { comparables, result: estimateValuation(input, comparables, options) };
 }

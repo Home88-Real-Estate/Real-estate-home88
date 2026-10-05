@@ -53,7 +53,11 @@ export default async function ValuationsPage({ searchParams }: { searchParams: P
         </div>
         <Link href="/valuations/new" className="btn btn--primary">Νέα εκτίμηση</Link>
       </div>
-      <nav className="tabs" aria-label="Κατάσταση">
+      <nav className="tabs" aria-label="Είδος">
+        <Link href="/valuations" className="tabs__link" aria-current="page">Εκτιμήσεις συμβούλων</Link>
+        <Link href="/valuations/requests" className="tabs__link">Από τον ιστότοπο</Link>
+      </nav>
+      <nav className="tabs tabs--sub" aria-label="Κατάσταση">
         {tabs.map(([k, l]) => (
           <Link key={k} href={`/valuations?status=${k}${scope ? `&scope=${scope}` : ""}`} className="tabs__link" aria-current={status === k ? "page" : undefined}>{l}</Link>
         ))}
