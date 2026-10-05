@@ -537,30 +537,45 @@ const checkboxFlag = z.preprocess(
  * contains no personal data — contact details are captured separately by the
  * lead form only when the visitor asks for a formal appraisal.
  */
-export const valuationInputSchema = z.object({
-  propertyType: propertyTypeSchema,
-  area: z
-    .union([z.number(), z.string()])
-    .transform((v) => (typeof v === "string" ? Number(v.replace(/[\s,]/g, "")) : v))
-    .refine((v) => Number.isFinite(v) && v >= 15 && v <= 10_000, "Δώστε έγκυρο εμβαδόν."),
-  city: optionalText(120),
-  areaName: optionalText(120),
-  condition: z
-    .enum(["NEW_BUILD", "RENOVATED", "GOOD", "NEEDS_RENOVATION", "UNDER_CONSTRUCTION"])
-    .optional()
-    .default("GOOD"),
-  yearBuilt: yearSchema,
-  floor: z.coerce.number().int().min(-5).max(200).optional().nullable(),
-  totalFloors: z.coerce.number().int().min(1).max(200).optional().nullable(),
-  parking: checkboxFlag.optional(),
-  storage: checkboxFlag.optional(),
-  balcony: checkboxFlag.optional(),
-  garden: checkboxFlag.optional(),
-  pool: checkboxFlag.optional(),
-  seaView: checkboxFlag.optional(),
-  furnished: checkboxFlag.optional(),
-  hasSolar: checkboxFlag.optional(),
-});
+const optionalCount = (max: number) =>
+  z.preprocess((v) => (v === "" || v == null ? null : v), z.coerce.number().int().min(0).max(max).nullable().optional());
+const optionalFloor = z.preprocess((v) => (v === "" || v == null ? null : v), z.coerce.number().int().min(-5).max(200).nullable().optional());
+
+/**
+ * The public indicative valuation (no personal data). Fields that do not apply
+ * to the property type are dropped server-side by the property profile.
+ */
+export const valuationInputSchema = z
+  .object({
+    propertyType: propertyTypeSchema,
+    area: z
+      .union([z.number(), z.string()])
+      .transform((v) => (typeof v === "string" ? Number(v.replace(/[\s,]/g, "")) : v))
+      .refine((v) => Number.isFinite(v) && v >= 10 && v <= 100_000, "Δώστε έγκυρο εμβαδόν (τ.μ.)."),
+    region: optionalText(120),
+    city: optionalText(120),
+    areaName: optionalText(120),
+    condition: z
+      .enum(["NEW_BUILD", "RENOVATED", "GOOD", "NEEDS_RENOVATION", "UNDER_CONSTRUCTION"])
+      .optional()
+      .or(z.literal(""))
+      .transform((v) => (v ? v : null)),
+    yearBuilt: z.preprocess((v) => (v === "" || v == null ? undefined : v), yearSchema.optional()),
+    floor: optionalFloor,
+    totalFloors: optionalCount(200),
+    bedrooms: optionalCount(50),
+    bathrooms: optionalCount(50),
+    parking: checkboxFlag.optional(),
+    storage: checkboxFlag.optional(),
+    balcony: checkboxFlag.optional(),
+    garden: checkboxFlag.optional(),
+    pool: checkboxFlag.optional(),
+    seaView: checkboxFlag.optional(),
+    elevator: checkboxFlag.optional(),
+    /** Client-generated id so a double submit is stored once. */
+    idempotencyKey: z.string().regex(/^[a-f0-9-]{16,64}$/i).optional(),
+  })
+  .refine((v) => Boolean(v.city?.trim() || v.areaName?.trim()), { message: "Συμπληρώστε πόλη ή περιοχή.", path: ["city"] });
 
 export type ValuationInputDto = z.infer<typeof valuationInputSchema>;
 
@@ -789,6 +804,8 @@ export type InvitationAcceptInput = z.infer<typeof invitationAcceptSchema>;
  */
 export const RATE_LIMITS = {
   leadCapture: { points: 5, durationSeconds: 600 },
+  /** Anonymous indicative valuations (each one runs a comparable search). */
+  valuationEstimate: { points: 12, durationSeconds: 600 },
   propertySubmission: { points: 3, durationSeconds: 3600 },
   contact: { points: 5, durationSeconds: 600 },
   login: { points: 8, durationSeconds: 900 },

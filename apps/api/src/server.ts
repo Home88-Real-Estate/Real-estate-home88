@@ -26,6 +26,7 @@ import { settingsRoutes } from "./routes/settings";
 import { taskRoutes } from "./routes/tasks";
 import { transactionRoutes } from "./routes/transactions";
 import { userRoutes } from "./routes/users";
+import { valuationRequestRoutes } from "./routes/valuation-requests";
 import { valuationRoutes } from "./routes/valuations";
 import { viewingRoutes } from "./routes/viewings";
 
@@ -124,6 +125,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(transactionRoutes, { prefix: "/api" });
   await app.register(sellerRoutes, { prefix: "/api" });
   await app.register(valuationRoutes, { prefix: "/api" });
+  await app.register(valuationRequestRoutes, { prefix: "/api" });
   await app.register(documentRoutes, { prefix: "/api" });
   await app.register(mandateRoutes, { prefix: "/api" });
   await app.register(messageRoutes, { prefix: "/api" });
