@@ -67,9 +67,9 @@ describe("valuation service (database)", { skip: SKIP }, () => {
     assert.equal(out.result.comparableCount, 6);
     assert.equal(out.result.transactionCount, 1, "the closed deal counts as a transaction, at its agreed price");
     assert.equal(out.result.askingCount, 5);
-    assert.match(out.reference, /^EKT-\d{6}$/);
+    assert.match(out.reference ?? "", /^EKT-\d{6}$/);
 
-    const stored = await db.valuationRequest.findUniqueOrThrow({ where: { id: out.id }, include: { comparables: true } });
+    const stored = await db.valuationRequest.findUniqueOrThrow({ where: { id: out.id! }, include: { comparables: true } });
     assert.equal(stored.status, "COMPLETED");
     assert.equal(Number(stored.estimatedValue), out.result.midpoint);
     assert.equal(stored.comparables.length, 6);
@@ -99,7 +99,7 @@ describe("valuation service (database)", { skip: SKIP }, () => {
     await property();
     const out = await valuateAndStore(db, subject, { referenceDate: REF });
     assert.equal(out.result.status, "INSUFFICIENT_DATA");
-    const stored = await db.valuationRequest.findUniqueOrThrow({ where: { id: out.id } });
+    const stored = await db.valuationRequest.findUniqueOrThrow({ where: { id: out.id! } });
     assert.equal(stored.status, "INSUFFICIENT_DATA");
     assert.equal(stored.estimatedValue, null);
   });
@@ -107,8 +107,8 @@ describe("valuation service (database)", { skip: SKIP }, () => {
   it("the automated result cannot be changed afterwards", async () => {
     for (const p of [3900, 3950, 4000, 4050, 4100]) await property({ price: p * 100 });
     const out = await valuateAndStore(db, subject, { referenceDate: REF });
-    await db.valuationRequest.update({ where: { id: out.id }, data: { stage: "CONTACTED" } });
-    await assert.rejects(db.valuationRequest.update({ where: { id: out.id }, data: { estimatedValue: 1 } }), /cannot be changed/);
+    await db.valuationRequest.update({ where: { id: out.id! }, data: { stage: "CONTACTED" } });
+    await assert.rejects(db.valuationRequest.update({ where: { id: out.id! }, data: { estimatedValue: 1 } }), /cannot be changed/);
   });
 
   it("imported observations are ignored until their source is cleared for valuation", async () => {

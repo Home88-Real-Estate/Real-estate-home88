@@ -83,7 +83,7 @@ The bucket must accept browser PUTs from the CRM origin:
    `SITE_URL=https://home88.estate`, `S3_*`, `PII_HASH_PEPPER`, `PII_ENCRYPTION_KEY`, `SMTP_*`.
 3. Domains → add `crm.home88.estate`, then create the DNS record Vercel shows (a CNAME for `crm`) wherever `home88.estate`'s DNS is managed.
 4. Apply database migrations once per release from a trusted machine:
-   `DATABASE_URL=… npm run db:deploy -w @home88/database`.
+   `DATABASE_URL=… npm run prisma:deploy -w @home88/database`.
 5. Create the first administrator (see `docs/authentication.md`).
 
 Check: `https://crm.home88.estate/api/health` returns `{"status":"ok",…}`.

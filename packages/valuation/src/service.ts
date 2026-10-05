@@ -151,6 +151,8 @@ export async function loadCandidates(
   }
 
   // 3. Imported market observations, only from sources cleared for valuation.
+  //    Optional evidence: a transient read failure is logged and the valuation
+  //    continues on HOME88's own data. A missing table is not transient.
   const observations = await db.marketObservation.findMany({
     where: {
       source: { active: true, usableForValuation: true, code: { not: "HOME88" } },
@@ -166,6 +168,11 @@ export async function loadCandidates(
     },
     orderBy: { observedAt: "desc" },
     take: MAX_ROWS * 4,
+  }).catch((error: unknown) => {
+    // A missing table/column is a deployment fault (migrations not applied): never run around it.
+    if (SCHEMA_CODES.has(errorCode(error))) throw error;
+    console.error("[home88:valuation] MARKET_DATA_UNAVAILABLE: imported observations skipped", errorCode(error));
+    return [];
   });
   for (const o of observations) {
     const price = num(o.price);
@@ -215,26 +222,102 @@ export type ValuateOptions = {
   idempotencyKey?: string | null;
 };
 
-export type StoredValuation = { id: string; reference: string; result: EngineResult; replayed: boolean };
+export type StoredValuation = {
+  /** Null when the result could not be stored (the failure is logged as SNAPSHOT_ERROR). */
+  id: string | null;
+  reference: string | null;
+  result: EngineResult;
+  replayed: boolean;
+};
 
-/** Runs a valuation and stores it (request + comparable snapshot) in one transaction. */
+/** Where a valuation failed, so callers can answer and log precisely. */
+export type ValuationStage = "REPLAY" | "LOAD_EVIDENCE" | "ENGINE" | "PERSIST";
+export class ValuationFailure extends Error {
+  constructor(
+    readonly code: "DATABASE_ERROR" | "SCHEMA_OUT_OF_DATE" | "VALUATION_ENGINE_ERROR",
+    readonly stage: ValuationStage,
+    override readonly cause: unknown,
+  ) {
+    super(`${code} at ${stage}`);
+  }
+}
+
+/** Prisma's error code (P2021 = missing table, P1001 = unreachable, ...) or the error class. */
+export function errorCode(error: unknown): string {
+  if (error && typeof error === "object" && "code" in error && typeof (error as { code: unknown }).code === "string") return (error as { code: string }).code;
+  return error instanceof Error ? error.constructor.name : "unknown";
+}
+const SCHEMA_CODES = new Set(["P2021", "P2022"]);
+
+/**
+ * Runs a valuation in three stages and stores it.
+ *
+ *  1. LOAD_EVIDENCE — HOME88's own data is required; failure is a DATABASE_ERROR
+ *     (or SCHEMA_OUT_OF_DATE when a table/column is missing).
+ *  2. ENGINE        — pure calculation; INSUFFICIENT_DATA is a normal result.
+ *  3. PERSIST       — request + frozen comparables in one transaction. If this
+ *     fails the result is still returned (with id null) and the failure is
+ *     logged as SNAPSHOT_ERROR, so a storage problem never hides a valid answer.
+ *
+ *  A missing table or column (Prisma P2021/P2022) at any stage means the
+ *  database is behind the code: that is always SCHEMA_OUT_OF_DATE, never
+ *  worked around, so a deployment without its migrations fails visibly.
+ */
 export async function valuateAndStore(db: PrismaClient, subject: Subject, options: ValuateOptions = {}): Promise<StoredValuation> {
   const config = options.config ?? DEFAULT_CONFIG;
   const referenceDate = options.referenceDate ?? new Date();
 
   if (options.idempotencyKey) {
-    const existing = await db.valuationRequest.findUnique({ where: { idempotencyKey: options.idempotencyKey }, select: { id: true } });
-    if (existing) {
-      const stored = await loadStoredResult(db, existing.id);
-      if (stored) return { ...stored, replayed: true };
+    try {
+      const existing = await db.valuationRequest.findUnique({ where: { idempotencyKey: options.idempotencyKey }, select: { id: true } });
+      if (existing) {
+        const stored = await loadStoredResult(db, existing.id);
+        if (stored) return { ...stored, replayed: true };
+      }
+    } catch (error) {
+      if (SCHEMA_CODES.has(errorCode(error))) throw new ValuationFailure("SCHEMA_OUT_OF_DATE", "REPLAY", error);
+      // Only the replay lookup failed; the valuation itself can still run.
+      console.error("[home88:valuation] SNAPSHOT_ERROR: replay lookup failed", errorCode(error));
     }
   }
 
-  const { candidates, snapshots } = await loadCandidates(db, subject, referenceDate, config);
-  const result = runComparableEngine(subject, candidates, { referenceDate, config });
-  const ok = result.status === "OK" ? result : null;
+  let loaded: Awaited<ReturnType<typeof loadCandidates>>;
+  try {
+    loaded = await loadCandidates(db, subject, referenceDate, config);
+  } catch (error) {
+    throw new ValuationFailure(SCHEMA_CODES.has(errorCode(error)) ? "SCHEMA_OUT_OF_DATE" : "DATABASE_ERROR", "LOAD_EVIDENCE", error);
+  }
+  const { candidates, snapshots } = loaded;
 
-  const saved = await db.$transaction(async (tx) => {
+  let result: EngineResult;
+  try {
+    result = runComparableEngine(subject, candidates, { referenceDate, config });
+  } catch (error) {
+    throw new ValuationFailure("VALUATION_ENGINE_ERROR", "ENGINE", error);
+  }
+  try {
+    const saved = await persist(db, subject, result, snapshots, config, referenceDate, options);
+    return { id: saved.id, reference: saved.reference, result, replayed: false };
+  } catch (error) {
+    if (SCHEMA_CODES.has(errorCode(error))) throw new ValuationFailure("SCHEMA_OUT_OF_DATE", "PERSIST", error);
+    console.error(
+      `[home88:valuation] SNAPSHOT_ERROR: result not stored (${errorCode(error)}); status=${result.status} type=${subject.propertyType} comparables=${result.comparableCount}`,
+    );
+    return { id: null, reference: null, result, replayed: false };
+  }
+}
+
+async function persist(
+  db: PrismaClient,
+  subject: Subject,
+  result: EngineResult,
+  snapshots: Map<string, Snapshot>,
+  config: EngineConfig,
+  referenceDate: Date,
+  options: ValuateOptions,
+): Promise<{ id: string; reference: string }> {
+  const ok = result.status === "OK" ? result : null;
+  return db.$transaction(async (tx) => {
     const reference = await nextReference(tx);
     const request = await tx.valuationRequest.create({
       data: {
@@ -305,8 +388,6 @@ export async function valuateAndStore(db: PrismaClient, subject: Subject, option
     }
     return request;
   });
-
-  return { id: saved.id, reference: saved.reference, result, replayed: false };
 }
 
 /** Rebuilds the public result from what was stored (used for idempotent replays). */

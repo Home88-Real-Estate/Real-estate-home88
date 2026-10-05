@@ -61,7 +61,7 @@ export function ValuationWizard() {
   const [idempotencyKey, setKey] = useState(() => newIdempotencyKey());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ message: string; fields?: Record<string, string[]> } | null>(null);
-  const [result, setResult] = useState<{ requestId: string; valuation: PublicValuation; snapshot: Record<string, string> } | null>(null);
+  const [result, setResult] = useState<{ requestId: string | null; valuation: PublicValuation; snapshot: Record<string, string> } | null>(null);
 
   const type = values.propertyType ?? "";
   const profile = useMemo(() => profileFor(type), [type]);
@@ -84,8 +84,8 @@ export function ValuationWizard() {
         body: JSON.stringify(payload),
       });
       const data = (await response.json().catch(() => null)) as
-        | { ok: true; requestId: string; valuation: PublicValuation }
-        | { ok: false; message?: string; fields?: Record<string, string[]> }
+        | { ok: true; requestId: string | null; valuation: PublicValuation }
+        | { ok: false; code?: string; message?: string; fields?: Record<string, string[]> }
         | null;
       if (!response.ok || !data || !data.ok) {
         setError({ message: (data && !data.ok && data.message) || "Ο υπολογισμός δεν ήταν δυνατός. Δοκιμάστε ξανά.", fields: data && !data.ok ? data.fields : undefined });
@@ -263,7 +263,7 @@ export function ValuationWizard() {
             <p className="muted" style={{ fontSize: "0.92rem" }}>
               Ένας σύμβουλος της HOME88 θα δει το ακίνητο και θα σας προτείνει πώς να τοποθετηθεί σωστά στην αγορά.
             </p>
-            <LeadForm kind="valuation" valuationRequestId={result.requestId} />
+            <LeadForm kind="valuation" valuationRequestId={result.requestId ?? undefined} />
           </section>
           <button type="button" className="btn btn--ghost" onClick={restart}>Αλλαγή στοιχείων</button>
         </>
