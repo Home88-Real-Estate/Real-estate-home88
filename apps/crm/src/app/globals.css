@@ -1238,3 +1238,4 @@ button.ptoggle:focus-visible { outline: 3px solid var(--focus); outline-offset: 
   .conn__summary .stat .label { font-size: 0.66rem; letter-spacing: 0.02em; }
   .conn__summary .stat .value { font-size: 1.4rem; }
 }
+.tabs--sub { border-bottom: 0; margin-top: -6px; }

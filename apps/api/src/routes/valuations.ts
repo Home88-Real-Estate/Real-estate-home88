@@ -151,7 +151,7 @@ function meta(request: FastifyRequest) {
 }
 
 /** Recompute and store the result over the included comparables. */
-async function refresh(tx: Prisma.TransactionClient, id: string) {
+export async function refresh(tx: Prisma.TransactionClient, id: string) {
   const v = await tx.valuation.findUniqueOrThrow({ where: { id }, include: { comparables: true } });
   const r = valuate(n(v.area), v.comparables.map((c) => ({ price: Number(c.price), area: Number(c.area), adjustmentPct: Number(c.adjustmentPct), included: c.included })));
   const data = r.ok
