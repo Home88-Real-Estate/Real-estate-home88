@@ -74,6 +74,7 @@ export const NAV_SECTIONS: NavSection[] = [
       },
       { href: "/valuations", label: "Εκτιμήσεις", icon: "barChart" },
       { href: "/transactions", label: "Συναλλαγές", icon: "key" },
+      { href: "/reports", label: "Στατιστικά", icon: "chart" },
     ],
   },
   {
@@ -125,6 +126,7 @@ export const NAV_SECTIONS: NavSection[] = [
           { href: "/users", label: "Χρήστες", icon: "userCog", min: "MANAGER" },
           { href: "/invitations", label: "Προσκλήσεις", icon: "send", min: "ADMIN" },
           { href: "/security", label: "Ασφάλεια", icon: "shield" },
+          { href: "/automation", label: "Δραστηριότητα αυτοματισμών", icon: "sparkle", min: "MANAGER" },
           { href: "/connections", label: "Συνδέσεις", icon: "plug", min: "MANAGER" },
         ],
       },

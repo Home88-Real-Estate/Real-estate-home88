@@ -67,6 +67,8 @@ const DELEGATES: Partial<Record<SettingsSectionKey, string>> = {
   requests: "requestSettings",
   commissions: "commissionSettings",
   calendar: "calendarSettings",
+  automation: "automationSettings",
+  ai: "aiSettings",
   mandates: "mandateSettings",
   email: "emailSettings",
   sms: "smsSettings",

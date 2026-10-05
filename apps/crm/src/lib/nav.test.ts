@@ -13,7 +13,7 @@ const viewer = { role: "VIEWER", canOpenSettings: false };
 test("every existing CRM route has exactly one sidebar link", () => {
   const routes = ["/", "/properties", "/leads", "/submissions", "/requests", "/media", "/sellers", "/valuations",
     "/mandates", "/transactions", "/calendar", "/reminders", "/contacts", "/documents", "/messages",
-    "/users", "/invitations", "/settings", "/security", "/connections"];
+    "/users", "/invitations", "/settings", "/security", "/connections", "/reports", "/automation"];
   const hrefs = allHrefs(navFor(admin));
   for (const r of routes) assert.equal(hrefs.filter((h) => h === r).length, 1, r);
   assert.equal(new Set(hrefs).size, hrefs.length, "no duplicate links");
@@ -21,7 +21,7 @@ test("every existing CRM route has exactly one sidebar link", () => {
 
 test("no roadmap module is listed", () => {
   const labels = NAV_SECTIONS.flatMap((s) => s.entries.flatMap((e) => [e.label, ...(isGroup(e) ? e.children.map((c) => c.label) : [])]));
-  for (const soon of ["Διαφημίσεις", "Στατιστικά", "Μαζικό SMS", "Ομάδες"]) assert.ok(!labels.includes(soon), soon);
+  for (const soon of ["Διαφημίσεις", "Μαζικό SMS", "Ομάδες"]) assert.ok(!labels.includes(soon), soon);
 });
 
 test("admin links keep their role and capability rules", () => {
@@ -32,6 +32,9 @@ test("admin links keep their role and capability rules", () => {
   assert.ok(allHrefs(navFor({ role: "MANAGER", canOpenSettings: false })).includes("/connections"));
   assert.ok(!allHrefs(navFor(agent)).includes("/connections"));
   assert.ok(!allHrefs(navFor(viewer)).includes("/properties/new"), "create needs AGENT");
+  assert.ok(allHrefs(navFor(agent)).includes("/reports"), "agents see reports over their own records");
+  assert.ok(allHrefs(navFor({ role: "MANAGER", canOpenSettings: false })).includes("/automation"));
+  assert.ok(!allHrefs(navFor(agent)).includes("/automation"), "automations are for managers");
 });
 
 test("deep links resolve to the right child and open its group", () => {

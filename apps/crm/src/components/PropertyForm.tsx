@@ -30,6 +30,7 @@ import {
 } from "@home88/domain";
 import { LISTING_TYPE_LABELS, PROPERTY_STATUS_LABELS, PROPERTY_TYPE_LABELS, label } from "@home88/types";
 
+import { AiDescription } from "@/components/AiDescription";
 import { idleState, type ActionState } from "@/lib/form";
 
 type Initial = Record<string, unknown>;
@@ -107,6 +108,7 @@ export function PropertyForm({
   submitLabel,
   withPhotos = false,
   maxUploadBytes = 25 * 1024 * 1024,
+  aiPropertyId,
 }: {
   action: (state: ActionState, formData: FormData) => Promise<ActionState>;
   initial?: Initial;
@@ -115,6 +117,8 @@ export function PropertyForm({
   withPhotos?: boolean;
   /** The API's per-file limit (MAX_UPLOAD_BYTES). */
   maxUploadBytes?: number;
+  /** Edit form only, and only when the AI assistant is on for descriptions. */
+  aiPropertyId?: string;
 }) {
   const router = useRouter();
   const [state, formAction, pending] = useActionState(action, idleState);
@@ -374,6 +378,7 @@ export function PropertyForm({
 
       <section className="panel">
         <h2>Περιγραφή</h2>
+        {aiPropertyId && <AiDescription propertyId={aiPropertyId} onUse={(locale, text) => set(locale === "el" ? "descriptionEl" : "descriptionEn", text)} />}
         <div className="field">
           <label htmlFor="descriptionEl">Περιγραφή (ελληνικά) *</label>
           <textarea id="descriptionEl" name="descriptionEl" className="textarea" required value={String(values.descriptionEl ?? "")} onChange={(e) => set("descriptionEl", e.target.value)} />

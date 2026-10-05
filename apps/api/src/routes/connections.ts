@@ -27,7 +27,7 @@ import { requireAuth, requireRole } from "../plugins/auth";
 import { resolveEmailProvider } from "../providers/email";
 import { resolveSignatureProvider } from "../providers/signature";
 import { resolveSmsProvider } from "../providers/sms";
-import { settings } from "../settings";
+import { aiConfig, settings } from "../settings";
 import { portalView } from "./settings";
 
 type Connection = {
@@ -137,6 +137,28 @@ export async function connectionRoutes(app: FastifyInstance): Promise<void> {
       lastError: null,
       lastErrorAt: null,
       settingsHref: link("mandates", "/settings/mandates"),
+    });
+
+    const ai = await aiConfig();
+    const [aiOk, aiFailed] = await Promise.all([
+      db().aiRequest.findFirst({ where: { status: "OK" }, orderBy: { createdAt: "desc" }, select: { createdAt: true } }),
+      db().aiRequest.findFirst({ where: { status: "FAILED", error: { not: "refused" } }, orderBy: { createdAt: "desc" }, select: { createdAt: true, error: true } }),
+    ]);
+    const aiReady = Boolean(ai.provider && ai.model && ai.hasKey);
+    let aiStatus = providerConnectionStatus({ state: aiReady ? "configured" : "not_configured", lastSuccessAt: aiOk?.createdAt, lastErrorAt: aiFailed?.createdAt });
+    if (aiReady && !ai.enabled) aiStatus = "DISABLED";
+    rows.push({
+      key: "ai",
+      group: "communication",
+      name: "AI βοηθός",
+      purpose: "Πρόχειρες περιγραφές ακινήτων και συνόψεις αναφορών, που ελέγχει πάντα ένας άνθρωπος.",
+      status: aiStatus,
+      provider: ai.provider ? `${ai.provider}${ai.model ? ` · ${ai.model}` : ""}` : null,
+      detail: aiStatus === "DISABLED" ? "Ο πάροχος έχει ρυθμιστεί αλλά ο AI βοηθός είναι απενεργοποιημένος." : aiReady ? null : "Δεν έχει επιλεγεί πάροχος, μοντέλο και API key.",
+      lastSuccessAt: iso(aiOk?.createdAt),
+      lastError: aiFailed?.error ?? null,
+      lastErrorAt: iso(aiFailed?.createdAt),
+      settingsHref: link("ai", "/settings/ai"),
     });
 
     // --- Portals -----------------------------------------------------------------

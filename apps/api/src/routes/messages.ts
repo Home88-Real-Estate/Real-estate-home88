@@ -38,6 +38,7 @@ import { writeAudit } from "../lib/audit";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors";
 import { clientIp, parseInput, userAgent } from "../lib/http";
 import { sendMail } from "../lib/mailer";
+import { runAutomations } from "../lib/automation";
 import { notify } from "../lib/notify";
 import { decryptField, encryptField, hasEncryptionKey, hashEmail, hashPhone, hashSubject } from "../lib/pii";
 import { db } from "../lib/prisma";
@@ -491,6 +492,14 @@ export async function messageRoutes(app: FastifyInstance): Promise<void> {
     let tasks = 0;
     let viewings = 0;
 
+    // Automations first: the tasks they create for a person are announced by the loop below, in the same run.
+    let automations: number | null = null;
+    try {
+      automations = (await runAutomations(now)).created;
+    } catch (error) {
+      console.error(`[home88:automation] run failed (${error instanceof Error ? error.name : "Error"}).`);
+    }
+
     const dueTasks = await db().task.findMany({
       where: { status: { in: ["OPEN", "IN_PROGRESS"] }, dueNotifiedAt: null, assignedToId: { not: null }, dueAt: { gte: new Date(now.getTime() - 86_400_000), lte: new Date(now.getTime() + 60 * 60_000) } },
       take: 200,
@@ -518,7 +527,7 @@ export async function messageRoutes(app: FastifyInstance): Promise<void> {
         viewings += 1;
       }
     }
-    return { ok: true, tasks, viewings, viewingReminders: typeof minutes === "number" && minutes > 0 };
+    return { ok: true, tasks, viewings, viewingReminders: typeof minutes === "number" && minutes > 0, automations };
   };
   app.get("/cron/reminders", reminders);
   app.post("/cron/reminders", reminders);

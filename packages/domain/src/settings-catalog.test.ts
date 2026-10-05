@@ -26,9 +26,9 @@ test("catalogue: unique keys, secrets have a scope, business values have no defa
       if (f.type === "select" || f.type === "multiselect") assert.ok(f.options && f.options.length > 0, `${s.key}.${f.key} needs options`);
     }
   }
-  assert.equal(keys.size, 19);
+  assert.equal(keys.size, 21);
   // Nothing HOME88 must supply is pre-filled.
-  for (const key of ["company", "legal", "commissions", "privacy", "subscription"]) {
+  for (const key of ["company", "legal", "commissions", "privacy", "subscription", "automation"]) {
     const section = SETTINGS_SECTIONS.find((s) => s.key === key)!;
     for (const f of section.fields) {
       if (f.type === "boolean" || f.type === "multiselect") continue;

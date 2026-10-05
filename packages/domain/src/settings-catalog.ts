@@ -17,6 +17,7 @@
  * secret value — only the names of secret fields.
  */
 
+import { AI_MODELS, AI_PROVIDERS } from "./ai";
 import { zonedTime } from "./date-range";
 
 export type SettingsFieldType =
@@ -76,6 +77,8 @@ export type SettingsSectionKey =
   | "requests"
   | "commissions"
   | "calendar"
+  | "automation"
+  | "ai"
   | "notifications"
   | "permissions"
   | "mandates"
@@ -311,7 +314,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
       { key: "minPhotosToPublish", label: "Ελάχιστες φωτογραφίες για δημοσίευση", type: "int", min: 0, maxValue: 100, group: "Δημοσίευση", appliesIn: "Φάση 4" },
       { key: "requireEnglishDescription", label: "Υποχρεωτική αγγλική περιγραφή", type: "boolean", group: "Δημοσίευση", default: false, appliesIn: "Φάση 4" },
       { key: "requireEnergyClass", label: "Υποχρεωτική ενεργειακή κλάση", type: "boolean", group: "Δημοσίευση", default: false, appliesIn: "Φάση 4" },
-      { key: "staleAfterDays", label: "Ειδοποίηση για ακίνητο χωρίς ενημέρωση μετά από (ημέρες)", type: "int", min: 1, maxValue: 730, group: "Παρακολούθηση", appliesIn: "Φάση 5" },
+      { key: "staleAfterDays", label: "Ειδοποίηση για ακίνητο χωρίς ενημέρωση μετά από (ημέρες)", type: "int", min: 1, maxValue: 730, group: "Παρακολούθηση", help: "Δημιουργείται εργασία για τον υπεύθυνο συνεργάτη (Ρυθμίσεις → Αυτοματισμοί). Κενό = ανενεργό." },
     ],
   },
   {
@@ -361,12 +364,12 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
       { key: "expiryDays", label: "Λήξη ζήτησης μετά από (ημέρες)", type: "int", min: 1, maxValue: 1095, group: "Κύκλος ζωής", appliesIn: "Φάση 5" },
       {
         key: "newMatchAlerts",
-        label: "Αποστολή νέων αντιστοιχίσεων στον πελάτη",
+        label: "Νέες αντιστοιχίσεις ακινήτων",
         type: "select",
         group: "Κύκλος ζωής",
-        options: [opt("MANUAL", "Χειροκίνητα"), opt("APPROVAL", "Μετά από έγκριση συνεργάτη"), opt("AUTOMATIC", "Αυτόματα")],
+        options: [opt("MANUAL", "Χωρίς εργασία (ο συνεργάτης ψάχνει μόνος)"), opt("APPROVAL", "Εργασία για τον συνεργάτη να στείλει τις αντιστοιχίσεις")],
         default: "MANUAL",
-        appliesIn: "Φάση 6",
+        help: "Όταν ένα νέο ακίνητο ταιριάζει σε ενεργή ζήτηση. Ο πελάτης δεν λαμβάνει ποτέ μήνυμα αυτόματα· το μήνυμα το στέλνει ο συνεργάτης από την επαφή.",
       },
     ],
   },
@@ -380,16 +383,16 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     storage: "commission_settings",
     pendingNote: "Ο υπολογισμός προμήθειας στις συναλλαγές έρχεται στη Φάση 4.",
     fields: [
-      { key: "saleCommissionPct", label: "Πώληση (%)", type: "percent", group: "Προεπιλογές", appliesIn: "Φάση 4" },
-      { key: "rentCommissionMonths", label: "Ενοικίαση (μήνες μισθώματος)", type: "decimal", min: 0, maxValue: 24, group: "Προεπιλογές", appliesIn: "Φάση 4" },
-      { key: "assignmentCommissionPct", label: "Ανάθεση (%)", type: "percent", group: "Προεπιλογές", appliesIn: "Φάση 4" },
-      { key: "minimumFee", label: "Ελάχιστη αμοιβή (€)", type: "decimal", min: 0, maxValue: 10000000, group: "Προεπιλογές", appliesIn: "Φάση 4" },
-      { key: "buyerSidePct", label: "Πλευρά αγοραστή (%)", type: "percent", group: "Πλευρές", appliesIn: "Φάση 4" },
-      { key: "sellerSidePct", label: "Πλευρά πωλητή (%)", type: "percent", group: "Πλευρές", appliesIn: "Φάση 4" },
-      { key: "agentSharePct", label: "Ποσοστό συνεργάτη (%)", type: "percent", group: "Μοιρασιά", help: "Μαζί με το ποσοστό γραφείου πρέπει να κάνουν 100%.", appliesIn: "Φάση 4" },
-      { key: "agencySharePct", label: "Ποσοστό γραφείου (%)", type: "percent", group: "Μοιρασιά", appliesIn: "Φάση 4" },
-      { key: "vatMode", label: "ΦΠΑ στις προμήθειες", type: "select", group: "ΦΠΑ", options: [opt("EXCLUSIVE", "Επιπλέον της προμήθειας"), opt("INCLUSIVE", "Περιλαμβάνεται στην προμήθεια")], appliesIn: "Φάση 4" },
-      { key: "vatRatePct", label: "Συντελεστής ΦΠΑ (%)", type: "percent", group: "ΦΠΑ", appliesIn: "Φάση 4" },
+      { key: "saleCommissionPct", label: "Πώληση (%)", type: "percent", group: "Προεπιλογές" },
+      { key: "rentCommissionMonths", label: "Ενοικίαση (μήνες μισθώματος)", type: "decimal", min: 0, maxValue: 24, group: "Προεπιλογές" },
+      { key: "assignmentCommissionPct", label: "Ανάθεση (%)", type: "percent", group: "Προεπιλογές" },
+      { key: "minimumFee", label: "Ελάχιστη αμοιβή (€)", type: "decimal", min: 0, maxValue: 10000000, group: "Προεπιλογές" },
+      { key: "buyerSidePct", label: "Πλευρά αγοραστή (%)", type: "percent", group: "Πλευρές" },
+      { key: "sellerSidePct", label: "Πλευρά πωλητή (%)", type: "percent", group: "Πλευρές" },
+      { key: "agentSharePct", label: "Ποσοστό συνεργάτη (%)", type: "percent", group: "Μοιρασιά", help: "Μαζί με το ποσοστό γραφείου πρέπει να κάνουν 100%." },
+      { key: "agencySharePct", label: "Ποσοστό γραφείου (%)", type: "percent", group: "Μοιρασιά" },
+      { key: "vatMode", label: "ΦΠΑ στις προμήθειες", type: "select", group: "ΦΠΑ", options: [opt("EXCLUSIVE", "Επιπλέον της προμήθειας"), opt("INCLUSIVE", "Περιλαμβάνεται στην προμήθεια")] },
+      { key: "vatRatePct", label: "Συντελεστής ΦΠΑ (%)", type: "percent", group: "ΦΠΑ" },
     ],
   },
   {
@@ -411,13 +414,51 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     ],
   },
   {
+    key: "automation",
+    title: "Αυτοματισμοί",
+    navGroup: "Λειτουργία CRM",
+    kind: "form",
+    description:
+      "Κανόνες που δημιουργούν εργασία για τον υπεύθυνο όταν κάτι μένει χωρίς ενέργεια. Κάθε κανόνας είναι ανενεργός μέχρι να ορίσετε τις ημέρες του. Οι αυτοματισμοί δημιουργούν μόνο εργασίες και ειδοποιήσεις προς το προσωπικό· δεν στέλνουν ποτέ μήνυμα σε πελάτη.",
+    storage: "automation_settings",
+    fields: [
+      { key: "leadStaleDays", label: "Lead χωρίς επικοινωνία (ημέρες)", type: "int", min: 0, maxValue: 365, group: "Κανόνες", help: "Ημέρες από την τελευταία επικοινωνία (ή τη δημιουργία) ενός ανοιχτού lead. Κενό = ανενεργός." },
+      { key: "viewingFollowUpDays", label: "Υπόδειξη χωρίς follow-up (ημέρες)", type: "int", min: 0, maxValue: 365, group: "Κανόνες", help: "Ημέρες μετά από ολοκληρωμένη υπόδειξη χωρίς άλλη ενέργεια στο lead. Κενό = ανενεργός." },
+      { key: "mandateExpiryDays", label: "Λήξη εντολής (ημέρες πριν)", type: "int", min: 0, maxValue: 365, group: "Κανόνες", help: "Ημέρες πριν τη λήξη υπογεγραμμένης εντολής. Κενό = ανενεργός." },
+      { key: "offerExpiryDays", label: "Λήξη προσφοράς (ημέρες πριν)", type: "int", min: 0, maxValue: 365, group: "Κανόνες", help: "Ημέρες πριν τη λήξη προσφοράς που περιμένει απάντηση. Κενό = ανενεργός." },
+      { key: "sellerFollowUpOverdueDays", label: "Εκπρόθεσμο follow-up ιδιοκτήτη (ημέρες)", type: "int", min: 0, maxValue: 365, group: "Κανόνες", help: "Ημέρες καθυστέρησης της προγραμματισμένης επικοινωνίας με ιδιοκτήτη (0 = την ίδια μέρα). Κενό = ανενεργός." },
+    ],
+    pendingNote:
+      "Ο κανόνας «ακίνητο χωρίς ενημέρωση» ορίζεται στις Ρυθμίσεις → Ακίνητα (Παρακολούθηση)· οι νέες αντιστοιχίσεις στις Ρυθμίσεις → Ζητήσεις.",
+  },
+  {
+    key: "ai",
+    title: "AI βοηθός",
+    navGroup: "Λειτουργία CRM",
+    kind: "form",
+    description:
+      "Πρόχειρα κείμενα που ελέγχει ένας άνθρωπος πριν τα χρησιμοποιήσει. Το σύστημα δεν στέλνει, δεν αποθηκεύει και δεν δημοσιεύει τίποτα από μόνο του, και δεν παραδίδει σε εξωτερική υπηρεσία ονόματα, τηλέφωνα, email ή διευθύνσεις πελατών ή ιδιοκτητών. Μένει ανενεργός μέχρι να τον ενεργοποιήσετε.",
+    storage: "ai_settings · provider_credentials",
+    secretScope: "ai",
+    pendingNote:
+      "Τα στοιχεία του ακινήτου (χωρίς διεύθυνση) και τα συγκεντρωτικά νούμερα των αναφορών αποστέλλονται στον πάροχο που θα επιλέξετε. Πριν ενεργοποιήσετε, ελέγξτε τη σύμβαση επεξεργασίας δεδομένων με τον πάροχο και ενημερώστε την πολιτική απορρήτου σας.",
+    fields: [
+      { key: "enabled", label: "Ενεργοποίηση AI βοηθού", type: "boolean", group: "Γενικά", default: false },
+      { key: "provider", label: "Πάροχος", type: "select", group: "Πάροχος", options: AI_PROVIDERS },
+      { key: "model", label: "Μοντέλο", type: "select", group: "Πάροχος", options: AI_MODELS },
+      { key: "apiKey", label: "API key", type: "secret", group: "Διαπιστευτήρια" },
+      { key: "allowDescriptions", label: "Πρόχειρη περιγραφή ακινήτου", type: "boolean", group: "Επιτρεπόμενες χρήσεις", default: false, help: "Από τα στοιχεία του ακινήτου, χωρίς στοιχεία ιδιοκτήτη." },
+      { key: "allowReportSummaries", label: "Σύνοψη αναφορών", type: "boolean", group: "Επιτρεπόμενες χρήσεις", default: false, help: "Από τα συγκεντρωτικά νούμερα μιας αναφοράς." },
+      { key: "hourlyLimitPerUser", label: "Όριο αιτημάτων ανά χρήστη ανά ώρα", type: "int", min: 1, maxValue: 500, group: "Όρια", default: 20, help: "Τεχνικό όριο για έλεγχο κόστους." },
+    ],
+  },
+  {
     key: "notifications",
     title: "Υπενθυμίσεις & Ειδοποιήσεις",
     navGroup: "Λειτουργία CRM",
     kind: "custom",
     description: "Ποιο συμβάν ειδοποιεί από ποιο κανάλι. Email και SMS ενεργοποιούνται μόνο αφού ρυθμιστεί ο αντίστοιχος πάροχος.",
     storage: "notification_settings",
-    pendingNote: "Οι ειδοποιήσεις αποστέλλονται από τη Φάση 6, όταν ρυθμιστούν οι πάροχοι.",
     fields: [],
   },
   {
@@ -487,7 +528,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     description: "Ο πάροχος SMS για υπενθυμίσεις και μαζικά μηνύματα. Μένει ανενεργό μέχρι να ρυθμιστεί.",
     storage: "sms_settings · provider_credentials",
     secretScope: "sms",
-    pendingNote: "Η αποστολή SMS ενεργοποιείται στη Φάση 6, μαζί με τον προσαρμογέα του παρόχου που θα επιλέξετε.",
+    pendingNote: "Η αποστολή SMS λειτουργεί μόλις επιλέξετε πάροχο και προστεθεί ο προσαρμογέας του. Μέχρι τότε, τα SMS δεν αποστέλλονται.",
     fields: [
       { key: "provider", label: "Πάροχος", type: "text", max: 80, group: "Πάροχος" },
       { key: "senderName", label: "Όνομα αποστολέα", type: "text", max: 11, group: "Πάροχος", help: "Έως 11 λατινικοί χαρακτήρες ή αριθμοί." },
@@ -627,7 +668,7 @@ const grant = (keys: SettingsSectionKey[], action: SettingsAction) => keys.map((
 
 const ADMIN_MANAGE: SettingsSectionKey[] = [
   "company", "legal", "branding", "app", "properties", "contacts", "requests", "commissions",
-  "calendar", "notifications", "mandates", "email", "sms", "portals", "areas", "privacy",
+  "calendar", "automation", "ai", "notifications", "mandates", "email", "sms", "portals", "areas", "privacy",
 ];
 
 /** Defaults per role; SUPER_ADMIN always holds every permission. Overrides live in role_permissions. */
@@ -639,7 +680,7 @@ export const DEFAULT_SETTINGS_GRANTS: Readonly<Record<string, readonly string[]>
     SETTINGS_AUDIT_VIEW,
   ],
   MANAGER: [
-    ...grant(["company", "branding", "app", "properties", "contacts", "requests", "calendar", "notifications", "areas"], "view"),
+    ...grant(["company", "branding", "app", "properties", "contacts", "requests", "calendar", "automation", "notifications", "areas"], "view"),
     ...grant(["requests", "calendar", "areas"], "manage"),
   ],
   MARKETING: grant(["company", "branding"], "view"),

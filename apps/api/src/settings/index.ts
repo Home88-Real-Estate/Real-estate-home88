@@ -217,3 +217,42 @@ export function commissionRules(): Promise<CommissionRulesConfig> {
     empty,
   );
 }
+
+// --- AI assistance ----------------------------------------------------------------
+
+export type AiConfig = {
+  enabled: boolean;
+  provider: string | null;
+  model: string | null;
+  allowDescriptions: boolean;
+  allowReportSummaries: boolean;
+  hourlyLimitPerUser: number;
+  /** An API key is stored (never its value). */
+  hasKey: boolean;
+};
+
+/** AI settings for server-side decisions. Everything is off unless an administrator turned it on. */
+export function aiConfig(): Promise<AiConfig> {
+  return safely(
+    "AI settings",
+    async () => {
+      const v = await settings().config("ai");
+      const key = await settings().secret("ai", "apiKey");
+      return {
+        enabled: v.enabled === true,
+        provider: str(v.provider),
+        model: str(v.model),
+        allowDescriptions: v.allowDescriptions === true,
+        allowReportSummaries: v.allowReportSummaries === true,
+        hourlyLimitPerUser: num(v.hourlyLimitPerUser, 20),
+        hasKey: Boolean(key),
+      };
+    },
+    { enabled: false, provider: null, model: null, allowDescriptions: false, allowReportSummaries: false, hourlyLimitPerUser: 20, hasKey: false },
+  );
+}
+
+/** The decrypted AI key, for the provider adapter only. */
+export function aiApiKey(): Promise<string | null> {
+  return settings().secret("ai", "apiKey");
+}

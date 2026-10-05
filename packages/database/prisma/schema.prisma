@@ -314,6 +314,7 @@ enum AuditEntity {
   VALUATION
   MANDATE
   MESSAGE
+  REPORT
 }
 
 // ---------------------------------------------------------------------------
@@ -374,6 +375,7 @@ model User {
   valuations          Valuation[]          @relation("ValuationAgent")
   mandates            Mandate[]            @relation("MandateAgent")
   messagesSent        Message[]            @relation("MessageSender")
+  aiRequests          AiRequest[]          @relation("AiRequestUser")
   auditLogs           AuditLog[]
   consents            ConsentRecord[]
   createdBy           User?                @relation("UserCreatedBy", fields: [createdById], references: [id])
@@ -2618,4 +2620,79 @@ model Message {
   @@index([status, createdAt])
   @@index([providerMessageId])
   @@map("messages")
+}
+
+// ---------------------------------------------------------------------------
+// Automation and AI assistance
+// ---------------------------------------------------------------------------
+
+/// Days after which an automation fires. Every column is empty (rule off)
+/// until HOME88 sets it; the platform ships no thresholds.
+model AutomationSettings {
+  id                        String   @id @default("default")
+  leadStaleDays             Int?
+  viewingFollowUpDays       Int?
+  mandateExpiryDays         Int?
+  offerExpiryDays           Int?
+  sellerFollowUpOverdueDays Int?
+  updatedAt                 DateTime @updatedAt
+  updatedById               String?
+
+  @@map("automation_settings")
+}
+
+/// One firing of an automation. (rule, entity, episode) is unique, so the same
+/// condition on the same record never creates a second task. Append-only.
+model AutomationRun {
+  id           String   @id @default(cuid())
+  rule         String
+  entityType   String
+  entityId     String
+  /// Identifies one occurrence of the condition (e.g. the last-contact time it started from).
+  episode      String
+  taskId       String?
+  assignedToId String?
+  createdAt    DateTime @default(now())
+
+  @@unique([rule, entityId, episode])
+  @@index([createdAt])
+  @@index([rule, createdAt])
+  @@map("automation_runs")
+}
+
+/// Whether AI assistance is on, with which provider and model, and for which
+/// uses. Everything is off until an administrator turns it on. The API key is
+/// an encrypted write-only secret (provider_credentials, scope "ai").
+model AiSettings {
+  id                   String   @id @default("default")
+  provider             String?
+  model                String?
+  enabled              Boolean?
+  allowDescriptions    Boolean?
+  allowReportSummaries Boolean?
+  hourlyLimitPerUser   Int?
+  updatedAt            DateTime @updatedAt
+  updatedById          String?
+
+  @@map("ai_settings")
+}
+
+/// Who used an AI feature, when, and what it cost in tokens. Never the prompt
+/// or the answer. Append-only.
+model AiRequest {
+  id           String   @id @default(cuid())
+  feature      String
+  userId       String?
+  user         User?    @relation("AiRequestUser", fields: [userId], references: [id], onDelete: SetNull)
+  provider     String
+  model        String
+  status       String
+  inputTokens  Int?
+  outputTokens Int?
+  error        String?
+  createdAt    DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
+  @@map("ai_requests")
 }
