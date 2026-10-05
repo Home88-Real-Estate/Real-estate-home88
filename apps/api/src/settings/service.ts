@@ -210,6 +210,10 @@ export function createSettingsService(deps: SettingsServiceDeps) {
       if (has("provider") && has("senderName") && ok("apiKey")) return "configured";
       return has("provider") || has("senderName") ? "partial" : "not_configured";
     }
+    if (key === "ai") {
+      if (v.enabled === true && has("provider") && has("model") && ok("apiKey")) return "configured";
+      return v.enabled === true || has("provider") || has("model") ? "partial" : "not_configured";
+    }
     if (key === "mandates") {
       if (has("signatureProvider") && has("signatureLevel") && ok("signatureApiKey")) return "configured";
       return has("signatureProvider") ? "partial" : "not_configured";

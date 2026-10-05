@@ -25,6 +25,7 @@ export default async function EditPropertyPage({
   }
 
   const property = result.data.property;
+  const ai = await apiFetch<{ features: { PROPERTY_DESCRIPTION: boolean } }>("/api/ai/status");
   if (!result.data.canEdit) {
     return (
       <div className="notice notice--danger">
@@ -49,6 +50,7 @@ export default async function EditPropertyPage({
         action={saveProperty}
         initial={property as unknown as Record<string, unknown>}
         submitLabel="Αποθήκευση αλλαγών"
+        aiPropertyId={ai.ok && ai.data.features.PROPERTY_DESCRIPTION ? property.id : undefined}
       />
     </>
   );

@@ -10,3 +10,6 @@ export * from "./valuation";
 export * from "./mandate";
 export * from "./communications";
 export * from "./connections";
+export * from "./reports";
+export * from "./automation";
+export * from "./ai";

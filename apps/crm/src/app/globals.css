@@ -644,7 +644,7 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
   .timeline li > :last-child { grid-column: 1; }
 }
 
-.pager { display: flex; align-items: center; gap: 12px; justify-content: flex-end; margin-top: 14px; font-size: 0.86rem; }
+.pager { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; justify-content: flex-end; margin-top: 14px; font-size: 0.86rem; }
 
 .dl { display: grid; grid-template-columns: 190px 1fr; gap: 8px 16px; font-size: 0.9rem; }
 .dl dt { color: var(--ink-muted); }
@@ -1238,4 +1238,28 @@ button.ptoggle:focus-visible { outline: 3px solid var(--focus); outline-offset: 
   .conn__summary .stat .label { font-size: 0.66rem; letter-spacing: 0.02em; }
   .conn__summary .stat .value { font-size: 1.4rem; }
 }
+
+/* Reports */
+.report-cards { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.report-card { display: block; color: inherit; }
+.report-card:hover { text-decoration: none; border-color: var(--link); }
+.report-card h2 { margin: 0 0 6px; font-size: 1.05rem; }
+.report-card p { margin: 0; font-size: 0.88rem; }
+.report-summary { margin-bottom: 18px; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.report-summary .stat .value { font-size: 1.5rem; overflow-wrap: anywhere; }
+.report-defs ul { margin: 10px 0 0; padding-left: 18px; font-size: 0.88rem; color: var(--ink-muted); }
+.report-defs li + li { margin-top: 6px; }
+.panel__head .btn { flex: none; }
+
+/* AI drafts */
+.ai { margin: 0 0 14px; }
+.ai--report { margin: 0 0 18px; }
+.ai__panel { margin-top: 10px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-2); }
+.ai__hint { font-size: 0.8rem; margin: 0 0 10px; }
+.ai__draft { margin-top: 12px; }
+.ai__text { white-space: pre-wrap; margin: 8px 0; padding: 12px; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); font: inherit; overflow-wrap: anywhere; }
+.ai__text--prose { font-size: 0.95rem; line-height: 1.55; }
+.ai__actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.run-now { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
 .tabs--sub { border-bottom: 0; margin-top: -6px; }
