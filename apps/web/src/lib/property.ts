@@ -271,6 +271,7 @@ export async function searchProperties(
           { titleEn: { contains: params.q, mode: "insensitive" } },
           { neighborhood: { contains: params.q, mode: "insensitive" } },
           { city: { contains: params.q, mode: "insensitive" } },
+          { areaName: { contains: params.q, mode: "insensitive" } },
           { reference: { contains: params.q.toUpperCase() } },
         ];
       }

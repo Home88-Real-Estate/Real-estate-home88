@@ -64,6 +64,13 @@ export type RequestMeta = {
   /** Browser-generated key; the same key never creates a second record. */
   idempotencyKey?: string | null;
   attribution?: RawAttribution | null;
+  /**
+   * First-party channel label set by the server (never read from the browser),
+   * e.g. "AI_ASSISTANT". It names where the enquiry came from, not who the
+   * visitor is, so it is recorded without the analytics consent that UTM
+   * campaign tags require.
+   */
+  sourceChannel?: string | null;
   ip: string;
   userAgent: string | null;
 };
@@ -469,7 +476,10 @@ export class PublicLeadIntakeService {
     return {
       contactId: contact.id,
       contactReference: contact.reference,
-      attribution: sanitiseAttribution(base.meta.attribution, { allowCampaign: base.consent?.analytics === true, ownHosts: config.ownHosts }),
+      attribution: (() => {
+        const a = sanitiseAttribution(base.meta.attribution, { allowCampaign: base.consent?.analytics === true, ownHosts: config.ownHosts });
+        return base.meta.sourceChannel ? { ...a, sourceChannel: base.meta.sourceChannel.slice(0, 40) } : a;
+      })(),
       consentRecordId,
       suppressed: Boolean(suppressed),
       email: facts.email,
