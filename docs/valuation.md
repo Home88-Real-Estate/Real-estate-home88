@@ -12,7 +12,7 @@ Asking prices are not sold prices, and the system never treats them as if they w
 ## Flow
 
 ```
-/valuation (3 steps, fields from the property profiles)
+/valuation (4 steps, fields from the property profiles)
    │  POST /api/valuation/estimate  (rate limited, honeypot, server-side validation)
    ▼
 @home88/valuation/service
@@ -21,6 +21,7 @@ Asking prices are not sold prices, and the system never treats them as if they w
    │                    market_observations of sources that are active + usable
    ├─ runs the engine (pure, deterministic, versioned)
    └─ stores valuation_requests + valuation_request_comparables (frozen snapshot)
+      (if storing fails the result is still shown, logged as SNAPSHOT_ERROR)
    ▼
 public view: range, midpoint, €/m², confidence, counts, search scope
    │  "Θέλετε επίσημη εκτίμηση;" → POST /api/valuation (existing intake:
@@ -30,6 +31,22 @@ CRM → Εκτιμήσεις → Από τον ιστότοπο: request, frozen
       workflow (stage, assignment) → "Εκτίμηση συμβούλου" opens an agent valuation
       with the same comparables. The agent's price and reasoning live there.
 ```
+
+## Errors
+
+`/api/valuation/estimate` answers failures as `{ ok: false, code, message }`. The message is safe to show the visitor; the server log carries the stage and the database or engine code, never the input or a stack trace.
+
+| Code | When | HTTP |
+|---|---|---|
+| `VALIDATION_ERROR` | input fails the schema (with `fields`) | 400 |
+| `RATE_LIMITED` | too many estimates from one IP | 429 |
+| `DATABASE_ERROR` | HOME88 evidence can't be read: DB down, or the schema is behind the code (`SCHEMA_OUT_OF_DATE`, Prisma P2021/P2022, in the log) | 503 |
+| `VALUATION_ENGINE_ERROR` | the engine threw | 503 |
+| `UNKNOWN_ERROR` | anything else | 500 |
+
+Not enough comparables is **not** an error: the response is `ok: true` with `status: "INSUFFICIENT_DATA"` and no number.
+
+Imported `market_observations` are optional evidence. If that table can't be read, the valuation runs on HOME88's data and the log says `MARKET_DATA_UNAVAILABLE`.
 
 ## Engine (`packages/valuation/src/engine.ts`, `HV1.0.0`, methodology `COMP-2026-10`)
 
