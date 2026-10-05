@@ -7,6 +7,8 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
 import { ConsentBanner } from "@/components/ConsentBanner";
 import { CompareBar } from "@/components/CompareBar";
+import { AssistantMount } from "@/components/ai/AssistantMount";
+import { aiConfig } from "@/lib/ai/config";
 import { CONSENT_COOKIE, needsDecision, parseConsent } from "@/lib/consent";
 import { COMPANY, SITE_URL } from "@/lib/config";
 import { getCompanyInfo } from "@/lib/company";
@@ -55,6 +57,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <SiteFooter company={company} />
 
         <CompareBar />
+
+        {/* Shown only when the server has a Gemini key; the key itself never leaves the server. */}
+        {aiConfig().apiKey && <AssistantMount />}
 
         {/*
           The banner only appears before a choice is made. Its "Αποδοχή όλων"
