@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { rateLimit } from "@/lib/rate-limit";
 import { encryptField, hashEmail, hashSubject, redactEmail } from "@/lib/pii";
 import {
-  AGE_GATE_REFUSAL_MESSAGE,
+  ageGateMessage,
   dmcaNoticeSchema,
   evaluateAgeGate,
   RATE_LIMITS,
@@ -66,7 +66,7 @@ export async function POST(request: Request) {
   });
   if (!decision.eligible) {
     console.warn(`[home88:dmca] age gate refused ip=${ctx.ip} reason=${decision.reason}`);
-    return badRequest(AGE_GATE_REFUSAL_MESSAGE, { dateOfBirth: [AGE_GATE_REFUSAL_MESSAGE] });
+    return badRequest(ageGateMessage(decision.reason), { dateOfBirth: [ageGateMessage(decision.reason)] });
   }
 
   if (!prisma) return unavailable();

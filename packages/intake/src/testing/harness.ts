@@ -61,7 +61,7 @@ export function makeService(over: { limits?: Partial<UploadLimits>; now?: () => 
 }
 
 /** An adult, so the age gate passes. */
-export const ADULT = { ageAffirmation: true } as Base["age"];
+export const ADULT = { dateOfBirth: "1985-06-15", ageAffirmation: true } as Base["age"];
 
 export function base(over: Partial<Omit<Base, "person">> & { person?: Partial<Base["person"]> } = {}): Base {
   return {
