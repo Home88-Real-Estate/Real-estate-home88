@@ -189,27 +189,34 @@ export function LeadForm({
       <hr style={{ border: 0, borderTop: "1px solid var(--line)", margin: "18px 0" }} />
 
       {/*
-        Age gate. An explicit date of birth is the primary control; the
-        affirmation exists for people who would rather not give a date. The
-        server prefers the date when both are supplied, so ticking the box does
-        not override a date that says otherwise.
+        Age gate (18+). Both the date of birth and the affirmation are
+        required, and the server re-checks them independently of this form.
       */}
       <div className="field">
         <label htmlFor="lead-dob">Ημερομηνία γέννησης</label>
-        <input id="lead-dob" name="dateOfBirth" type="date" className="input" autoComplete="bday" />
-        <span className="hint">
-          Απαιτείται μόνο για επιβεβαίωση ηλικίας. Δεν αποθηκεύεται — κρατάμε μόνο το
-          αποτέλεσμα του ελέγχου.
+        <input
+          id="lead-dob"
+          name="dateOfBirth"
+          type="date"
+          className="input"
+          autoComplete="bday"
+          required
+          aria-describedby={state.kind === "error" && state.fields?.dateOfBirth ? "lead-dob-hint lead-dob-error" : "lead-dob-hint"}
+          aria-invalid={state.kind === "error" && state.fields?.dateOfBirth ? true : undefined}
+        />
+        <span className="hint" id="lead-dob-hint">
+          Απαιτείται μόνο για επιβεβαίωση ότι είστε 18 ετών ή μεγαλύτερος/η. Δεν αποθηκεύεται —
+          κρατάμε μόνο το αποτέλεσμα του ελέγχου.
         </span>
       </div>
 
       <label className="check">
-        <input type="checkbox" name="ageAffirmation" />
-        <span>Είμαι 13 ετών ή μεγαλύτερος/η.</span>
+        <input type="checkbox" name="ageAffirmation" required />
+        <span>Είμαι 18 ετών ή μεγαλύτερος/η.</span>
       </label>
 
       {state.kind === "error" && state.fields?.dateOfBirth && (
-        <span className="error" style={{ display: "block", marginBottom: 10 }}>
+        <span id="lead-dob-error" role="alert" className="error" style={{ display: "block", marginBottom: 10 }}>
           {state.fields.dateOfBirth[0]}
         </span>
       )}

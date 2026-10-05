@@ -12,7 +12,7 @@
 import { NextResponse } from "next/server";
 import type { IntakeOutcome, PublicLeadIntakeService, RequestMeta } from "@home88/intake";
 import { IntakeValidationError } from "@home88/intake";
-import { AGE_GATE_REFUSAL_MESSAGE, intakeMetaSchema } from "@home88/validation";
+import { ageGateMessage, intakeMetaSchema } from "@home88/validation";
 import type { ZodType, ZodTypeDef } from "zod";
 
 import {
@@ -80,7 +80,7 @@ export async function handleIntake<TIn>(request: Request, route: IntakeRoute<TIn
     switch (outcome.status) {
       case "refused":
         // The reason was only for the server; the visitor gets the standard message.
-        return badRequest(AGE_GATE_REFUSAL_MESSAGE, { dateOfBirth: [AGE_GATE_REFUSAL_MESSAGE] });
+        return badRequest(ageGateMessage(outcome.reason), { dateOfBirth: [ageGateMessage(outcome.reason)] });
       case "replayed":
       case "created":
         return NextResponse.json(

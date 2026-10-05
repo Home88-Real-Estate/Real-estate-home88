@@ -225,8 +225,17 @@ describe("PublicLeadIntakeService (real Postgres)", { skip: SKIP }, () => {
 
   it("an underage or unconfirmed visitor is refused and nothing is written", async () => {
     const { service } = makeService();
-    const out = await service.createContactInquiry({ ...base({ age: { dateOfBirth: "2015-01-01" } }), message: "α" });
+    const out = await service.createContactInquiry({ ...base({ age: { dateOfBirth: "2015-01-01", ageAffirmation: true } }), message: "α" });
     assert.equal(out.status, "refused");
+    assert.deepEqual(await counts(), { contacts: 0, leads: 0, submissions: 0, properties: 0, receipts: 0 });
+  });
+
+  it("a visitor who gives no date of birth, or only ticks the box, is refused and nothing is written", async () => {
+    const { service } = makeService();
+    for (const age of [{ ageAffirmation: true }, { dateOfBirth: "", ageAffirmation: true }, { dateOfBirth: "not-a-date", ageAffirmation: true }]) {
+      const out = await service.createContactInquiry({ ...base({ age: age as never }), message: "α" });
+      assert.equal(out.status, "refused");
+    }
     assert.deepEqual(await counts(), { contacts: 0, leads: 0, submissions: 0, properties: 0, receipts: 0 });
   });
 

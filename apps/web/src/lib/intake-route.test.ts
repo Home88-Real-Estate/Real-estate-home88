@@ -6,7 +6,7 @@ import { contactSchema } from "@home88/validation";
 
 import { handleIntake, type IntakeRoute } from "./intake-route";
 
-const adult = { ageAffirmation: true };
+const adult = { dateOfBirth: "1985-06-15", ageAffirmation: true };
 const valid = { firstName: "Μαρία", email: "maria@example.com", message: "Γεια σας", ...adult, consent: { necessary: true } };
 
 let counter = 0;

@@ -1,27 +1,28 @@
 /**
- * COPPA age gate.
+ * Age gate: HOME88 is an 18+ service.
  *
  * The rules this implements, and why each one is here:
  *
  *  - The check is SERVER-side. A checkbox in React is a hint, not a control;
  *    the same function runs in the route handler before any insert.
- *  - Under-13 submissions are REFUSED and NOTHING is persisted. Not a lead,
+ *  - Under-18 submissions are REFUSED and NOTHING is persisted. Not a lead,
  *    not a contact, not a "blocked" audit row containing their name. A refusal
  *    that writes the rejected data to a log is still collection.
  *  - Date of birth is not stored. We record only the timestamp of the decision
  *    and the boolean outcome, so we can show that a gate was applied without
  *    holding a birth date we have no other need for.
- *  - Two ways to satisfy it: an explicit date of birth, or an explicit
- *    affirmation. The affirmation alone is acceptable under COPPA only if we
- *    take reasonable steps to verify; we do not verify, so date of birth is the
- *    preferred path and the server prefers it when both are supplied.
+ *  - BOTH are required: a valid date of birth that makes the person at least
+ *    MINIMUM_AGE_YEARS old, and the explicit affirmation. A bare checkbox is
+ *    not accepted on its own — it would let anyone bypass an 18+ rule by
+ *    ticking it — and a ticked box never overrides a date that says otherwise.
  *  - The refusal path is silent about why, so it cannot be used to probe the
  *    boundary, and it never echoes the submitted values back.
  */
 
 import { z } from "zod";
 
-export const MINIMUM_AGE_YEARS = 13;
+/** Single source of truth for the minimum age. Do not hard-code it elsewhere. */
+export const MINIMUM_AGE_YEARS = 18;
 
 /** Injectable for tests; production passes nothing and gets `new Date()`. */
 export type Clock = () => Date;
@@ -32,7 +33,7 @@ export type AgeGateInput = {
 };
 
 export type AgeGateDecision =
-  | { eligible: true; method: "date_of_birth" | "affirmation" }
+  | { eligible: true; method: "date_of_birth" }
   | { eligible: false; reason: "missing" | "invalid" | "underage" | "implausible" };
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -50,6 +51,23 @@ export function yearsBetween(dob: Date, now: Date): number {
   return years;
 }
 
+/** True only for a real calendar date: `2015-02-31` must not roll into March. */
+function parseIsoDate(raw: string): Date | null {
+  if (!ISO_DATE.test(raw)) return null;
+  const dob = new Date(`${raw}T00:00:00.000Z`);
+  if (Number.isNaN(dob.getTime())) return null;
+  return dob.toISOString().slice(0, 10) === raw ? dob : null;
+}
+
+/** Whether a date of birth makes the person at least `minimumAge` on `now`. */
+export function isAtLeastAge(dob: Date, minimumAge: number, now: Date): boolean {
+  return yearsBetween(dob, now) >= minimumAge;
+}
+
+function isAffirmed(value: unknown): boolean {
+  return value === true || value === "true" || value === "on";
+}
+
 /**
  * Pure decision function. No I/O, no storage, no logging.
  */
@@ -59,29 +77,24 @@ export function evaluateAgeGate(
 ): AgeGateDecision {
   const rawDob = typeof input.dateOfBirth === "string" ? input.dateOfBirth.trim() : "";
 
-  if (rawDob.length > 0) {
-    if (!ISO_DATE.test(rawDob)) return { eligible: false, reason: "invalid" };
+  if (rawDob.length === 0) return { eligible: false, reason: "missing" };
 
-    const dob = new Date(`${rawDob}T00:00:00.000Z`);
-    if (Number.isNaN(dob.getTime())) return { eligible: false, reason: "invalid" };
+  const dob = parseIsoDate(rawDob);
+  if (!dob) return { eligible: false, reason: "invalid" };
 
-    const now = clock();
+  const now = clock();
 
-    // A date in the future, or before live people were born, means the field was
-    // filled in carelessly or dishonestly. Either way we cannot rely on it.
-    if (dob.getTime() > now.getTime()) return { eligible: false, reason: "implausible" };
-    if (dob.getUTCFullYear() < 1900) return { eligible: false, reason: "implausible" };
+  // A date in the future, or before live people were born, means the field was
+  // filled in carelessly or dishonestly. Either way we cannot rely on it.
+  if (dob.getTime() > now.getTime()) return { eligible: false, reason: "implausible" };
+  if (dob.getUTCFullYear() < 1900) return { eligible: false, reason: "implausible" };
 
-    return yearsBetween(dob, now) >= MINIMUM_AGE_YEARS
-      ? { eligible: true, method: "date_of_birth" }
-      : { eligible: false, reason: "underage" };
-  }
+  if (!isAtLeastAge(dob, MINIMUM_AGE_YEARS, now)) return { eligible: false, reason: "underage" };
 
-  if (input.ageAffirmation === true || input.ageAffirmation === "true" || input.ageAffirmation === "on") {
-    return { eligible: true, method: "affirmation" };
-  }
+  // Old enough by date; the explicit affirmation is still required.
+  if (!isAffirmed(input.ageAffirmation)) return { eligible: false, reason: "missing" };
 
-  return { eligible: false, reason: "missing" };
+  return { eligible: true, method: "date_of_birth" };
 }
 
 /**
@@ -136,11 +149,32 @@ export function assertAgeGate(
 }
 
 /**
- * Deliberately vague, identical for every failure mode. Distinguishing
- * "under 13" from "malformed" tells a prober how close they were.
+ * Neutral refusal for anyone under the minimum age. It never states the
+ * person's age or how close they were to the boundary.
  */
 export const AGE_GATE_REFUSAL_MESSAGE =
-  "We could not accept this submission. Please check the date of birth field " +
-  "and confirm you are at least 13 years old, then try again.";
+  "Η υπηρεσία είναι διαθέσιμη μόνο σε άτομα ηλικίας 18 ετών και άνω.";
+
+/** English equivalent, for any English-language surface. */
+export const AGE_GATE_REFUSAL_MESSAGE_EN =
+  "You must be 18 years old or older to use this service.";
+
+export const AGE_GATE_MISSING_MESSAGE =
+  "Συμπληρώστε την ημερομηνία γέννησης και επιβεβαιώστε ότι είστε 18 ετών ή μεγαλύτερος/η.";
+
+export const AGE_GATE_INVALID_MESSAGE = "Εισαγάγετε μια έγκυρη ημερομηνία γέννησης.";
+
+/** The user-facing message for a refusal reason. Never echoes submitted values. */
+export function ageGateMessage(reason: string): string {
+  switch (reason) {
+    case "missing":
+      return AGE_GATE_MISSING_MESSAGE;
+    case "invalid":
+    case "implausible":
+      return AGE_GATE_INVALID_MESSAGE;
+    default:
+      return AGE_GATE_REFUSAL_MESSAGE;
+  }
+}
 
 export const AGE_GATE_HONEYPOT_REFUSAL_MESSAGE = "Submission rejected.";

@@ -235,19 +235,29 @@ export function CaptureForm({
 
           <div className="field">
             <label htmlFor="cf-dob">Ημερομηνία γέννησης</label>
-            <input id="cf-dob" name="dateOfBirth" type="date" className="input" autoComplete="bday" />
-            <span className="hint">
-              Μόνο για επιβεβαίωση ηλικίας. Δεν αποθηκεύεται — κρατάμε μόνο το αποτέλεσμα.
+            <input
+              id="cf-dob"
+              name="dateOfBirth"
+              type="date"
+              className="input"
+              autoComplete="bday"
+              required
+              aria-describedby={state.kind === "error" && state.fields?.dateOfBirth ? "cf-dob-hint cf-dob-error" : "cf-dob-hint"}
+              aria-invalid={state.kind === "error" && state.fields?.dateOfBirth ? true : undefined}
+            />
+            <span className="hint" id="cf-dob-hint">
+              Απαιτείται μόνο για επιβεβαίωση ότι είστε 18 ετών ή μεγαλύτερος/η. Δεν αποθηκεύεται —
+              κρατάμε μόνο το αποτέλεσμα του ελέγχου.
             </span>
           </div>
 
           <label className="check">
-            <input type="checkbox" name="ageAffirmation" />
-            <span>Είμαι 13 ετών ή μεγαλύτερος/η.</span>
+            <input type="checkbox" name="ageAffirmation" required />
+            <span>Είμαι 18 ετών ή μεγαλύτερος/η.</span>
           </label>
 
           {state.kind === "error" && state.fields?.dateOfBirth && (
-            <span className="error" style={{ display: "block", marginBottom: 10 }}>
+            <span id="cf-dob-error" role="alert" className="error" style={{ display: "block", marginBottom: 10 }}>
               {state.fields.dateOfBirth[0]}
             </span>
           )}
