@@ -29,7 +29,7 @@ Property cards in the UI are built from tool results, never from model text.
 | Variable | Required | Notes |
 |---|---|---|
 | `GEMINI_API_KEY` | yes | Set in the deployment's secret store (e.g. Vercel → Project → Settings → Environment Variables) for each environment. Never `NEXT_PUBLIC_`. Without it the widget is not rendered and the endpoint answers 503 with a friendly fallback. |
-| `GEMINI_MODEL` | no | Defaults to `gemini-flash-latest` (Google's current Flash alias). Pin a model name to freeze behaviour. |
+| `GEMINI_MODEL` | no | Defaults to `gemini-3.5-flash-lite` (a fast, low-latency GA model). Set this to override, e.g. a fresh alias like `gemini-flash-latest` if you prefer freshness over speed. |
 | `AI_RATE_LIMIT_POINTS`, `AI_RATE_LIMIT_WINDOW_SECONDS` | no | Per-IP chat limit, default 20 / 600 s. Write actions are additionally limited to 5 / 600 s per IP. |
 | `AI_MAX_MESSAGE_CHARS`, `AI_MAX_OUTPUT_TOKENS`, `AI_TIMEOUT_MS`, `AI_MAX_TOOL_ROUNDS` | no | Cost/latency bounds; see `apps/web/src/lib/ai/config.ts`. |
 

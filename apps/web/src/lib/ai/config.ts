@@ -7,11 +7,13 @@
  */
 
 /**
- * Google's moving alias for its current fast Flash model, so the default does
- * not go stale the way a pinned name from an old tutorial does. Pin a specific
- * model with GEMINI_MODEL when reproducibility matters more than freshness.
+ * A stable, low-latency Flash model for the short tool-driven chat replies.
+ * Pinned to a fast GA name rather than the rolling `gemini-flash-latest` alias,
+ * because that alias currently resolves to a heavy long-horizon model that
+ * regularly exceeds the per-call timeout on a quick message. Override with
+ * GEMINI_MODEL if you prefer fresh aliases over speed.
  */
-export const DEFAULT_GEMINI_MODEL = "gemini-flash-latest";
+export const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
 
 export type AiConfig = {
   /** Null when the key is not configured; the endpoint then answers with a safe fallback. */
