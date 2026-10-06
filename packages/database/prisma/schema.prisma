@@ -365,6 +365,7 @@ model User {
   ownedBy             Property[]           @relation("PropertyCreator")
   leads               Lead[]               @relation("LeadAssignee")
   viewings            Viewing[]
+  showingsResponsible Showing[]            @relation("ShowingResponsible")
   tasks               Task[]               @relation("TaskAssignee")
   buyerRequests       BuyerRequest[]       @relation("RequestAssignee")
   submissions         PropertySubmission[] @relation("SubmissionAssignee")
@@ -500,6 +501,9 @@ model Contact {
   sellerTransactions Transaction[]        @relation("TransactionSeller")
   sellerLeads        SellerLead[]
   mandateParties     MandateParty[]
+  propertyOwnerships PropertyOwner[]
+  showings           Showing[]
+  showingParties     ShowingParty[]
   documents          Document[]
   submissions        PropertySubmission[]
   viewingRequests    ViewingRequest[]
@@ -609,6 +613,8 @@ model Property {
 
   media             PropertyMedia[]
   leads             Lead[]
+  owners            PropertyOwner[]
+  showingProperties ShowingProperty[]
   viewings          Viewing[]
   offers            Offer[]
   transactions      Transaction[]
@@ -804,6 +810,7 @@ model Lead {
 
   notes           Note[]
   viewings        Viewing[]
+  showings        Showing[]
   offers          Offer[]
   tasks           Task[]
   transactions    Transaction[]
@@ -892,6 +899,12 @@ model Viewing {
   /// When the agent was reminded of the appointment (sent once).
   reminderSentAt DateTime?
 
+  /// The signed Υπόδειξη this appointment led to, if any. A Viewing stays the
+  /// operational appointment; the Showing is the legal document.
+  showingId String?
+  showing   Showing?  @relation("ShowingViewings", fields: [showingId], references: [id], onDelete: SetNull)
+  sourceFor Showing[] @relation("ShowingSourceViewing")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -900,6 +913,7 @@ model Viewing {
   @@index([status])
   @@index([status, startsAt])
   @@index([startsAt])
+  @@index([showingId])
   @@map("viewings")
 }
 
@@ -1056,6 +1070,8 @@ model Document {
   /// Set while the file belongs to an owner submission. CRM-private always.
   submissionId String?
   submission   PropertySubmission? @relation(fields: [submissionId], references: [id], onDelete: SetNull)
+
+  ownerAuthorities PropertyOwner[] @relation("OwnerAuthorityDocument")
 
   title          String
   category       DocumentCategory @default(OTHER)
@@ -1621,6 +1637,9 @@ model MandateSettings {
   signingExpiryDays    Int?
   reminderScheduleDays Int[]    @default([])
   retentionYears       Int?
+  /// The longest exclusive term HOME88's counsel has approved, in months. Null
+  /// means none is configured, so no maximum is enforced (none is assumed).
+  maxExclusiveMonths   Int?
   updatedAt            DateTime @updatedAt
   updatedById          String?
 
@@ -1647,6 +1666,7 @@ model MandateTemplateVersion {
   templateId    String
   template      MandateTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
   mandates      Mandate[]
+  showings      Showing[]
   version       Int
   status        String          @default("DRAFT")
   body          String
@@ -1659,6 +1679,18 @@ model MandateTemplateVersion {
   activatedAt   DateTime?
   activatedById String?
   retiredAt     DateTime?
+
+  /// HOME88 for wording written/approved by HOME88's counsel; ESTATE_PLUS_LEGACY
+  /// for text carried over from the old system as source material only.
+  source                String    @default("HOME88")
+  /// Set on legacy text. The database refuses ACTIVE while this is true unless
+  /// the legal approval below is recorded against this exact checksum.
+  requiresLegalReview   Boolean   @default(false)
+  /// Codes from detectLegacyLegalFlags(): what a lawyer must look at.
+  legalReviewFlags      String[]  @default([])
+  legalApprovedAt       DateTime?
+  legalApprovedBy       String?
+  legalApprovedChecksum String?
 
   @@unique([templateId, version])
   @@index([templateId, status])
@@ -2461,8 +2493,55 @@ model Mandate {
 
   startsAt DateTime?
   endsAt   DateTime?
-  /// Agreed values entered by the agent (price, commission, special terms…).
+  /// Agreed values entered by the agent. Only custom clauses, imported legacy
+  /// data and template presentation settings belong here: anything that is
+  /// searched, validated, calculated or printed as a legal term has a column.
   terms    Json      @default("{}")
+
+  // --- Structured fee (same columns as Showing) ---------------------------
+  feePayer                 FeePayer?
+  feeMethod                FeeMethod?
+  feeBasis                 FeeBasis?
+  feePercentage            Decimal?        @db.Decimal(7, 4)
+  feeFixedAmount           Decimal?        @db.Decimal(14, 2)
+  feeCurrency              String?
+  vatTreatment             VatTreatment?
+  vatRate                  Decimal?        @db.Decimal(5, 2)
+  paymentTrigger           PaymentTrigger?
+  /// Set (with a reason) when the owner/agent accepted a COMMISSION_ANOMALY warning.
+  feeAnomalyOverrideReason String?
+  feeAnomalyOverriddenById String?
+
+  // --- Structured terms ----------------------------------------------------
+  durationType                DurationType?
+  /// null = not answered yet; the validator blocks issuance until it is.
+  knownDefects                Boolean?
+  defectsDisclosureConfirmed  Boolean?
+  defectsDescription          String?
+  photoPermission             Boolean?
+  videoPermission             Boolean?
+  floorplanPermission         Boolean?
+  signboardPermission         Boolean?
+  portalPublicationPermission Boolean?
+  socialMediaPermission       Boolean?
+  cooperatingBrokerPermission Boolean?
+  brokerCooperationAllowed    Boolean?
+  dualRepresentationConsent   Boolean?
+  marketingChannels           String[]      @default([])
+  specialTerms                String?
+
+  /// A mandate this one replaces. Only affects conflict detection, never rewrites history.
+  supersedesMandateId String?
+  supersedes          Mandate?  @relation("MandateSupersedes", fields: [supersedesMandateId], references: [id], onDelete: SetNull)
+  supersededBy        Mandate[] @relation("MandateSupersedes")
+
+  /// Last validateMandate() result, so a screen can show what is still missing.
+  completenessResult    Json?
+  completenessCheckedAt DateTime?
+
+  extensions        MandateExtension[]
+  milestones        PaymentMilestone[]
+  conflictOverrides MandateConflictOverride[]
 
   templateVersionId     String?
   templateVersion       MandateTemplateVersion? @relation(fields: [templateVersionId], references: [id], onDelete: Restrict)
@@ -2510,6 +2589,7 @@ model Mandate {
   @@index([sellerLeadId])
   @@index([agentId, status])
   @@index([createdAt])
+  @@index([supersedesMandateId])
   @@map("mandates")
 }
 
@@ -2890,4 +2970,392 @@ model ValuationRequestComparable {
   @@index([requestId])
   @@index([propertyId])
   @@map("valuation_request_comparables")
+}
+
+// ---------------------------------------------------------------------------
+// Brokerage documents: showings (Υπόδειξη), owners, extensions, legacy mapping
+// (Phase A: data model and rules only; rendering, screens and import are later)
+// ---------------------------------------------------------------------------
+
+enum ShowingStatus {
+  DRAFT
+  READY_FOR_ISSUANCE
+  ISSUED
+  SENT
+  VIEWED
+  SIGNED
+  DECLINED
+  EXPIRED
+  CANCELLED
+}
+
+enum ShowingPartyRole {
+  BUYER
+  TENANT
+  JOINT_BUYER
+  SPOUSE
+  COMPANY_REPRESENTATIVE
+  ATTORNEY_IN_FACT
+  AUTHORIZED_REPRESENTATIVE
+  OTHER
+}
+
+enum FeePayer {
+  OWNER
+  BUYER
+  TENANT
+  LANDLORD
+  BOTH_PARTIES
+  OTHER
+}
+
+enum FeeMethod {
+  PERCENTAGE
+  FIXED_AMOUNT
+  CUSTOM
+  NEGOTIATED_LATER
+}
+
+enum FeeBasis {
+  ASKING_PRICE
+  FINAL_SALE_PRICE
+  MONTHLY_RENT
+  ANNUAL_RENT
+  CONTRACT_VALUE
+  OTHER
+}
+
+enum VatTreatment {
+  PLUS_VAT
+  VAT_INCLUDED
+  VAT_EXEMPT
+  NOT_APPLICABLE
+}
+
+enum PaymentTrigger {
+  RESERVATION
+  PRELIMINARY_AGREEMENT
+  FINAL_CONTRACT
+  LEASE_SIGNING
+  INSTALLMENTS
+  CUSTOM
+}
+
+enum DurationType {
+  INDEFINITE
+  FIXED_TERM
+}
+
+enum OwnerCapacity {
+  OWNER
+  CO_OWNER
+  USUFRUCTUARY
+  BARE_OWNER
+  LEGAL_REPRESENTATIVE
+  ATTORNEY_IN_FACT
+  COMPANY_REPRESENTATIVE
+  OTHER
+}
+
+enum MandateExtensionStatus {
+  DRAFT
+  ISSUED
+  SIGNED
+  CANCELLED
+}
+
+enum LegacySourceSystem {
+  ESTATE_PLUS
+  HOME88_LEGACY
+  MANUAL_IMPORT
+  CSV_IMPORT
+}
+
+/// The legal record of an introduction of one or more properties to a client
+/// (Υπόδειξη Ακινήτου). The appointment itself is a Viewing; this is the
+/// document, with its own number, lifecycle and frozen snapshots.
+model Showing {
+  id       String        @id @default(cuid())
+  /// ΥΠ-YYYY-NNNNNN, allocated when the showing is issued; never reused.
+  number   String?       @unique
+  year     Int?
+  status   ShowingStatus @default(DRAFT)
+  /// Language of the document; a template must exist for it.
+  language String        @default("el")
+
+  contactId         String?
+  contact           Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  leadId            String?
+  lead              Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  responsibleUserId String?
+  responsibleUser   User?    @relation("ShowingResponsible", fields: [responsibleUserId], references: [id], onDelete: SetNull)
+
+  /// The appointment this document came from (optional) and the appointments it led to.
+  sourceViewingId String?
+  sourceViewing   Viewing?  @relation("ShowingSourceViewing", fields: [sourceViewingId], references: [id], onDelete: SetNull)
+  viewings        Viewing[] @relation("ShowingViewings")
+
+  documentDate DateTime? @db.Date
+  issuedAt     DateTime?
+  sentAt       DateTime?
+  viewedAt     DateTime?
+  signedAt     DateTime?
+  declinedAt   DateTime?
+  expiresAt    DateTime?
+  cancelledAt  DateTime?
+  cancelReason String?
+
+  // --- Structured fee (same columns as Mandate) ----------------------------
+  feePayer                  FeePayer?
+  feeMethod                 FeeMethod?
+  feeBasis                  FeeBasis?
+  feePercentage             Decimal?        @db.Decimal(7, 4)
+  feeFixedAmount            Decimal?        @db.Decimal(14, 2)
+  feeCurrency               String?
+  vatTreatment              VatTreatment?
+  vatRate                   Decimal?        @db.Decimal(5, 2)
+  paymentTrigger            PaymentTrigger?
+  feeAnomalyOverrideReason  String?
+  feeAnomalyOverriddenById  String?
+  /// Consent to HOME88 acting for the counterparty too, where the template asks for it.
+  dualRepresentationConsent Boolean?
+  comments                  String?
+
+  /// The client as printed. Holds identity details, so it is stored encrypted.
+  clientSnapshotEncrypted String?
+  /// Company details as printed (not personal data).
+  companySnapshot         Json?
+
+  templateVersionId    String?
+  templateVersion      MandateTemplateVersion? @relation(fields: [templateVersionId], references: [id], onDelete: Restrict)
+  templateChecksum     String?
+  renderedTextChecksum String?
+  pdfStorageKey        String?
+  pdfChecksum          String?
+  signedPdfStorageKey  String?
+  signedPdfChecksum    String?
+
+  completenessResult    Json?
+  completenessCheckedAt DateTime?
+
+  properties ShowingProperty[]
+  parties    ShowingParty[]
+  events     ShowingEvent[]
+  milestones PaymentMilestone[]
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status])
+  @@index([contactId])
+  @@index([leadId])
+  @@index([responsibleUserId, status])
+  @@index([sourceViewingId])
+  @@index([createdAt])
+  @@map("showings")
+}
+
+/// One property in a showing. The columns are what was printed; the property
+/// itself may later change, be unpublished, sold or deleted.
+model ShowingProperty {
+  id         String    @id @default(cuid())
+  showingId  String
+  showing    Showing   @relation(fields: [showingId], references: [id], onDelete: Restrict)
+  /// Cleared (not cascaded) if the property record is deleted; the snapshot stays.
+  propertyId String?
+  property   Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  sortOrder  Int       @default(0)
+
+  propertyCodeSnapshot    String
+  addressSnapshot         String?
+  descriptionSnapshot     String?
+  transactionTypeSnapshot String
+  propertyTypeSnapshot    String?
+  areaSnapshot            Decimal?      @db.Decimal(10, 2)
+  priceSnapshot           Decimal?      @db.Decimal(14, 2)
+  currencySnapshot        String        @default("EUR")
+  /// The fee as it applied to this property (net, VAT, gross), fixed at issue.
+  commissionSnapshot      Json?
+  vatTreatmentSnapshot    VatTreatment?
+  /// Everything else the document may print about the property.
+  propertySnapshot        Json
+
+  createdAt DateTime @default(now())
+
+  @@unique([showingId, propertyId])
+  @@unique([showingId, sortOrder])
+  @@index([propertyId])
+  @@map("showing_properties")
+}
+
+/// Who the showing is for or signs it: a buyer or tenant, a joint buyer, a
+/// company representative, an attorney-in-fact. Identity details are personal
+/// data and stored encrypted, like MandateParty.
+model ShowingParty {
+  id        String           @id @default(cuid())
+  showingId String
+  showing   Showing          @relation(fields: [showingId], references: [id], onDelete: Restrict)
+  role      ShowingPartyRole
+  contactId String?
+  contact   Contact?         @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  fullName  String
+
+  taxIdEncrypted     String?
+  taxOfficeEncrypted String?
+  idNumberEncrypted  String?
+  addressEncrypted   String?
+  emailEncrypted     String?
+  phoneEncrypted     String?
+
+  /// A person has checked the identity document; null = not verified.
+  identityVerifiedAt     DateTime?
+  identityVerifiedById   String?
+  /// Signs on someone else's behalf, with this authority.
+  representativeCapacity OwnerCapacity?
+  authorityReference     String?
+  isSignatory            Boolean        @default(true)
+
+  sortOrder Int       @default(0)
+  signedAt  DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([showingId])
+  @@index([contactId])
+  @@map("showing_parties")
+}
+
+/// Append-only, like MandateEvent.
+model ShowingEvent {
+  id        String   @id @default(cuid())
+  showingId String
+  showing   Showing  @relation(fields: [showingId], references: [id], onDelete: Restrict)
+  type      String
+  summary   String
+  data      Json?
+  actorId   String?
+  actorName String?
+  createdAt DateTime @default(now())
+
+  @@index([showingId, createdAt])
+  @@map("showing_events")
+}
+
+/// Who owns a property, in what capacity and share. Property.ownerId stays for
+/// now as the primary contact; this is the full picture.
+model PropertyOwner {
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  contactId  String
+  contact    Contact  @relation(fields: [contactId], references: [id], onDelete: Restrict)
+
+  /// 0–100. Null when the share is unknown or not relevant; never assumed to be 100.
+  ownershipPercentage    Decimal?       @db.Decimal(5, 2)
+  capacity               OwnerCapacity  @default(OWNER)
+  isPrimaryContact       Boolean        @default(false)
+  isSignatory            Boolean        @default(false)
+  /// Set when this person signs in a capacity other than their own (attorney, representative).
+  representativeCapacity OwnerCapacity?
+  authorityDocumentId    String?
+  authorityDocument      Document?      @relation("OwnerAuthorityDocument", fields: [authorityDocumentId], references: [id], onDelete: SetNull)
+  authorityReference     String?
+
+  validFrom DateTime? @db.Date
+  validTo   DateTime? @db.Date
+  notes     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([propertyId])
+  @@index([contactId])
+  @@map("property_owners")
+}
+
+/// A prolongation of an exclusive (or fixed-term) mandate. The mandate's own
+/// end date is never overwritten; the effective end is the latest issued or
+/// signed extension.
+model MandateExtension {
+  id        String  @id @default(cuid())
+  mandateId String
+  mandate   Mandate @relation(fields: [mandateId], references: [id], onDelete: Restrict)
+
+  previousEndDate       DateTime               @db.Date
+  newEndDate            DateTime               @db.Date
+  extensionReason       String?
+  /// The wording of the addendum as issued.
+  extensionTextSnapshot String?
+  templateVersionId     String?
+  issuedAt              DateTime?
+  signedAt              DateTime?
+  status                MandateExtensionStatus @default(DRAFT)
+  signedPdfStorageKey   String?
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([mandateId, status])
+  @@map("mandate_extensions")
+}
+
+/// A manager's recorded decision to allow an exclusive mandate that overlaps another.
+model MandateConflictOverride {
+  id                   String   @id @default(cuid())
+  mandateId            String
+  mandate              Mandate  @relation(fields: [mandateId], references: [id], onDelete: Restrict)
+  conflictingMandateId String
+  reason               String
+  approvedById         String
+  approvedAt           DateTime @default(now())
+
+  @@unique([mandateId, conflictingMandateId])
+  @@map("mandate_conflict_overrides")
+}
+
+/// One instalment of an agreed fee. Belongs to a mandate or a showing, not both.
+model PaymentMilestone {
+  id          String         @id @default(cuid())
+  mandateId   String?
+  mandate     Mandate?       @relation(fields: [mandateId], references: [id], onDelete: Restrict)
+  showingId   String?
+  showing     Showing?       @relation(fields: [showingId], references: [id], onDelete: Restrict)
+  sequence    Int
+  /// Exactly one of percentage / fixedAmount is set.
+  percentage  Decimal?       @db.Decimal(7, 4)
+  fixedAmount Decimal?       @db.Decimal(14, 2)
+  currency    String         @default("EUR")
+  trigger     PaymentTrigger
+  description String?
+  /// Free description of when it falls due when the trigger is CUSTOM.
+  dueDateRule String?
+  createdAt   DateTime       @default(now())
+
+  @@index([mandateId])
+  @@index([showingId])
+  @@map("payment_milestones")
+}
+
+/// Where a record came from in another system. Importing is idempotent: the
+/// same legacy id maps to the same HOME88 record every time.
+model LegacyEntityMapping {
+  id                String             @id @default(cuid())
+  /// HOME88 is a single office today; kept in the key so a second tenant never collides.
+  organizationId    String             @default("home88")
+  sourceSystem      LegacySourceSystem
+  sourceEntityType  String
+  legacyId          String
+  targetEntityType  String
+  targetEntityId    String
+  importBatchId     String?
+  sourcePayloadHash String?
+  importedAt        DateTime           @default(now())
+  importedByUserId  String?
+  createdAt         DateTime           @default(now())
+
+  @@unique([organizationId, sourceSystem, sourceEntityType, legacyId])
+  @@index([targetEntityType, targetEntityId])
+  @@index([importBatchId])
+  @@map("legacy_entity_mappings")
 }
