@@ -44,6 +44,7 @@ import {
 import { db } from "../lib/prisma";
 import {
   deleteObject,
+  getObjectBytes,
   headObject,
   mediaUrlFor,
   presignPut,
@@ -173,6 +174,33 @@ async function verifiedVariant(key: string): Promise<string | null> {
 }
 
 export async function mediaRoutes(app: FastifyInstance): Promise<void> {
+  /**
+   * Approved media, readable without a session. The bucket is private, so this is
+   * the only way an approved photo reaches the website or a CRM gallery: the key
+   * must be the original, preview or thumbnail of a row that a manager approved.
+   * Anything else (unreviewed, rejected, documents, unknown keys) is a plain 404.
+   */
+  app.get("/public-media/*", async (request, reply) => {
+    const key = ((request.params as { "*": string })["*"] ?? "").replace(/^\/+/, "");
+    if (!key || key.includes("..")) throw notFound();
+    const row = await db().propertyMedia.findFirst({
+      where: { status: { in: ["approved", "published"] }, kind: { not: "DOCUMENT" }, OR: [{ storageKey: key }, { previewKey: key }, { thumbnailKey: key }] },
+      select: { storageKey: true, mimeType: true, byteSize: true },
+    });
+    if (!row) throw notFound();
+    requireStorage();
+    const isVariant = key !== row.storageKey;
+    const object = await getObjectBytes(key);
+    if (!object) throw notFound();
+    reply
+      .header("content-type", isVariant ? VARIANT_MIME : row.mimeType)
+      .header("cache-control", "public, max-age=300, s-maxage=300")
+      .header("x-content-type-options", "nosniff")
+      // An SVG must never run script from this origin.
+      .header("content-security-policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+    return reply.send(object.bytes);
+  });
+
   app.get("/properties/:id/media", { preHandler: requireRole("AGENT") }, async (request) => {
     const { id } = request.params as { id: string };
     const rows = await db().propertyMedia.findMany({

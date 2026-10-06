@@ -76,6 +76,26 @@ explicitly (no `*`, no `*.vercel.app`):
 ]
 ```
 
+### Approved photos and the private bucket
+
+The bucket stays private. A photo is `pending_review` until a manager approves
+it; while pending, the CRM shows it through a short-lived signed URL. Once
+approved, its URL becomes `<CRM>/crm/api/public-media/<key>` (or
+`MEDIA_BASE_URL/<key>` when set): a read-only route that answers without a
+session, but only for the original, preview or thumbnail of a media row that is
+approved or published (never for documents, pending or rejected files; those are
+404). Responses are `nosniff`, sandboxed, and cached for 5 minutes, so a
+rejected photo stops being served within that time. Functions on Vercel return
+at most about 4.5 MB, which previews and thumbnails are far below; an original
+without variants above that size cannot be served this way.
+
+(Approving used to switch to an unsigned bucket URL, which a private bucket
+refuses, so approved photos disappeared from the CRM.)
+
+The public website builds its own image URLs (`apps/web`, `MEDIA_BASE_URL`,
+default `/media/<key>`) and has no route or CSP entry for them yet; making the
+website show approved photos is separate work.
+
 ### Which origins the API accepts for writes
 
 Every cookie-authenticated write (POST/PUT/PATCH/DELETE) is checked against the
