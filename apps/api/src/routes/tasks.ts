@@ -14,6 +14,7 @@ import { localDay, parseLocalDateTime } from "@home88/domain";
 import { writeAudit } from "../lib/audit";
 import { badRequest, forbidden, notFound } from "../lib/errors";
 import { clientIp, parseInput, userAgent } from "../lib/http";
+import { touchContact } from "../lib/contacts";
 import { db } from "../lib/prisma";
 import { requireRole, roleAtLeast } from "../plugins/auth";
 
@@ -41,6 +42,8 @@ const createSchema = z.object({
   assignedToId: z.string().min(1).max(40).optional(),
   leadId: z.string().min(1).max(40).optional(),
   propertyId: z.string().min(1).max(40).optional(),
+  contactId: z.string().min(1).max(40).optional(),
+  showingId: z.string().min(1).max(40).optional(),
 });
 
 const updateSchema = z.object({
@@ -136,10 +139,13 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
         assignedToId: assignee,
         leadId: input.leadId ?? null,
         propertyId: input.propertyId ?? null,
+        contactId: input.contactId ?? null,
+        showingId: input.showingId ?? null,
         createdById: actor.id,
       },
       select: SELECT,
     });
+    await touchContact(input.contactId);
     await writeAudit({
       entity: "TASK",
       entityId: task.id,

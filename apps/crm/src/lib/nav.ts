@@ -52,6 +52,7 @@ export const NAV_SECTIONS: NavSection[] = [
         icon: "users",
         children: [
           { href: "/contacts", label: "Όλοι οι πελάτες", icon: "users" },
+          { href: "/showings", label: "Υποδείξεις", icon: "mandate", min: "AGENT" },
           { href: "/leads", label: "Leads", icon: "inbox", counter: "newLeads", counterTitle: "Νέα leads" },
           { href: "/sellers", label: "Ιδιοκτήτες", icon: "team" },
         ],

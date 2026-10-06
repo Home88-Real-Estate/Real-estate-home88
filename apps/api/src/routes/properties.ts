@@ -257,6 +257,7 @@ const LIST_SELECT = {
   bedrooms: true,
   bathrooms: true,
   city: true,
+  areaName: true,
   neighborhood: true,
   publishedOnWebsite: true,
   featured: true,
@@ -298,6 +299,9 @@ export async function propertyRoutes(app: FastifyInstance): Promise<void> {
         { titleEl: { contains: q.q, mode: "insensitive" } },
         { reference: { contains: q.q.toUpperCase() } },
         { city: { contains: q.q, mode: "insensitive" } },
+        { areaName: { contains: q.q, mode: "insensitive" } },
+        { neighborhood: { contains: q.q, mode: "insensitive" } },
+        { address: { contains: q.q, mode: "insensitive" } },
       ];
     }
     if (and.length > 0) where.AND = and;

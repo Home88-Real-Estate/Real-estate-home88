@@ -1,177 +1,61 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { SELLER_STAGE_LABELS } from "@home88/domain";
-
-import { ContactCommunication } from "@/components/messages/ContactCommunication";
-import { OwnerReport } from "@/components/sellers/OwnerReport";
-import { StatusBadge } from "@/components/StatusBadge";
+import { ContactTabs } from "@/components/contacts/ContactTabsNav";
+import { type ContactDetail, DetailsTab, DocumentsTab, HistoryTab, MandatesTab, PropertiesTab, RemindersTab, RequestsTab, ShowingsTab } from "@/components/contacts/ContactTabs";
 import { apiFetch } from "@/lib/api";
-import { formatDate, formatDateTime, personName } from "@/lib/format";
-import { SELLER_STAGE_CLASS } from "@/lib/labels";
+import { CONTACT_ROLE_LABEL, CONTACT_STATUS_CLASS, CONTACT_STATUS_LABEL, CONTACT_TABS } from "@/lib/contacts";
+import { personName } from "@/lib/format";
 import { requireRole } from "@/lib/session";
 
-type Contact = {
-  id: string;
-  reference: string;
-  firstName: string;
-  lastName: string;
-  company: string | null;
-  roles: string[];
-  email: string | null;
-  phone: string | null;
-  mobile: string | null;
-  preferredContactMethod: string;
-  preferredLocale: string;
-  marketingOptOutAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-  properties: Array<{ id: string; reference: string; titleEl: string; status: string }>;
-  leads: Array<{ id: string; reference: string; status: string; createdAt: string }>;
-  sellerLeads: Array<{ id: string; reference: string; stage: string; listingType: string; createdAt: string }>;
-};
+export const metadata: Metadata = { title: "Επαφή" };
 
-export default async function ContactDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ContactDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   await requireRole("AGENT");
   const { id } = await params;
+  const sp = await searchParams;
+  const requested = (Array.isArray(sp.tab) ? sp.tab[0] : sp.tab) ?? "details";
+  const tabs = CONTACT_TABS.filter((t) => t.ready);
+  const tab = tabs.some((t) => t.key === requested) ? requested : "details";
 
-  const result = await apiFetch<{ contact: Contact }>(`/api/contacts/${id}`);
+  const result = await apiFetch<{ contact: ContactDetail }>(`/api/contacts/${id}`);
   if (!result.ok) {
     if (result.status === 404) notFound();
     return <div className="notice notice--danger">{result.error.message}</div>;
   }
-
   const c = result.data.contact;
 
   return (
     <>
-      <div className="between" style={{ marginBottom: 16 }}>
+      <div className="page-head">
         <div>
-          <div className="row" style={{ marginBottom: 4 }}>
+          <div className="row" style={{ marginBottom: 4, flexWrap: "wrap" }}>
             <span className="mono muted">{c.reference}</span>
-            {c.roles.map((role) => (
-              <span key={role} className="badge badge--muted">
-                {role}
-              </span>
-            ))}
+            {c.roles.map((role) => <span key={role} className="badge badge--muted">{CONTACT_ROLE_LABEL[role] ?? role}</span>)}
+            <span className={CONTACT_STATUS_CLASS[c.status] ?? "badge"}>{CONTACT_STATUS_LABEL[c.status] ?? c.status}</span>
             {c.marketingOptOutAt && <span className="badge badge--danger">Εξαίρεση από marketing</span>}
           </div>
-          <h1 style={{ margin: 0 }}>{personName(c.firstName, c.lastName)}</h1>
-          {c.company && <p className="muted" style={{ margin: 0 }}>{c.company}</p>}
+          <h1 style={{ margin: 0 }}>{personName(c.firstName, c.lastName) !== "-" ? personName(c.firstName, c.lastName) : c.company ?? c.reference}</h1>
+          {c.company && personName(c.firstName, c.lastName) !== "-" && <p className="muted" style={{ margin: 0 }}>{c.company}</p>}
         </div>
-        <Link href="/contacts" className="btn btn--outline btn--sm">
-          Επιστροφή στις επαφές
-        </Link>
-      </div>
-
-      <div className="panel">
-        <h2>Στοιχεία</h2>
-        <dl className="dl">
-          <dt>Email</dt>
-          <dd>{c.email ? <a href={`mailto:${c.email}`}>{c.email}</a> : "-"}</dd>
-          <dt>Τηλέφωνο</dt>
-          <dd>{c.phone ? <a href={`tel:${c.phone}`}>{c.phone}</a> : "-"}</dd>
-          <dt>Κινητό</dt>
-          <dd>{c.mobile ? <a href={`tel:${c.mobile}`}>{c.mobile}</a> : "-"}</dd>
-          <dt>Προτιμώμενη επικοινωνία</dt>
-          <dd>{c.preferredContactMethod}</dd>
-          <dt>Γλώσσα</dt>
-          <dd>{c.preferredLocale}</dd>
-          <dt>Δημιουργία</dt>
-          <dd>{formatDateTime(c.createdAt)}</dd>
-          <dt>Ενημέρωση</dt>
-          <dd>{formatDateTime(c.updatedAt)}</dd>
-        </dl>
-      </div>
-
-      <div className="panel">
-        <h2>Ακίνητα ({c.properties.length})</h2>
-        {c.properties.length === 0 ? (
-          <div className="empty">Δεν υπάρχουν συνδεδεμένα ακίνητα.</div>
-        ) : (
-          <div className="table-wrap">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Κωδικός</th>
-                  <th>Τίτλος</th>
-                  <th>Κατάσταση</th>
-                </tr>
-              </thead>
-              <tbody>
-                {c.properties.map((property) => (
-                  <tr key={property.id}>
-                    <td className="mono">
-                      <Link href={`/properties/${property.id}`}>{property.reference}</Link>
-                    </td>
-                    <td>{property.titleEl}</td>
-                    <td>
-                      <StatusBadge value={property.status} kind="property" />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {c.sellerLeads.length > 0 && (
-        <div className="panel">
-          <h2>Ως ιδιοκτήτης ({c.sellerLeads.length})</h2>
-          <div className="table-wrap">
-            <table className="data">
-              <thead><tr><th>Κωδικός</th><th>Ενδιαφέρον</th><th>Στάδιο</th><th>Δημιουργία</th></tr></thead>
-              <tbody>
-                {c.sellerLeads.map((s) => (
-                  <tr key={s.id}>
-                    <td className="mono"><Link href={`/sellers/${s.id}`}>{s.reference}</Link></td>
-                    <td>{s.listingType === "RENT" ? "Ενοικίαση" : "Πώληση"}</td>
-                    <td><span className={SELLER_STAGE_CLASS[s.stage] ?? "badge"}>{SELLER_STAGE_LABELS[s.stage as keyof typeof SELLER_STAGE_LABELS] ?? s.stage}</span></td>
-                    <td>{formatDate(s.createdAt)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+          <Link href={`/showings/new?contact=${c.id}`} className="btn btn--primary btn--sm">+ Νέα Υπόδειξη</Link>
+          <Link href={`/contacts/${c.id}/edit`} className="btn btn--outline btn--sm">Επεξεργασία</Link>
+          <Link href="/contacts" className="btn btn--ghost btn--sm">Όλες οι επαφές</Link>
         </div>
-      )}
-
-      <ContactCommunication contactId={c.id} />
-
-      {c.properties.length > 0 && <OwnerReport contactId={c.id} />}
-
-      <div className="panel">
-        <h2>Leads ({c.leads.length})</h2>
-        {c.leads.length === 0 ? (
-          <div className="empty">Δεν υπάρχουν συνδεδεμένα leads.</div>
-        ) : (
-          <div className="table-wrap">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Κωδικός</th>
-                  <th>Κατάσταση</th>
-                  <th>Δημιουργία</th>
-                </tr>
-              </thead>
-              <tbody>
-                {c.leads.map((lead) => (
-                  <tr key={lead.id}>
-                    <td className="mono">
-                      <Link href={`/leads/${lead.id}`}>{lead.reference}</Link>
-                    </td>
-                    <td>
-                      <StatusBadge value={lead.status} kind="lead" />
-                    </td>
-                    <td>{formatDateTime(lead.createdAt)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
       </div>
+
+      <ContactTabs id={c.id} current={tab} tabs={tabs.map((t) => ({ key: t.key, label: t.label }))} />
+
+      {tab === "details" && <DetailsTab c={c} />}
+      {tab === "properties" && <PropertiesTab id={c.id} />}
+      {tab === "requests" && <RequestsTab id={c.id} />}
+      {tab === "showings" && <ShowingsTab id={c.id} />}
+      {tab === "reminders" && <RemindersTab id={c.id} />}
+      {tab === "history" && <HistoryTab id={c.id} />}
+      {tab === "mandates" && <MandatesTab id={c.id} />}
+      {tab === "documents" && <DocumentsTab id={c.id} />}
     </>
   );
 }

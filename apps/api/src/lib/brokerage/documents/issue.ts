@@ -661,3 +661,61 @@ export async function loadIssuedPdf(db: Parameters<typeof recordDocumentAudit>[0
   if (!bytes || sha256(bytes) !== row.checksum) throw new BrokerageError("PDF_INTEGRITY", "Το PDF δεν βρέθηκε ή δεν ταιριάζει με το checksum του.");
   return { bytes, checksum: row.checksum, key: row.key, number: row.number, filename: `${asciiKeySegment(row.number)}.pdf` };
 }
+
+// ---------------------------------------------------------------------------
+// Preview
+// ---------------------------------------------------------------------------
+
+export type DocumentPreview = {
+  /** TEMPLATE_UNAVAILABLE: no approved active wording yet. BLOCKED: the document is not complete. */
+  state: "READY" | "BLOCKED" | "TEMPLATE_UNAVAILABLE" | "TEMPLATE_INVALID";
+  message: string | null;
+  text: string | null;
+  templateVersion: number | null;
+  validation: DocumentCompletenessResult;
+};
+
+class PreviewRollback extends Error {
+  constructor(readonly preview: DocumentPreview) {
+    super("preview");
+  }
+}
+
+/**
+ * What the document would say if it were issued now, from the approved ACTIVE
+ * template only. Nothing is kept: no number is allocated, no snapshot is
+ * stored and the property refresh that issuing performs is rolled back. The
+ * text holds personal data, so callers decide who may see it.
+ */
+export async function previewDocument(client: Transactional, kind: IssueKind, id: string, actor: string, now: Date = new Date()): Promise<DocumentPreview> {
+  const adapter = ADAPTERS[kind];
+  try {
+    await client.$transaction(async (tx) => {
+      const row = await adapter.lockAndLoad(tx, id);
+      if (row.number) throw new BrokerageError("INVALID_TRANSITION", "Το έγγραφο έχει ήδη εκδοθεί.");
+      const prepared = await adapter.prepare(tx, id, now, { actor: { id: "preview", name: actor, role: "AGENT" } } as IssueContext);
+      const validation = prepared.validation;
+      if (validation.status === "BLOCKED") throw new PreviewRollback({ state: "BLOCKED", message: null, text: null, templateVersion: null, validation });
+      let template;
+      try {
+        template = await resolveApprovedTemplate(tx, prepared.templateKind, prepared.language);
+      } catch (e) {
+        if (e instanceof TemplateRejectedError) throw new PreviewRollback({ state: "TEMPLATE_UNAVAILABLE", message: e.message, text: null, templateVersion: null, validation });
+        throw e;
+      }
+      const numbering: Numbering = { number: "«αριθμός κατά την έκδοση»", issuedOn: dayOf(now), verificationCode: "—" };
+      const document = await prepared.snapshot(numbering, { version: template.version, checksum: template.checksum }, actor);
+      const merged = renderClauses(template.body, mergeValues(document));
+      if (!merged.ok) {
+        const parts = [merged.unknown.length ? `άγνωστα πεδία: ${merged.unknown.join(", ")}` : "", merged.missing.length ? `δεν έχουν τιμή: ${merged.missing.join(", ")}` : "", merged.unclosed ? "πεδίο χωρίς κλείσιμο" : ""].filter(Boolean);
+        throw new PreviewRollback({ state: "TEMPLATE_INVALID", message: `Το πρότυπο δεν μπορεί να συμπληρωθεί — ${parts.join(" · ")}.`, text: null, templateVersion: template.version, validation });
+      }
+      const text = blocksToText(buildDocumentBlocks(document, merged.text)).trim();
+      throw new PreviewRollback({ state: "READY", message: null, text, templateVersion: template.version, validation });
+    });
+  } catch (e) {
+    if (e instanceof PreviewRollback) return e.preview;
+    throw e;
+  }
+  throw new Error("preview did not complete");
+}

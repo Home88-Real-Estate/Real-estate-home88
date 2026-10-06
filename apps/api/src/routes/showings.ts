@@ -16,9 +16,9 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { Prisma } from "@home88/database";
-import { FEE_BASES, FEE_METHODS, FEE_PAYERS, PAYMENT_TRIGGERS, SHOWING_STATUSES, VAT_TREATMENTS, validateCommission, type FeeTerms } from "@home88/domain";
+import { parseLocalDateTime, FEE_BASES, FEE_METHODS, FEE_PAYERS, PAYMENT_TRIGGERS, SHOWING_STATUSES, VAT_TREATMENTS, validateCommission, type FeeTerms } from "@home88/domain";
 
-import { loadIssuedPdf, issueDocument } from "../lib/brokerage/documents/issue";
+import { loadIssuedPdf, issueDocument, previewDocument } from "../lib/brokerage/documents/issue";
 import { recordDocumentAudit } from "../lib/brokerage/documents/audit";
 import { buildShowingParties, clearParty, maskedParty, showingPartySchema } from "../lib/brokerage/documents/party-input";
 import { recordPaperSignedCopy, sendDocumentForSignature } from "../lib/brokerage/documents/signing";
@@ -26,7 +26,8 @@ import { addPropertyToShowing, evaluateShowing, refreshShowingCompleteness } fro
 import { documentStore } from "../lib/document-store";
 import { requireDocPermission, mayViewSensitive } from "../lib/doc-permissions";
 import { actorOf, auditContext, guarded, nameOf } from "../lib/doc-http";
-import { badRequest, conflict, notFound, validationFailed } from "../lib/errors";
+import { touchContact } from "../lib/contacts";
+import { badRequest, conflict, forbidden, notFound, validationFailed } from "../lib/errors";
 import { parseInput } from "../lib/http";
 import { db } from "../lib/prisma";
 import { requireRole, roleAtLeast } from "../plugins/auth";
@@ -69,6 +70,15 @@ const draftShape = {
   dualRepresentationConsent: z.boolean().nullable().optional(),
   comments: text(4000),
   documentDate: dateOnly,
+  /** Date and time the client is shown the properties (local time, YYYY-MM-DDTHH:mm). */
+  visitAt: z.union([z.literal(""), z.null(), z.undefined(), z.string().trim()]).transform((v, ctx) => {
+    if (!v) return null;
+    const d = parseLocalDateTime(v);
+    if (!d) { ctx.addIssue({ code: "custom", message: "Δώστε ημερομηνία και ώρα." }); return z.NEVER; }
+    return d;
+  }),
+  /** Who looks after the showing (managers may assign someone else). */
+  responsibleUserId: z.string().trim().min(1).max(40).optional(),
 };
 
 const createSchema = z.object(draftShape);
@@ -77,6 +87,10 @@ const listSchema = z.object({
   status: z.enum(SHOWING_STATUSES).optional(),
   scope: z.enum(["mine", "all"]).optional(),
   q: z.string().trim().max(60).optional(),
+  contactId: z.string().trim().max(40).optional(),
+  agentId: z.string().trim().max(40).optional(),
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   page: z.coerce.number().int().min(1).max(1000).default(1),
 });
 const issueSchema = z.object({ acknowledgeFeeAnomaly: z.string().trim().min(3).max(500).optional() }).default({});
@@ -137,6 +151,15 @@ export async function showingRoutes(app: FastifyInstance): Promise<void> {
     return ids;
   }
 
+  /** The person the showing is assigned to: the actor, unless a manager names another active user. */
+  async function resolveResponsible(actor: { id: string; role: string }, requested: string | undefined) {
+    if (!requested || requested === actor.id) return actor.id;
+    if (!roleAtLeast(actor.role, "MANAGER")) throw forbidden("Μόνο ένας υπεύθυνος μπορεί να αναθέσει υπόδειξη σε άλλον.");
+    const u = await db().user.findUnique({ where: { id: requested }, select: { status: true } });
+    if (!u || u.status !== "ACTIVE") throw badRequest("Ο διαχειριστής πρέπει να είναι ενεργός χρήστης.", { responsibleUserId: ["Επιλέξτε ενεργό χρήστη."] });
+    return requested;
+  }
+
   async function writeMilestones(tx: Prisma.TransactionClient, showingId: string, list: z.infer<typeof milestoneSchema>[]) {
     await tx.paymentMilestone.deleteMany({ where: { showingId } });
     for (const m of list) {
@@ -155,13 +178,14 @@ export async function showingRoutes(app: FastifyInstance): Promise<void> {
     if (input.contactReference && !contact) throw badRequest("Δεν βρέθηκε η επαφή.", { contactReference: ["Άγνωστη επαφή."] });
     const propertyIds = await resolveProperties(input.propertyReferences);
     const parties = await buildShowingParties(input.parties, actor.id);
+    const responsibleUserId = await resolveResponsible(actor, input.responsibleUserId);
 
     const created = await guarded(() =>
       db().$transaction(async (tx) => {
         const s = await tx.showing.create({
           data: {
             language: input.language, contactId: contact?.id ?? null, leadId: input.leadId || null, sourceViewingId: input.sourceViewingId || null,
-            responsibleUserId: actor.id, createdById: actor.id, documentDate: input.documentDate,
+            responsibleUserId, createdById: actor.id, documentDate: input.documentDate, visitAt: input.visitAt,
             feePayer: input.feePayer ?? null, feeMethod: input.feeMethod ?? null, feeBasis: input.feeBasis ?? null, feePercentage: decimal(input.feePercentage), feeFixedAmount: decimal(input.feeFixedAmount),
             feeCurrency: input.feeCurrency ?? null, vatTreatment: input.vatTreatment ?? null, vatRate: decimal(input.vatRate), paymentTrigger: input.paymentTrigger ?? null,
             dualRepresentationConsent: input.dualRepresentationConsent ?? null, comments: input.comments,
@@ -175,6 +199,7 @@ export async function showingRoutes(app: FastifyInstance): Promise<void> {
         return s;
       }),
     );
+    await touchContact(contact?.id);
     const result = await refreshShowingCompleteness(db(), created.id);
     return { showing: { id: created.id, status: created.status }, completeness: result };
   });
@@ -188,16 +213,51 @@ export async function showingRoutes(app: FastifyInstance): Promise<void> {
       AND: [
         mine ? { OR: [{ responsibleUserId: actor.id }, { createdById: actor.id }] } : {},
         q.status ? { status: q.status } : {},
-        q.q ? { OR: [{ number: { contains: q.q, mode: "insensitive" } }, { properties: { some: { propertyCodeSnapshot: { contains: q.q.toUpperCase() } } } }, { parties: { some: { fullName: { contains: q.q, mode: "insensitive" } } } }] } : {},
+        q.contactId ? { contactId: q.contactId } : {},
+        q.agentId ? { responsibleUserId: q.agentId } : {},
+        q.from || q.to ? { OR: [{ visitAt: { ...(q.from ? { gte: new Date(`${q.from}T00:00:00Z`) } : {}), ...(q.to ? { lte: new Date(`${q.to}T23:59:59Z`) } : {}) } }, { visitAt: null, createdAt: { ...(q.from ? { gte: new Date(`${q.from}T00:00:00Z`) } : {}), ...(q.to ? { lte: new Date(`${q.to}T23:59:59Z`) } : {}) } }] } : {},
+        q.q
+          ? {
+              OR: [
+                { number: { contains: q.q, mode: "insensitive" } },
+                { properties: { some: { OR: [{ propertyCodeSnapshot: { contains: q.q.toUpperCase() } }, { addressSnapshot: { contains: q.q, mode: "insensitive" } }] } } },
+                { parties: { some: { fullName: { contains: q.q, mode: "insensitive" } } } },
+                { contact: { OR: [{ firstName: { contains: q.q, mode: "insensitive" } }, { lastName: { contains: q.q, mode: "insensitive" } }, { reference: { contains: q.q.toUpperCase() } }] } },
+                { responsibleUser: { OR: [{ firstName: { contains: q.q, mode: "insensitive" } }, { lastName: { contains: q.q, mode: "insensitive" } }] } },
+                { comments: { contains: q.q, mode: "insensitive" } },
+              ],
+            }
+          : {},
       ],
     };
     const take = 25;
     const [rows, total] = await Promise.all([
-      db().showing.findMany({ where, orderBy: { createdAt: "desc" }, skip: (q.page - 1) * take, take, include: { properties: { select: { propertyCodeSnapshot: true }, orderBy: { sortOrder: "asc" } }, parties: { select: { fullName: true }, orderBy: { sortOrder: "asc" } } } }),
+      db().showing.findMany({
+        where,
+        orderBy: [{ visitAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
+        skip: (q.page - 1) * take,
+        take,
+        include: {
+          properties: { select: { propertyCodeSnapshot: true, addressSnapshot: true, propertyId: true }, orderBy: { sortOrder: "asc" } },
+          parties: { select: { fullName: true }, orderBy: { sortOrder: "asc" } },
+          contact: { select: { id: true, reference: true, firstName: true, lastName: true } },
+          responsibleUser: { select: { id: true, firstName: true, lastName: true } },
+        },
+      }),
       db().showing.count({ where }),
     ]);
+    const nm = (u: { firstName: string; lastName: string } | null) => (u ? `${u.firstName} ${u.lastName}`.trim() : null);
     return {
-      data: rows.map((s) => ({ id: s.id, number: s.number, status: s.status, language: s.language, clients: s.parties.map((p) => p.fullName), properties: s.properties.map((p) => p.propertyCodeSnapshot), issuedAt: s.issuedAt, signedAt: s.signedAt, storageState: s.storageState, createdAt: s.createdAt })),
+      data: rows.map((s) => ({
+        id: s.id, number: s.number, status: s.status, language: s.language,
+        contact: s.contact ? { id: s.contact.id, reference: s.contact.reference, name: nm(s.contact) } : null,
+        agent: s.responsibleUser ? { id: s.responsibleUser.id, name: nm(s.responsibleUser) } : null,
+        visitAt: s.visitAt, comments: s.comments,
+        clients: s.parties.map((p) => p.fullName),
+        properties: s.properties.map((p) => p.propertyCodeSnapshot),
+        propertyDetails: s.properties.map((p) => ({ propertyId: p.propertyId, code: p.propertyCodeSnapshot, address: p.addressSnapshot })),
+        issuedAt: s.issuedAt, signedAt: s.signedAt, storageState: s.storageState, createdAt: s.createdAt,
+      })),
       pagination: { page: q.page, limit: take, total, pages: Math.max(1, Math.ceil(total / take)) },
     };
   });
@@ -211,12 +271,12 @@ export async function showingRoutes(app: FastifyInstance): Promise<void> {
     const sensitive = await mayViewSensitive(actor.role, "showings");
     return {
       showing: {
-        id: s.id, number: s.number, status: s.status, language: s.language, documentDate: s.documentDate,
+        id: s.id, number: s.number, status: s.status, language: s.language, documentDate: s.documentDate, visitAt: s.visitAt,
         contact: s.contact, responsibleUser: s.responsibleUser,
         fee: { payer: s.feePayer, method: s.feeMethod, basis: s.feeBasis, percentage: s.feePercentage, fixedAmount: s.feeFixedAmount, currency: s.feeCurrency, vatTreatment: s.vatTreatment, vatRate: s.vatRate, paymentTrigger: s.paymentTrigger, anomalyAcknowledged: Boolean(s.feeAnomalyOverrideReason) },
         milestones: s.milestones.map((m) => ({ sequence: m.sequence, percentage: m.percentage, fixedAmount: m.fixedAmount, trigger: m.trigger, description: m.description })),
         dualRepresentationConsent: s.dualRepresentationConsent, comments: s.comments,
-        properties: s.properties.map((p) => ({ id: p.id, propertyId: p.propertyId, code: p.propertyCodeSnapshot, address: p.addressSnapshot, description: p.descriptionSnapshot, transactionType: p.transactionTypeSnapshot, price: p.priceSnapshot, commission: p.commissionSnapshot })),
+        properties: s.properties.map((p) => ({ id: p.id, propertyId: p.propertyId, code: p.propertyCodeSnapshot, address: p.addressSnapshot, description: p.descriptionSnapshot, transactionType: p.transactionTypeSnapshot, propertyType: p.propertyTypeSnapshot, area: p.areaSnapshot, price: p.priceSnapshot, commission: p.commissionSnapshot })),
         parties: s.parties.map((p) => (sensitive ? clearParty(p) : maskedParty(p))),
         template: s.templateVersion ? { version: s.templateVersion.version, checksum: s.templateChecksum } : null,
         renderedTextChecksum: s.renderedTextChecksum, pdfChecksum: s.pdfChecksum, storageState: s.storageState, verificationCode: s.verificationCode,
@@ -239,6 +299,7 @@ export async function showingRoutes(app: FastifyInstance): Promise<void> {
     const parties = input.parties ? await buildShowingParties(input.parties, actor.id) : null;
     const contact = input.contactReference ? await db().contact.findUnique({ where: { reference: input.contactReference }, select: { id: true } }) : null;
     if (input.contactReference && !contact) throw badRequest("Δεν βρέθηκε η επαφή.", { contactReference: ["Άγνωστη επαφή."] });
+    const newResponsible = input.responsibleUserId !== undefined ? await resolveResponsible(actor, input.responsibleUserId) : undefined;
 
     await guarded(() =>
       db().$transaction(async (tx) => {
@@ -250,6 +311,8 @@ export async function showingRoutes(app: FastifyInstance): Promise<void> {
             ...(input.language !== undefined ? { language: input.language } : {}),
             ...(input.contactReference !== undefined ? { contactId: contact?.id ?? null } : {}),
             ...(input.documentDate !== undefined ? { documentDate: input.documentDate } : {}),
+            ...(input.visitAt !== undefined ? { visitAt: input.visitAt } : {}),
+            ...(newResponsible !== undefined ? { responsibleUserId: newResponsible } : {}),
             ...(input.feePayer !== undefined ? { feePayer: input.feePayer } : {}),
             ...(input.feeMethod !== undefined ? { feeMethod: input.feeMethod } : {}),
             ...(input.feeBasis !== undefined ? { feeBasis: input.feeBasis } : {}),
@@ -278,6 +341,7 @@ export async function showingRoutes(app: FastifyInstance): Promise<void> {
         await recordDocumentAudit(tx, { ...ctx, type: "SHOWING_UPDATED", entityType: "SHOWING", entityId: id, before: { status: s.status }, after: { status: "DRAFT" }, metadata: { fields: Object.keys(input) } });
       }),
     );
+    await touchContact(contact?.id ?? s.contactId);
     return { ok: true, completeness: await refreshShowingCompleteness(db(), id) };
   });
 
@@ -292,14 +356,27 @@ export async function showingRoutes(app: FastifyInstance): Promise<void> {
     return { result, issuable: forIssue.status !== "BLOCKED", issuanceBlockingIssues: forIssue.blockingIssues };
   });
 
+  // What the document would say if issued now (approved ACTIVE wording only). Nothing is stored.
+  app.get("/showings/:id/preview", agent, async (request) => {
+    await requireDocPermission(request, "showings.read");
+    const actor = actorOf(request);
+    const { id } = request.params as { id: string };
+    const s = await loadVisible(actor, id);
+    if (s.number) throw conflict("Η υπόδειξη έχει ήδη εκδοθεί· χρησιμοποιήστε το PDF.");
+    const sensitive = await mayViewSensitive(actor.role, "showings");
+    const p = await guarded(() => previewDocument(db(), "SHOWING", id, nameOf(actor)));
+    return { preview: { state: p.state, message: p.message, templateVersion: p.templateVersion, text: sensitive ? p.text : null, textHidden: !sensitive && p.state === "READY", blocking: p.validation.blockingIssues, warnings: p.validation.warnings } };
+  });
+
   app.post("/showings/:id/issue", agent, async (request) => {
     await requireDocPermission(request, "showings.issue");
     const actor = actorOf(request);
     const { id } = request.params as { id: string };
-    await loadVisible(actor, id);
+    const visible = await loadVisible(actor, id);
     const input = parseInput(issueSchema, request.body ?? {});
     const ctx = auditContext(request);
     const outcome = await guarded(() => issueDocument(db(), "SHOWING", id, { ...ctx, acknowledgeFeeAnomaly: input.acknowledgeFeeAnomaly }));
+    await touchContact(visible.contactId);
     return { ok: true, ...outcome };
   });
 
