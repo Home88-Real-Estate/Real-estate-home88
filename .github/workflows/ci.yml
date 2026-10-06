@@ -47,6 +47,11 @@ jobs:
           node-version: 22
           cache: npm
 
+      # The document tests read the generated PDFs back with pdftotext (poppler) to prove the
+      # Greek and English text is extractable; the runner image does not ship it.
+      - name: Install poppler-utils (pdftotext)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
+
       - name: Require database test URLs
         run: node scripts/check-test-skips.mjs --preflight
 

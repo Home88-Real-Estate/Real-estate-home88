@@ -24,6 +24,7 @@ import { badRequest, conflict, forbidden, notFound } from "../lib/errors";
 import { clientIp, parseInput, userAgent } from "../lib/http";
 import { priceChange } from "../lib/price-history";
 import { db } from "../lib/prisma";
+import { mediaUrlFor } from "../lib/storage";
 import { allocateReference, slugify } from "../lib/references";
 import { requireRole } from "../plugins/auth";
 
@@ -317,8 +318,20 @@ export async function propertyRoutes(app: FastifyInstance): Promise<void> {
       }),
     ]);
 
+    // The list shows the cover as a small thumbnail (never the full-size original when a smaller
+    // variant exists). Media still under review is reachable only by a short-lived signed URL.
+    const covers = await db().propertyMedia.findMany({
+      where: { propertyId: { in: data.map((p) => p.id) }, isPrimary: true, kind: "PHOTO" },
+      select: { propertyId: true, storageKey: true, previewKey: true, thumbnailKey: true, status: true },
+    });
+    const coverUrls = new Map<string, string>();
+    for (const c of covers) {
+      if (!c.propertyId) continue;
+      coverUrls.set(c.propertyId, await mediaUrlFor(c.thumbnailKey ?? c.previewKey ?? c.storageKey, c.status));
+    }
+
     return {
-      data,
+      data: data.map((p) => ({ ...p, coverThumbnailUrl: coverUrls.get(p.id) ?? null })),
       pagination: {
         page: q.page,
         limit: q.limit,

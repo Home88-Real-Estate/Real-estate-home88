@@ -9,6 +9,7 @@
  */
 
 import { apiUrl, callApi } from "@/lib/api-transport";
+import { servedAddress } from "@/lib/served-origin";
 
 /** Request headers the API may use. Everything else is dropped. */
 const FORWARD = [
@@ -34,6 +35,12 @@ async function forward(
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
   }
+
+  // Tell the API which address this request was really served from (never taken from the client's
+  // own x-forwarded-* headers: they are not in FORWARD above), so same-origin writes are recognised.
+  const served = servedAddress(request.headers, request.url);
+  headers.set("x-forwarded-host", served.host);
+  headers.set("x-forwarded-proto", served.proto);
 
   const method = request.method.toUpperCase();
   const body = method === "GET" || method === "HEAD" ? undefined : await request.arrayBuffer();

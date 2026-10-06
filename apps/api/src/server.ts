@@ -22,6 +22,7 @@ import { reportRoutes } from "./routes/reports";
 import { automationRoutes } from "./routes/automation";
 import { aiRoutes } from "./routes/ai";
 import { messageRoutes } from "./routes/messages";
+import { isAllowedOrigin, parseOriginList } from "./lib/origin";
 import { mediaRoutes } from "./routes/media";
 import { submissionRoutes } from "./routes/submissions";
 import { portalRoutes } from "./routes/portals";
@@ -45,7 +46,8 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   await app.register(cookie);
-  await app.register(cors, { origin: [cfg.CRM_URL, cfg.SITE_URL], credentials: true });
+  const allowedOrigins = [cfg.CRM_URL, cfg.SITE_URL, ...parseOriginList(cfg.CRM_PUBLIC_ORIGINS)];
+  await app.register(cors, { origin: allowedOrigins, credentials: true });
 
   /**
    * CSRF defence for cookie-authenticated writes. A browser sends Origin on
@@ -58,7 +60,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     if (method === "GET" || method === "HEAD" || method === "OPTIONS") return;
     const origin = request.headers.origin;
     if (!origin) return;
-    if (origin !== cfg.CRM_URL && origin !== cfg.SITE_URL) {
+    if (!isAllowedOrigin(origin, allowedOrigins, request.headers)) {
       throw new HttpError(403, "csrf_origin", "Origin not allowed.");
     }
   });

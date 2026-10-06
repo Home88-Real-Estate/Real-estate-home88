@@ -27,6 +27,7 @@ type PropertyRow = {
   updatedAt: string;
   agent: { firstName: string; lastName: string } | null;
   _count: { media: number; leads: number };
+  coverThumbnailUrl?: string | null;
 };
 
 const STATUS_OPTIONS: Array<[string, string]> = [
@@ -152,6 +153,7 @@ export default async function PropertiesPage({
             <table className="data">
               <thead>
                 <tr>
+                  <th className="thumb-col"><span className="sr-only">Φωτογραφία</span></th>
                   <th>Κωδικός</th>
                   <th>Τίτλος</th>
                   <th>Κατάσταση</th>
@@ -165,6 +167,16 @@ export default async function PropertiesPage({
               <tbody>
                 {result.data.data.map((row) => (
                   <tr key={row.id}>
+                    <td className="thumb-col">
+                      <Link href={`/properties/${row.id}`} tabIndex={-1} aria-hidden="true">
+                        {row.coverThumbnailUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element -- signed storage URL, already a small variant
+                          <img src={row.coverThumbnailUrl} alt="" className="thumb" loading="lazy" width={64} height={48} />
+                        ) : (
+                          <span className="thumb thumb--empty" />
+                        )}
+                      </Link>
+                    </td>
                     <td className="mono">
                       <Link href={`/properties/${row.id}`}>{row.reference}</Link>
                     </td>

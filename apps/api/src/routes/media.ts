@@ -123,6 +123,16 @@ async function requireEditableProperty(id: string, actor: { id: string; role: st
   }
 }
 
+/** At most this many files per property (photos, plans, documents together). */
+export const MAX_MEDIA_PER_PROPERTY = 40;
+
+async function requireRoom(propertyId: string, adding = 1): Promise<void> {
+  const count = await db().propertyMedia.count({ where: { propertyId } });
+  if (count + adding > MAX_MEDIA_PER_PROPERTY) {
+    throw new HttpError(409, "media_limit", `Κάθε ακίνητο δέχεται έως ${MAX_MEDIA_PER_PROPERTY} αρχεία.`);
+  }
+}
+
 function requireStorage(): void {
   if (!storageConfigured(loadConfig())) {
     throw new HttpError(503, "storage_unavailable", "Object storage is not configured.");
@@ -184,6 +194,7 @@ export async function mediaRoutes(app: FastifyInstance): Promise<void> {
       await requireEditableProperty(id, actor);
 
       const input = parseInput(mediaUploadRequestSchema, request.body);
+      await requireRoom(id);
       const mime = input.mimeType.split(";")[0]!.trim();
       if (!isAllowedUpload(mime)) throw badRequest(`Unsupported file type: ${mime || "unknown"}.`);
       if (input.byteSize > cfg.MAX_UPLOAD_BYTES) {
@@ -236,6 +247,13 @@ export async function mediaRoutes(app: FastifyInstance): Promise<void> {
 
       const stored = await headObject(input.storageKey);
       if (!stored) throw badRequest("Η μεταφόρτωση του αρχείου δεν ολοκληρώθηκε.");
+      try {
+        await requireRoom(id);
+      } catch (error) {
+        // Tickets can be requested in parallel: the limit is re-checked when the file is recorded.
+        await deleteObject(input.storageKey).catch(() => undefined);
+        throw error;
+      }
       const mime = stored.contentType.split(";")[0]!.trim().toLowerCase();
       if (!isAllowedUpload(mime) || stored.byteSize === 0 || stored.byteSize > cfg.MAX_UPLOAD_BYTES) {
         await deleteObject(input.storageKey).catch(() => undefined);
@@ -310,6 +328,7 @@ export async function mediaRoutes(app: FastifyInstance): Promise<void> {
     async (request) => {
       const actor = request.auth!.user;
       const { id, mediaId } = request.params as { id: string; mediaId: string };
+      await requireEditableProperty(id, actor);
       const input = parseInput(mediaUpdateSchema, request.body);
 
       const existing = await db().propertyMedia.findFirst({
@@ -352,7 +371,10 @@ export async function mediaRoutes(app: FastifyInstance): Promise<void> {
         return row;
       });
 
-      return { media: await toMediaDto(updated) };
+      // Un-setting the cover must not leave the property without one.
+      if (input.isPrimary === false) await ensurePrimary(id);
+      const fresh = await db().propertyMedia.findUniqueOrThrow({ where: { id: mediaId } });
+      return { media: await toMediaDto(fresh ?? updated) };
     },
   );
 
@@ -437,6 +459,7 @@ export async function mediaRoutes(app: FastifyInstance): Promise<void> {
     async (request) => {
       const actor = request.auth!.user;
       const { id, mediaId } = request.params as { id: string; mediaId: string };
+      await requireEditableProperty(id, actor);
 
       const existing = await db().propertyMedia.findFirst({
         where: { id: mediaId, propertyId: id },
