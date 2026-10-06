@@ -30,7 +30,7 @@ import { badRequest, conflict, notFound, validationFailed } from "../lib/errors"
 import { parseInput } from "../lib/http";
 import { db } from "../lib/prisma";
 import { requireRole, roleAtLeast } from "../plugins/auth";
-import { confirmUpload } from "./documents";
+import { confirmUpload, SIGNED_COPY_MIME_TYPES } from "./documents";
 
 const text = (max: number) => z.string().trim().max(max).optional().or(z.literal("")).transform((v) => (v ? v : null));
 const num = z.union([z.number(), z.string().trim().min(1)]).transform((v) => Number(v)).refine((v) => Number.isFinite(v), "Μη έγκυρος αριθμός.");
@@ -346,7 +346,7 @@ export async function showingRoutes(app: FastifyInstance): Promise<void> {
     const s = await loadVisible(actor, id);
     const input = parseInput(signedCopySchema, request.body);
     const first = await db().showingProperty.findFirst({ where: { showingId: id }, orderBy: { sortOrder: "asc" } });
-    const doc = await confirmUpload(actor, input.token, { title: `Υπόδειξη ${s.number} (υπογεγραμμένη)`, category: "MANDATE", propertyId: first?.propertyId ?? null, contactId: s.contactId, containsPersonalData: true });
+    const doc = await confirmUpload(actor, input.token, { title: `Υπόδειξη ${s.number} (υπογεγραμμένη)`, category: "MANDATE", propertyId: first?.propertyId ?? null, contactId: s.contactId, containsPersonalData: true }, undefined, { allowedMimeTypes: SIGNED_COPY_MIME_TYPES });
     try {
       const r = await guarded(() => recordPaperSignedCopy(db(), "SHOWING", id, { storageKey: doc.storageKey, checksum: doc.checksum!, byteSize: doc.byteSize }, { signedAt: input.signedAt ?? new Date(), signerNote: input.note }, auditContext(request)));
       return { ok: true, ...r };

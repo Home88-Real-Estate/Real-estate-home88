@@ -530,16 +530,20 @@ function propertyBlocks(s: DocumentSnapshot): Block[] {
   const lang = s.language;
   const l = (k: string) => L(lang, k);
   if (s.kind === "SHOWING") {
-    const header = [l("col.code"), l("col.address"), l("col.description"), l("col.type"), l("col.price"), l("col.fee")];
+    // The per-property fee column appears only when some property carries its own fee; otherwise the fee section says it all.
+    const withFee = s.properties.some((p) => p.fee);
+    const header = [l("col.code"), l("col.address"), l("col.description"), l("col.type"), l("col.price"), ...(withFee ? [l("col.fee")] : [])];
     const rows = s.properties.map((p) => [
       p.code,
       p.address ?? "",
       p.description ?? "",
       l(`tx.${p.transactionType}`),
       p.price != null ? formatMoney(p.price, p.currency, lang) : "",
-      p.fee ? `${formatMoney(p.fee.net, p.currency, lang)} + ${formatMoney(p.fee.vat, p.currency, lang)} = ${formatMoney(p.fee.gross, p.currency, lang)}` : "",
+      ...(withFee ? [p.fee ? `${formatMoney(p.fee.net, p.currency, lang)} + ${formatMoney(p.fee.vat, p.currency, lang)} = ${formatMoney(p.fee.gross, p.currency, lang)}` : ""] : []),
     ]);
-    return [{ t: "section", text: l("section.properties") }, { t: "table", header, rows, widths: [0.13, 0.23, 0.26, 0.1, 0.12, 0.16] }];
+    // Wide enough that a header word or an amount such as €14,600.00 never breaks mid-token.
+    const widths = withFee ? [0.12, 0.2, 0.2, 0.13, 0.15, 0.2] : [0.13, 0.25, 0.27, 0.15, 0.2];
+    return [{ t: "section", text: l("section.properties") }, { t: "table", header, rows, widths }];
   }
   // Assignments describe the one property being assigned.
   const blocks: Block[] = [];

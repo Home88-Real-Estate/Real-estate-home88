@@ -97,6 +97,27 @@ test("a long property table breaks across pages without splitting rows, and head
   assert.ok(layout.items.some((i) => i.kind === "signature-name"), "signature boxes are present");
 });
 
+test("amounts and header words never break mid-token in the property table", async () => {
+  const s = snapshot("SHOWING", 3, "en");
+  const { layout } = await renderDocumentPdf({ blocks: buildDocumentBlocks(s, "Clauses."), snapshot: s, title: "T", issuedAt });
+  const cells = layout.items.filter((i) => i.kind === "table-cell" || i.kind === "table-head").map((i) => i.text);
+  assert.ok(cells.includes("€250,000.00"), `price printed on one line: ${cells.join("|")}`);
+  assert.ok(cells.includes("Transaction"), "header word is whole");
+  assert.ok(!cells.includes("Fee"), "the per-property fee column is omitted when no property has its own fee");
+});
+
+test("a signature section that fits on one page is never split across pages", async () => {
+  const s = snapshot("EXCLUSIVE_ASSIGNMENT");
+  s.parties = [1, 2, 3, 4].map((n) => ({ ...party, fullName: `Συνιδιοκτήτης ${n}`, sharePercent: 25 }));
+  // Vary the body length so the signatures land at many positions, including right at a page end.
+  for (let paragraphs = 1; paragraphs <= 40; paragraphs++) {
+    const body = Array.from({ length: paragraphs }, (_, i) => `${i + 1}. ${"Κείμενο ρήτρας. ".repeat(18)}`).join("\n");
+    const { layout } = await renderDocumentPdf({ blocks: buildDocumentBlocks(s, body), snapshot: s, title: "T", issuedAt });
+    const pages = new Set(layout.items.filter((i) => i.kind.startsWith("signature")).map((i) => i.page));
+    assert.equal(pages.size, 1, `signatures split across pages ${[...pages]} with ${paragraphs} paragraphs`);
+  }
+});
+
 test("a character the font cannot print fails the render instead of printing a gap", async () => {
   const s = snapshot("SHOWING");
   s.parties = [{ ...party, fullName: "Test \u4e2d\u6587" }];

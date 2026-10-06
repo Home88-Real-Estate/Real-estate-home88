@@ -25,7 +25,7 @@ import { parseInput } from "../lib/http";
 import { db } from "../lib/prisma";
 import { allocateReference } from "../lib/references";
 import { requireRole, roleAtLeast } from "../plugins/auth";
-import { confirmUpload } from "./documents";
+import { confirmUpload, SIGNED_COPY_MIME_TYPES } from "./documents";
 
 const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Ημερομηνία ΕΕΕΕ-ΜΜ-ΗΗ.").transform((v) => new Date(`${v}T00:00:00Z`));
 const reasonSchema = z.object({ reason: z.string().trim().min(1, "Συμπληρώστε τον λόγο.").max(1000) });
@@ -182,7 +182,7 @@ export async function mandateDocumentRoutes(app: FastifyInstance): Promise<void>
     const x = await loadExtension(actor, id);
     const input = parseInput(signedCopySchema, request.body);
     const m = await db().mandate.findUniqueOrThrow({ where: { id: x.mandateId }, select: { propertyId: true } });
-    const doc = await confirmUpload(actor, input.token, { title: `Παράταση ${x.number} (υπογεγραμμένη)`, category: "MANDATE", propertyId: m.propertyId, contactId: null, containsPersonalData: true });
+    const doc = await confirmUpload(actor, input.token, { title: `Παράταση ${x.number} (υπογεγραμμένη)`, category: "MANDATE", propertyId: m.propertyId, contactId: null, containsPersonalData: true }, undefined, { allowedMimeTypes: SIGNED_COPY_MIME_TYPES });
     try {
       const r = await guarded(() => recordPaperSignedCopy(db(), "MANDATE_EXTENSION", id, { storageKey: doc.storageKey, checksum: doc.checksum!, byteSize: doc.byteSize }, { signedAt: input.signedAt ?? new Date(), signerNote: input.note }, auditContext(request)));
       return { ok: true, ...r };

@@ -170,6 +170,19 @@ export async function renderDocumentPdf(input: { blocks: Block[]; snapshot: Docu
     }
   };
 
+  const SIG_GAP = 24;
+  const sigRowHeight = (row: Array<{ name: string; detail: string | null }>) => {
+    const boxW = (contentWidth - SIG_GAP) / 2;
+    const measured = row.map((b) => ({ name: lines(b.name, fonts.regular, BODY, boxW), detail: b.detail ? lines(b.detail, fonts.regular, SMALL, boxW) : [] }));
+    return LEAD + 46 + Math.max(...measured.map((m) => m.name.length * LEAD + m.detail.length * (SMALL + 3))) + LEAD + 10;
+  };
+  /** Total height of a signature section, so it can be kept on one page when it fits. */
+  const signaturesHeight = (boxes: Array<{ name: string; detail: string | null }>) => {
+    let h = 0;
+    for (let i = 0; i < boxes.length; i += 2) h += sigRowHeight(boxes.slice(i, i + 2));
+    return h;
+  };
+
   const drawSignatures = (boxes: Array<{ role: string; name: string; detail: string | null }>, lang: DocumentSnapshot["language"]) => {
     const sigLabel = lang === "en" ? "(Signature)" : "(Υπογραφή)";
     const gap = 24;
@@ -177,7 +190,7 @@ export async function renderDocumentPdf(input: { blocks: Block[]; snapshot: Docu
     for (let i = 0; i < boxes.length; i += 2) {
       const row = boxes.slice(i, i + 2);
       const measured = row.map((b) => ({ b, name: lines(b.name, fonts.regular, BODY, boxW), detail: b.detail ? lines(b.detail, fonts.regular, SMALL, boxW) : [] }));
-      const h = LEAD + 46 + Math.max(...measured.map((m) => m.name.length * LEAD + m.detail.length * (SMALL + 3))) + LEAD;
+      const h = sigRowHeight(row);
       ensure(h);
       const top = y;
       measured.forEach((m, c) => {
@@ -227,7 +240,10 @@ export async function renderDocumentPdf(input: { blocks: Block[]; snapshot: Docu
       }
       case "section": {
         // Keep the heading with what follows: reserve room for the heading and the next block's first row.
-        ensure(34 + 28);
+        // A signature section that fits on one page is never split: it moves whole, heading included.
+        const next = blocks[i + 1];
+        const sigsH = next && next.t === "signatures" ? signaturesHeight(next.boxes) : 0;
+        ensure(sigsH && sigsH + 34 <= A4.height - MARGIN.top - bottom ? 34 + sigsH : 34 + 28);
         y -= 8;
         text(b.text, MARGIN.left, 11, fonts.bold, fonts.boldSet, "section");
         y -= 16;
