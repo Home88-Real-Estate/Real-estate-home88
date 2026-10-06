@@ -188,6 +188,21 @@ test("media upload: origin guard, auth, authorization, validation, retry, cover,
   r = await call(managerCookie, "POST", `${base}/${m1}/status`, { status: "approved" });
   assert.equal(r.status, 200);
   assert.ok(!r.body.media.url.includes("X-Amz-Signature"), "approved media has a public URL");
+  assert.ok(r.body.media.url.includes("/api/public-media/"), "served through the API route; the bucket itself stays private");
+  // Anonymous read of an approved file works, and only of approved files.
+  const publicPath = `/public-media/${r.body.media.storageKey}`;
+  const anon = await handleApiRequest(new Request(`http://crm.test/api${publicPath}`));
+  assert.equal(anon.status, 200, "approved photo is readable without a session");
+  assert.equal(anon.headers.get("content-type"), "image/png");
+  assert.equal(anon.headers.get("x-content-type-options"), "nosniff");
+  assert.deepEqual(Buffer.from(await anon.arrayBuffer()), bucket.get(r.body.media.storageKey)!.body);
+  const stillPending = (await call(agentCookie, "GET", base)).body.media.find((x: any) => x.status === "pending_review");
+  assert.equal((await handleApiRequest(new Request(`http://crm.test/api/public-media/${stillPending.storageKey}`))).status, 404, "unapproved media is not served");
+  assert.equal((await handleApiRequest(new Request("http://crm.test/api/public-media/properties/nope/x.png"))).status, 404, "unknown key");
+  assert.equal((await handleApiRequest(new Request("http://crm.test/api/public-media/../../etc/passwd"))).status, 404, "path tricks");
+  await call(managerCookie, "POST", `${base}/${m1}/status`, { status: "rejected" });
+  assert.equal((await handleApiRequest(new Request(`http://crm.test/api${publicPath}`))).status, 404, "a rejected photo stops being served");
+  await call(managerCookie, "POST", `${base}/${m1}/status`, { status: "approved" });
   const pending = (await call(agentCookie, "GET", base)).body.media.find((x: any) => x.status === "pending_review");
   assert.ok(pending.url.includes("X-Amz-Signature"), "media under review is only reachable by a short-lived signed URL");
 

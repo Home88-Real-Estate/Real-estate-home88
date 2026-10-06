@@ -134,6 +134,31 @@ export async function readObjectStart(key: string, bytes: number): Promise<Buffe
   return Buffer.from(await body.transformToByteArray());
 }
 
+/** Whole (small) object, for serving approved media through the API. */
+export async function getObjectBytes(key: string): Promise<{ bytes: Buffer; contentType: string | null } | null> {
+  const cfg = loadConfig();
+  try {
+    const r = await client(cfg).send(new GetObjectCommand({ Bucket: cfg.S3_BUCKET, Key: key }));
+    if (!r.Body) return null;
+    return { bytes: Buffer.from(await r.Body.transformToByteArray()), contentType: r.ContentType ?? null };
+  } catch (error) {
+    const status = (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+    if (status === 404 || (error as { name?: string }).name === "NoSuchKey") return null;
+    throw error;
+  }
+}
+
+/**
+ * Where approved media is served from. The bucket stays private: approved files
+ * are read through the API's public-media route, which only answers for keys
+ * recorded on an approved or published media row.
+ */
+export function publicMediaUrl(key: string, cfg: ApiConfig = loadConfig()): string {
+  // Root-relative by default: the CRM page and its API are one origin, whatever address it is opened on.
+  const base = cfg.MEDIA_BASE_URL || `${cfg.CRM_BASE_PATH}/api/public-media`;
+  return `${base.replace(/\/+$/, "")}/${key.replace(/^\/+/, "")}`;
+}
+
 /** Stable, unauthenticated URL for objects a bucket serves publicly. */
 export function publicObjectUrl(key: string, cfg: ApiConfig = loadConfig()): string {
   const clean = key.replace(/^\/+/, "");
@@ -151,7 +176,8 @@ export function publicObjectUrl(key: string, cfg: ApiConfig = loadConfig()): str
  * throwing on a listing page.
  */
 export async function mediaUrlFor(storageKey: string, status: string): Promise<string> {
-  if (PUBLIC_STATUSES.includes(status) || !storageConfigured()) return publicObjectUrl(storageKey);
+  if (PUBLIC_STATUSES.includes(status)) return publicMediaUrl(storageKey);
+  if (!storageConfigured()) return publicObjectUrl(storageKey);
   try {
     return await signedGetUrl(storageKey);
   } catch {
