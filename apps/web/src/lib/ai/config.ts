@@ -45,7 +45,7 @@ export function aiConfig(env: Record<string, string | undefined> = process.env):
     maxHistoryTurns: int(env.AI_MAX_HISTORY_TURNS, 12, 0, 40),
     maxHistoryChars: int(env.AI_MAX_HISTORY_CHARS, 1500, 100, 6000),
     maxOutputTokens: int(env.AI_MAX_OUTPUT_TOKENS, 700, 100, 4000),
-    timeoutMs: int(env.AI_TIMEOUT_MS, 20_000, 2_000, 60_000),
+    timeoutMs: int(env.AI_TIMEOUT_MS, 35_000, 2_000, 60_000),
     maxToolRounds: int(env.AI_MAX_TOOL_ROUNDS, 4, 1, 8),
     maxToolCallsPerRound: 3,
     rateLimit: {

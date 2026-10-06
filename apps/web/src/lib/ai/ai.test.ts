@@ -75,7 +75,7 @@ describe("configuration", () => {
     assert.equal(aiConfig({ GEMINI_API_KEY: "  " }).apiKey, null);
     assert.equal(aiConfig({ GEMINI_API_KEY: KEY }).model, DEFAULT_GEMINI_MODEL);
     assert.equal(aiConfig({ GEMINI_API_KEY: KEY, GEMINI_MODEL: "gemini-x" }).model, "gemini-x");
-    assert.equal(aiConfig({ AI_TIMEOUT_MS: "nonsense" }).timeoutMs, 20_000);
+    assert.equal(aiConfig({ AI_TIMEOUT_MS: "nonsense" }).timeoutMs, 35_000);
   });
 });
 
