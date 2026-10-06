@@ -358,6 +358,10 @@ model User {
   /// so this is enforced rather than merely recorded.
   dateOfBirth DateTime? @db.Date
 
+  /// May approve the legal wording of document templates. Separate from every
+  /// CRM role: an administrator is not a legal approver unless a Super Admin says so.
+  legalApprover Boolean @default(false)
+
   avatarUrl String?
   locale    String  @default("el")
 
@@ -2539,6 +2543,13 @@ model Mandate {
   completenessResult    Json?
   completenessCheckedAt DateTime?
 
+  /// Everything the issued document was rendered from (encrypted: it holds
+  /// personal data). Set when issued through the document pipeline.
+  issuanceSnapshotEncrypted String?
+  issuanceSnapshotChecksum  String?
+  storageState              DocumentStorageState @default(NOT_STORED)
+  verificationCode          String?              @unique
+
   extensions        MandateExtension[]
   milestones        PaymentMilestone[]
   conflictOverrides MandateConflictOverride[]
@@ -3135,6 +3146,30 @@ model Showing {
   signedPdfStorageKey  String?
   signedPdfChecksum    String?
 
+  /// The text as issued (it holds personal data, so encrypted) and everything it was
+  /// rendered from. The PDF can be reproduced from this snapshot alone.
+  renderedTextEncrypted     String?
+  issuanceSnapshotEncrypted String?
+  issuanceSnapshotChecksum  String?
+  /// NOT_STORED until issued; PENDING while the PDF is not yet verified at its final key.
+  storageState              DocumentStorageState @default(NOT_STORED)
+  /// Public reference for the verification endpoint; reveals nothing by itself.
+  verificationCode          String?              @unique
+
+  /// The showing this one corrects. The original is cancelled (or, if already
+  /// signed, left as it is) when the replacement is issued.
+  replacesShowingId String?  @unique
+  replaces          Showing? @relation("ShowingReplacement", fields: [replacesShowingId], references: [id], onDelete: SetNull)
+  replacedBy        Showing? @relation("ShowingReplacement")
+
+  signatureMethod    String?
+  signatureProvider  String?
+  signatureLevel     String?
+  envelopeId         String?   @unique
+  signingExpiresAt   DateTime?
+  signedUploadedById String?
+  signedUploadedAt   DateTime?
+
   completenessResult    Json?
   completenessCheckedAt DateTime?
 
@@ -3291,6 +3326,28 @@ model MandateExtension {
   signedAt              DateTime?
   status                MandateExtensionStatus @default(DRAFT)
   signedPdfStorageKey   String?
+  signedPdfChecksum     String?
+
+  /// The addendum's own number, `<mandate number>/Π<n>`; allocated when issued.
+  number                    String?              @unique
+  templateChecksum          String?
+  renderedTextEncrypted     String?
+  renderedTextChecksum      String?
+  issuanceSnapshotEncrypted String?
+  issuanceSnapshotChecksum  String?
+  pdfStorageKey             String?
+  pdfChecksum               String?
+  storageState              DocumentStorageState @default(NOT_STORED)
+  verificationCode          String?              @unique
+
+  sentAt             DateTime?
+  signatureMethod    String?
+  signatureProvider  String?
+  signatureLevel     String?
+  envelopeId         String?   @unique
+  signingExpiresAt   DateTime?
+  signedUploadedById String?
+  signedUploadedAt   DateTime?
 
   createdByUserId String?
   createdAt       DateTime @default(now())
@@ -3358,4 +3415,43 @@ model LegacyEntityMapping {
   @@index([targetEntityType, targetEntityId])
   @@index([importBatchId])
   @@map("legacy_entity_mappings")
+}
+
+// ---------------------------------------------------------------------------
+// Document issuance (Phase B)
+// ---------------------------------------------------------------------------
+
+enum DocumentStorageState {
+  NOT_STORED
+  /// Issued, but the PDF is not yet verified at its final private key. Sending
+  /// and signing are refused until it is.
+  PENDING
+  CONFIRMED
+}
+
+/// Append-only trail of everything that happens to a showing, mandate or
+/// extension document (and the templates behind them). Personal data is masked
+/// before it is written; the table never holds an identity number or a document text.
+model DocumentAuditEvent {
+  id             String   @id @default(cuid())
+  type           String
+  /// SHOWING, MANDATE, MANDATE_EXTENSION or TEMPLATE.
+  entityType     String
+  entityId       String
+  documentNumber String?
+  actorUserId    String?
+  actorRole      String?
+  occurredAt     DateTime @default(now())
+  requestId      String?
+  ipAddress      String?
+  userAgent      String?
+  before         Json?
+  after          Json?
+  reason         String?
+  metadata       Json?
+
+  @@index([entityType, entityId, occurredAt])
+  @@index([type, occurredAt])
+  @@index([documentNumber])
+  @@map("document_audit_events")
 }

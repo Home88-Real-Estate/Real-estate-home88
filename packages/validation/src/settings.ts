@@ -11,6 +11,7 @@
 import {
   AREA_LEVELS,
   MANDATE_TYPES,
+  TEMPLATE_TYPES,
   NOTIFICATION_CHANNELS,
   NOTIFICATION_EVENTS,
   PUBLICATION_RULE_MODES,
@@ -336,7 +337,7 @@ export const areaMappingsSchema = z
 export const permissionGrantSchema = z
   .object({
     role: z.enum(["ADMIN", "MANAGER", "AGENT", "MARKETING", "VIEWER"]),
-    permission: z.string().regex(/^settings\.[a-z]+\.(view|manage)$/),
+    permission: z.string().regex(/^(settings\.[a-z]+\.(view|manage)|(showings|mandates|templates)\.[a-z_]+)$/),
     granted: z.boolean(),
   })
   .strict();
@@ -349,7 +350,8 @@ export const notificationToggleSchema = z
   })
   .strict();
 
-export const mandateTypeSchema = z.enum(MANDATE_TYPES.map((t) => t.value) as [string, ...string[]]);
+/** Template types: the three mandate types plus SHOWING and MANDATE_EXTENSION. */
+export const mandateTypeSchema = z.enum(TEMPLATE_TYPES.map((t) => t.value) as [string, ...string[]]);
 export const templateLocaleSchema = z.enum(TEMPLATE_LOCALES.map((l) => l.value) as [string, ...string[]]);
 
 export const mandateTemplateDraftSchema = z

@@ -177,6 +177,17 @@ export const MANDATE_TYPES = [
   opt("EXCLUSIVE_ASSIGNMENT", "Αποκλειστική Εντολή Ανάθεσης"),
 ] as const;
 
+/**
+ * Every kind of document that has approved wording: the three mandate types
+ * plus the showing (Υπόδειξη) and the extension of a mandate. Only
+ * MANDATE_TYPES can be the type of a mandate record.
+ */
+export const TEMPLATE_TYPES = [
+  ...MANDATE_TYPES,
+  opt("SHOWING", "Υπόδειξη Ακινήτου"),
+  opt("MANDATE_EXTENSION", "Παράταση Εντολής"),
+] as const;
+
 export const TEMPLATE_LOCALES = [opt("el", "Ελληνικά"), opt("en", "English")] as const;
 
 export const SUBSCRIPTION_STATUSES = [
@@ -646,12 +657,39 @@ export const SETTINGS_AUDIT_VIEW = settingsPermission("audit", "view");
 
 export type PermissionDef = { code: string; label: string; group: string };
 
+/** Who may do what with showings, mandates and their documents. Decided on the server, never by hiding a button. */
+export const DOCUMENT_PERMISSIONS: readonly PermissionDef[] = [
+  { code: "showings.create", label: "Υποδείξεις: δημιουργία πρόχειρης", group: "Έγγραφα & εντολές" },
+  { code: "showings.read", label: "Υποδείξεις: προβολή", group: "Έγγραφα & εντολές" },
+  { code: "showings.update_draft", label: "Υποδείξεις: επεξεργασία πρόχειρης", group: "Έγγραφα & εντολές" },
+  { code: "showings.issue", label: "Υποδείξεις: έκδοση", group: "Έγγραφα & εντολές" },
+  { code: "showings.send", label: "Υποδείξεις: αποστολή για υπογραφή", group: "Έγγραφα & εντολές" },
+  { code: "showings.cancel", label: "Υποδείξεις: ακύρωση", group: "Έγγραφα & εντολές" },
+  { code: "showings.replace", label: "Υποδείξεις: αντικατάσταση", group: "Έγγραφα & εντολές" },
+  { code: "showings.download_pdf", label: "Υποδείξεις: λήψη PDF", group: "Έγγραφα & εντολές" },
+  { code: "showings.view_sensitive_data", label: "Υποδείξεις: πλήρη στοιχεία ταυτότητας", group: "Έγγραφα & εντολές" },
+  { code: "mandates.issue", label: "Εντολές: έκδοση", group: "Έγγραφα & εντολές" },
+  { code: "mandates.send", label: "Εντολές: αποστολή για υπογραφή", group: "Έγγραφα & εντολές" },
+  { code: "mandates.cancel", label: "Εντολές: ακύρωση", group: "Έγγραφα & εντολές" },
+  { code: "mandates.replace", label: "Εντολές: αντικατάσταση", group: "Έγγραφα & εντολές" },
+  { code: "mandates.extend", label: "Εντολές: παράταση", group: "Έγγραφα & εντολές" },
+  { code: "mandates.download_pdf", label: "Εντολές: λήψη PDF", group: "Έγγραφα & εντολές" },
+  { code: "mandates.override_conflict", label: "Εντολές: έγκριση σύγκρουσης αποκλειστικών", group: "Έγγραφα & εντολές" },
+  { code: "mandates.view_sensitive_data", label: "Εντολές: πλήρη στοιχεία ταυτότητας", group: "Έγγραφα & εντολές" },
+  { code: "templates.read", label: "Πρότυπα εγγράφων: προβολή", group: "Έγγραφα & εντολές" },
+  { code: "templates.create_draft", label: "Πρότυπα εγγράφων: νέα πρόχειρη έκδοση", group: "Έγγραφα & εντολές" },
+  { code: "templates.submit_for_legal_review", label: "Πρότυπα εγγράφων: υποβολή για νομικό έλεγχο", group: "Έγγραφα & εντολές" },
+  { code: "templates.approve_legal_version", label: "Πρότυπα εγγράφων: νομική έγκριση (και ένδειξη «νομικός εγκρίνων» στον χρήστη)", group: "Έγγραφα & εντολές" },
+  { code: "templates.activate", label: "Πρότυπα εγγράφων: ενεργοποίηση εγκεκριμένης έκδοσης", group: "Έγγραφα & εντολές" },
+] as const;
+
 export const SETTINGS_PERMISSIONS: readonly PermissionDef[] = [
   ...SETTINGS_SECTIONS.flatMap((s) => [
     { code: settingsPermission(s.key, "view"), label: `Προβολή: ${s.title}`, group: s.navGroup },
     { code: settingsPermission(s.key, "manage"), label: `Αλλαγή: ${s.title}`, group: s.navGroup },
   ]),
   { code: SETTINGS_AUDIT_VIEW, label: "Προβολή ιστορικού αλλαγών ρυθμίσεων", group: "Σύστημα" },
+  ...DOCUMENT_PERMISSIONS,
 ];
 
 /**
@@ -671,6 +709,27 @@ const ADMIN_MANAGE: SettingsSectionKey[] = [
   "calendar", "automation", "ai", "notifications", "mandates", "email", "sms", "portals", "areas", "privacy",
 ];
 
+/**
+ * Document permissions by role. Agents prepare drafts and download what they
+ * may see; managers review, issue, send, cancel, replace and extend; template
+ * drafting and activation sit with administrators. Legal approval of wording is
+ * granted to no role by default: it also needs the user to be marked a legal
+ * approver, which only a Super Admin can do.
+ */
+const AGENT_DOCUMENTS = [
+  "showings.create", "showings.read", "showings.update_draft", "showings.download_pdf",
+  "mandates.download_pdf", "templates.read",
+  // An agent only ever sees their own records, and must read the identity data they are entering.
+  "showings.view_sensitive_data", "mandates.view_sensitive_data",
+];
+const MANAGER_DOCUMENTS = [
+  ...AGENT_DOCUMENTS,
+  "showings.issue", "showings.send", "showings.cancel", "showings.replace",
+  "mandates.issue", "mandates.send", "mandates.cancel", "mandates.replace", "mandates.extend",
+  "mandates.override_conflict",
+];
+const ADMIN_DOCUMENTS = [...MANAGER_DOCUMENTS, "templates.create_draft", "templates.submit_for_legal_review", "templates.activate"];
+
 /** Defaults per role; SUPER_ADMIN always holds every permission. Overrides live in role_permissions. */
 export const DEFAULT_SETTINGS_GRANTS: Readonly<Record<string, readonly string[]>> = {
   ADMIN: [
@@ -678,13 +737,15 @@ export const DEFAULT_SETTINGS_GRANTS: Readonly<Record<string, readonly string[]>
     ...grant(ADMIN_MANAGE, "manage"),
     ...grant(["permissions", "security", "subscription"], "view"),
     SETTINGS_AUDIT_VIEW,
+    ...ADMIN_DOCUMENTS,
   ],
   MANAGER: [
     ...grant(["company", "branding", "app", "properties", "contacts", "requests", "calendar", "automation", "notifications", "areas"], "view"),
     ...grant(["requests", "calendar", "areas"], "manage"),
+    ...MANAGER_DOCUMENTS,
   ],
   MARKETING: grant(["company", "branding"], "view"),
-  AGENT: [],
+  AGENT: AGENT_DOCUMENTS,
   VIEWER: [],
 };
 

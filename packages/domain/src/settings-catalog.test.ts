@@ -39,8 +39,9 @@ test("catalogue: unique keys, secrets have a scope, business values have no defa
   assert.equal(requests.fields.find((f) => f.key === "minMatchScore")!.default, 40);
 });
 
-test("permissions: agents get nothing by default; reserved permissions are never default grants", () => {
-  assert.deepEqual(DEFAULT_SETTINGS_GRANTS.AGENT, []);
+test("permissions: agents get no settings by default; reserved permissions are never default grants", () => {
+  // Settings sections stay closed to agents. Document permissions (below) are what an agent works with.
+  assert.deepEqual(DEFAULT_SETTINGS_GRANTS.AGENT!.filter((g) => g.startsWith("settings.")), []);
   assert.deepEqual(DEFAULT_SETTINGS_GRANTS.VIEWER, []);
   const all = new Set(SETTINGS_PERMISSIONS.map((p) => p.code));
   for (const [role, grants] of Object.entries(DEFAULT_SETTINGS_GRANTS)) {
@@ -90,4 +91,16 @@ test("matching rules from settings change scoring; zero weight drops a criterion
   assert.equal(scoreMatch(request, property, { priceTolerance: 0 })!.score, 0);
   // Area weight 0: only price counts.
   assert.equal(scoreMatch(request, property, { weights: { area: 0 } })!.score, 100);
+});
+
+test("document permissions: agents prepare, managers issue and send, legal approval is granted to no role", () => {
+  const has = (role: string, p: string) => DEFAULT_SETTINGS_GRANTS[role]!.includes(p);
+  for (const p of ["showings.create", "showings.read", "showings.update_draft", "showings.download_pdf", "mandates.download_pdf"]) assert.ok(has("AGENT", p), p);
+  for (const p of ["showings.issue", "showings.send", "showings.cancel", "showings.replace", "mandates.issue", "mandates.send", "mandates.cancel", "mandates.replace", "mandates.extend", "mandates.override_conflict"]) {
+    assert.ok(!has("AGENT", p), `agents must not hold ${p}`);
+    assert.ok(has("MANAGER", p), `managers hold ${p}`);
+  }
+  for (const p of ["templates.create_draft", "templates.submit_for_legal_review", "templates.activate"]) { assert.ok(!has("MANAGER", p)); assert.ok(has("ADMIN", p)); }
+  for (const role of Object.keys(DEFAULT_SETTINGS_GRANTS)) assert.ok(!has(role, "templates.approve_legal_version"), `${role} must not hold legal approval by default`);
+  assert.ok(SETTINGS_PERMISSIONS.some((p) => p.code === "templates.approve_legal_version"));
 });

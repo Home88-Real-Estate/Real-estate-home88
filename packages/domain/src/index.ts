@@ -19,3 +19,5 @@ export * from "./ownership";
 export * from "./mandate-terms";
 export * from "./showing";
 export * from "./legacy-templates";
+export * from "./document-fields";
+export * from "./document-render";

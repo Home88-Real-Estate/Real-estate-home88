@@ -144,7 +144,7 @@ export const showingInclude = {
   milestones: { orderBy: { sequence: "asc" as const } },
 } satisfies Prisma.ShowingInclude;
 
-export async function buildShowingValidationInput(db: Db, showingId: string): Promise<{ input: ShowingValidationInput; templateVersionId: string | null; companySnapshot: Record<string, string | null> }> {
+export async function buildShowingValidationInput(db: Db, showingId: string, opts: { blockAnomalies?: boolean } = {}): Promise<{ input: ShowingValidationInput; templateVersionId: string | null; companySnapshot: Record<string, string | null> }> {
   const showing = await db.showing.findUnique({ where: { id: showingId }, include: showingInclude });
   if (!showing) throw new BrokerageError("SHOWING_NOT_FOUND", "Η υπόδειξη δεν βρέθηκε.");
 
@@ -181,7 +181,7 @@ export async function buildShowingValidationInput(db: Db, showingId: string): Pr
       offMarket: p.propertyId ? OFF_MARKET.has(status.get(p.propertyId) ?? "") : false,
     })),
     fee: feeOf(showing, showing.milestones),
-    feeContext: { configuredVatRatePct: company.configuredVatRatePct },
+    feeContext: { configuredVatRatePct: company.configuredVatRatePct, blockAnomalies: opts.blockAnomalies ?? false },
     dualRepresentationConsent: showing.dualRepresentationConsent,
     template: tpl.check,
     companyMissing: company.missing,
@@ -190,8 +190,8 @@ export async function buildShowingValidationInput(db: Db, showingId: string): Pr
   return { input, templateVersionId: tpl.version?.id ?? null, companySnapshot: company.snapshot };
 }
 
-export async function evaluateShowing(db: Db, showingId: string): Promise<DocumentCompletenessResult> {
-  return validateShowing((await buildShowingValidationInput(db, showingId)).input);
+export async function evaluateShowing(db: Db, showingId: string, opts: { blockAnomalies?: boolean } = {}): Promise<DocumentCompletenessResult> {
+  return validateShowing((await buildShowingValidationInput(db, showingId, opts)).input);
 }
 
 /** Stores the latest result on a showing, so a screen can show what is still missing. */
@@ -225,88 +225,4 @@ export async function markShowingReady(db: Db, showingId: string, actor: Actor) 
   });
   await recordShowingEvent(db, showingId, "READY", "Η υπόδειξη είναι έτοιμη για έκδοση", actor);
   return result;
-}
-
-type Transactional = { $transaction: <T>(fn: (tx: Prisma.TransactionClient) => Promise<T>, options?: { timeout?: number }) => Promise<T> };
-
-/**
- * READY_FOR_ISSUANCE → ISSUED. In one transaction: validate again against the
- * current records, refresh the property snapshots from the canonical
- * properties, allocate the number, capture the client and company as printed,
- * and freeze. A failure anywhere leaves the showing as it was and the number
- * unused.
- */
-export async function issueShowing(client: Transactional, showingId: string, actor: Actor, now = new Date()) {
-  return client.$transaction(async (tx) => {
-    // Serialise concurrent attempts to issue the same showing.
-    await tx.$queryRaw`SELECT id FROM showings WHERE id = ${showingId} FOR UPDATE`;
-    const showing = await tx.showing.findUnique({ where: { id: showingId }, include: showingInclude });
-    if (!showing) throw new BrokerageError("SHOWING_NOT_FOUND", "Η υπόδειξη δεν βρέθηκε.");
-    if (showing.status !== "READY_FOR_ISSUANCE") throw new BrokerageError("INVALID_TRANSITION", "Εκδίδεται μόνο υπόδειξη που είναι «έτοιμη για έκδοση».");
-    if (!hasEncryptionKey()) throw new BrokerageError("ENCRYPTION_NOT_CONFIGURED", "Η κρυπτογράφηση δεν έχει ρυθμιστεί (PII_ENCRYPTION_KEY).");
-
-    // What is printed is what the canonical property says now.
-    for (const sp of showing.properties) {
-      if (!sp.propertyId) continue;
-      const property = await tx.property.findUnique({ where: { id: sp.propertyId } });
-      if (!property) continue;
-      const snap = snapshotProperty(property, now);
-      await tx.showingProperty.update({ where: { id: sp.id }, data: { ...snap.columns, propertySnapshot: snap.document } });
-    }
-
-    const { input, templateVersionId, companySnapshot } = await buildShowingValidationInput(tx, showingId);
-    const result = validateShowing(input);
-    if (result.status === "BLOCKED") throw new DocumentBlockedError(result);
-    const version = templateVersionId ? await tx.mandateTemplateVersion.findUniqueOrThrow({ where: { id: templateVersionId } }) : null;
-    if (!version) throw new BrokerageError("TEMPLATE_MISSING", "Δεν υπάρχει ενεργό πρότυπο.");
-
-    // Per-property fee as it applies to the printed price.
-    const fee = input.fee;
-    const refreshed = await tx.showingProperty.findMany({ where: { showingId }, orderBy: { sortOrder: "asc" } });
-    for (const sp of refreshed) {
-      const base = fee.method === "PERCENTAGE" ? num(sp.priceSnapshot) : null;
-      const amounts = calculateFee(fee, base, input.feeContext?.configuredVatRatePct ?? null);
-      await tx.showingProperty.update({
-        where: { id: sp.id },
-        data: { commissionSnapshot: amounts ? ({ ...amounts, method: fee.method, percentage: fee.percentage ?? null } as Prisma.InputJsonObject) : undefined, vatTreatmentSnapshot: showing.vatTreatment },
-      });
-    }
-
-    // The client as printed, encrypted: it holds identity details.
-    const clients = showing.parties.map((p) => ({
-      role: p.role,
-      fullName: p.fullName,
-      taxId: decryptField(p.taxIdEncrypted),
-      taxOffice: decryptField(p.taxOfficeEncrypted),
-      idNumber: decryptField(p.idNumberEncrypted),
-      address: decryptField(p.addressEncrypted),
-      email: decryptField(p.emailEncrypted),
-      phone: decryptField(p.phoneEncrypted),
-      representativeCapacity: p.representativeCapacity,
-      authorityReference: p.authorityReference,
-    }));
-    const clientSnapshotEncrypted = encryptField(JSON.stringify(clients));
-    if (!clientSnapshotEncrypted) throw new BrokerageError("ENCRYPTION_NOT_CONFIGURED", "Η κρυπτογράφηση δεν έχει ρυθμιστεί (PII_ENCRYPTION_KEY).");
-
-    const year = now.getUTCFullYear();
-    const number = await allocateShowingNumber(tx, year);
-    const updated = await tx.showing.update({
-      where: { id: showingId },
-      data: {
-        status: "ISSUED",
-        number,
-        year,
-        issuedAt: now,
-        documentDate: showing.documentDate ?? now,
-        templateVersionId: version.id,
-        templateChecksum: version.checksum,
-        companySnapshot,
-        clientSnapshotEncrypted,
-        completenessResult: result as unknown as Prisma.InputJsonValue,
-        completenessCheckedAt: now,
-      },
-    });
-    await recordShowingEvent(tx, showingId, "ISSUED", `Εκδόθηκε η υπόδειξη ${number}`, actor, { number, templateVersion: version.version });
-    return updated;
-  });
 }
