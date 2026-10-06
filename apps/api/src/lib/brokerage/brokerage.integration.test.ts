@@ -13,6 +13,10 @@ import { after, before, describe, it } from "node:test";
 
 import type { PrismaClient } from "@home88/database";
 
+import { memoryDocumentStore, setDocumentStore } from "../document-store";
+import { issueDocument } from "./documents/issue";
+import * as support from "./documents/test-support";
+
 const url = process.env.TEST_DATABASE_URL;
 const SKIP = url ? false : "TEST_DATABASE_URL not set";
 
@@ -28,6 +32,7 @@ describe("brokerage foundation (real Postgres)", { skip: SKIP }, () => {
   const actor = { id: "actor-1", name: "Test Agent" };
   let agent: { id: string };
   let manager: { id: string };
+  let store: ReturnType<typeof memoryDocumentStore>;
 
   const sha = (s: string) => createHash("sha256").update(s).digest("hex");
   const sql = (strings: TemplateStringsArray, ...v: unknown[]) => db.$executeRaw(strings, ...v);
@@ -52,7 +57,9 @@ describe("brokerage foundation (real Postgres)", { skip: SKIP }, () => {
     });
     await db.commissionSettings.upsert({ where: { id: "default" }, create: { id: "default", vatRatePct: 24 }, update: { vatRatePct: 24 } });
     await db.mandateSettings.upsert({ where: { id: "default" }, create: { id: "default", maxExclusiveMonths: 12 }, update: { maxExclusiveMonths: 12 } });
-    for (const type of ["SHOWING", "SIMPLE_ASSIGNMENT", "EXCLUSIVE_ASSIGNMENT"]) await activeTemplate(type, "el");
+    store = memoryDocumentStore();
+    setDocumentStore(store);
+    await support.installAllTemplates(db);
   });
 
   after(async () => {
@@ -61,13 +68,13 @@ describe("brokerage foundation (real Postgres)", { skip: SKIP }, () => {
 
   // ---- fixtures -------------------------------------------------------------
 
-  /** Retires whatever is ACTIVE for (type, locale) and activates fresh test wording. */
-  async function activeTemplate(type: string, locale: string, over: Record<string, unknown> = {}) {
-    const template = await db.mandateTemplate.upsert({ where: { type_locale: { type, locale } }, create: { type, locale }, update: {} });
-    await db.mandateTemplateVersion.updateMany({ where: { templateId: template.id, status: "ACTIVE" }, data: { status: "RETIRED", retiredAt: new Date() } });
-    const last = await db.mandateTemplateVersion.aggregate({ where: { templateId: template.id }, _max: { version: true } });
-    const body = `TEST WORDING ${type} ${locale} ${RUN}`;
-    return db.mandateTemplateVersion.create({ data: { templateId: template.id, version: (last._max.version ?? 0) + 1, status: "ACTIVE", body, checksum: sha(body), activatedAt: new Date(), ...over } });
+  /** Retires whatever is ACTIVE for (type, locale) and activates fresh counsel-approved test wording. */
+  const activeTemplate = (type: string, locale: string, over: Record<string, unknown> = {}) => support.installApprovedTemplate(db, type, locale, over);
+
+  /** The Phase B pipeline: issue, then read the row back, as the Phase A tests expect. */
+  async function issueShowing(id: string) {
+    await issueDocument(db, "SHOWING", id, { actor: { ...actor, role: "MANAGER" } });
+    return db.showing.findUniqueOrThrow({ where: { id } });
   }
 
   const mkContact = (over: Record<string, unknown> = {}) =>
@@ -109,7 +116,7 @@ describe("brokerage foundation (real Postgres)", { skip: SKIP }, () => {
   it("showing numbers are unique and well-formed even when many are issued at once", async () => {
     const made = await Promise.all(Array.from({ length: 8 }, () => readyShowing()));
     for (const { showing } of made) await lib.markShowingReady(db, showing.id, actor);
-    const issued = await Promise.all(made.map(({ showing }) => lib.issueShowing(db, showing.id, actor)));
+    const issued = await Promise.all(made.map(({ showing }) => issueShowing(showing.id)));
     const numbers = issued.map((s) => s.number!);
     assert.equal(new Set(numbers).size, 8, numbers.join(","));
     const year = new Date().getUTCFullYear();
@@ -122,11 +129,11 @@ describe("brokerage foundation (real Postgres)", { skip: SKIP }, () => {
     const { showing } = await readyShowing();
     await lib.markShowingReady(db, showing.id, actor);
     await db.mandateTemplateVersion.updateMany({ where: { template: { type: "SHOWING", locale: "el" }, status: "ACTIVE" }, data: { status: "RETIRED" } });
-    await assert.rejects(lib.issueShowing(db, showing.id, actor), lib.DocumentBlockedError);
+    await assert.rejects(issueShowing(showing.id), lib.DocumentBlockedError);
     await activeTemplate("SHOWING", "el");
     const counter = await db.referenceCounter.findUnique({ where: { scope: `showing:${new Date().getUTCFullYear()}` } });
     const before = counter!.nextValue;
-    const issued = await lib.issueShowing(db, showing.id, actor);
+    const issued = await issueShowing(showing.id);
     assert.equal(domain.parseShowingNumber(issued.number!)!.sequence, before, "the failed attempt did not consume a number");
   });
 
@@ -154,7 +161,7 @@ describe("brokerage foundation (real Postgres)", { skip: SKIP }, () => {
     await db.property.update({ where: { id: p.id }, data: { price: 130000 } });
     await lib.markShowingReady(db, showing.id, actor);
     await db.property.update({ where: { id: p.id }, data: { price: 128000, descriptionEl: "Τελική περιγραφή πριν την έκδοση" } });
-    await lib.issueShowing(db, showing.id, actor);
+    await issueShowing(showing.id);
 
     const printed = await db.showingProperty.findFirstOrThrow({ where: { showingId: showing.id } });
     assert.equal(Number(printed.priceSnapshot), 128000, "issue re-reads the canonical property");
@@ -177,20 +184,28 @@ describe("brokerage foundation (real Postgres)", { skip: SKIP }, () => {
     const p = await mkProperty();
     const { showing } = await readyShowing({ properties: [p] });
     await lib.markShowingReady(db, showing.id, actor);
-    await lib.issueShowing(db, showing.id, actor);
+    await issueShowing(showing.id);
     await db.property.delete({ where: { id: p.id } });
     const row = await db.showingProperty.findFirstOrThrow({ where: { showingId: showing.id } });
     assert.equal(row.propertyId, null);
     assert.equal(row.propertyCodeSnapshot, p.reference);
   });
 
-  it("the fee is recorded per property at issue (net, VAT, gross)", async () => {
-    const { showing } = await readyShowing({ properties: [await mkProperty({ price: 250000 })] });
+  it("the fee is recorded per property at issue (net, VAT, gross) when its base is known", async () => {
+    const { showing } = await readyShowing({ properties: [await mkProperty({ price: 250000 })], fee: { feeBasis: "ASKING_PRICE" } });
     await lib.markShowingReady(db, showing.id, actor);
-    await lib.issueShowing(db, showing.id, actor);
+    await issueShowing(showing.id);
     const row = await db.showingProperty.findFirstOrThrow({ where: { showingId: showing.id } });
     assert.deepEqual({ ...(row.commissionSnapshot as object) }, { net: 5000, vat: 1200, gross: 6200, currency: "EUR", method: "PERCENTAGE", percentage: 2 });
     assert.equal(row.vatTreatmentSnapshot, "PLUS_VAT");
+  });
+
+  it("a fee on the final sale price is never computed from the asking price", async () => {
+    const { showing } = await readyShowing({ properties: [await mkProperty({ price: 250000 })] });
+    await lib.markShowingReady(db, showing.id, actor);
+    await issueShowing(showing.id);
+    const row = await db.showingProperty.findFirstOrThrow({ where: { showingId: showing.id } });
+    assert.equal(row.commissionSnapshot, null, "the base is unknown until the sale closes");
   });
 
   // ---- showings: parties, privacy ------------------------------------------------------
@@ -201,7 +216,7 @@ describe("brokerage foundation (real Postgres)", { skip: SKIP }, () => {
     await mkParty(showing.id, { role: "ATTORNEY_IN_FACT", fullName: "Νίκος Δικηγόρου", sortOrder: 2, representativeCapacity: "ATTORNEY_IN_FACT", authorityReference: "Πληρεξούσιο 123/2026" });
     assert.equal(await db.showingParty.count({ where: { showingId: showing.id } }), 3);
     await lib.markShowingReady(db, showing.id, actor);
-    await lib.issueShowing(db, showing.id, actor);
+    await issueShowing(showing.id);
     const [first] = await db.showingParty.findMany({ where: { showingId: showing.id }, orderBy: { sortOrder: "asc" } });
     await rejects(db.showingParty.update({ where: { id: first!.id }, data: { fullName: "Άλλος" } }), /cannot be changed/);
     await rejects(mkParty(showing.id, { sortOrder: 9 }), /cannot be changed/);
@@ -218,7 +233,7 @@ describe("brokerage foundation (real Postgres)", { skip: SKIP }, () => {
     assert.equal(pii.decryptField(raw!.taxIdEncrypted), "123456789");
 
     await lib.markShowingReady(db, showing.id, actor);
-    const issued = await lib.issueShowing(db, showing.id, actor);
+    const issued = await issueShowing(showing.id);
     const stored = issued.clientSnapshotEncrypted!;
     assert.ok(!stored.includes("123456789") && !stored.includes("Κωνσταντίνου"));
     const snapshot = JSON.parse(pii.decryptField(stored)!) as Array<{ taxId: string; fullName: string }>;
@@ -234,7 +249,7 @@ describe("brokerage foundation (real Postgres)", { skip: SKIP }, () => {
     const key = process.env.PII_ENCRYPTION_KEY;
     delete process.env.PII_ENCRYPTION_KEY;
     try {
-      await assert.rejects(lib.issueShowing(db, showing.id, actor), (e: Error) => (e as { code?: string }).code === "ENCRYPTION_NOT_CONFIGURED");
+      await assert.rejects(issueShowing(showing.id), (e: Error) => (e as { code?: string }).code === "ENCRYPTION_NOT_CONFIGURED");
     } finally {
       process.env.PII_ENCRYPTION_KEY = key;
     }
@@ -264,9 +279,11 @@ describe("brokerage foundation (real Postgres)", { skip: SKIP }, () => {
   });
 
   it("without an approved ACTIVE template (or in a language that has none) a showing cannot be issued", async () => {
+    await db.mandateTemplateVersion.updateMany({ where: { template: { type: "SHOWING", locale: "en" }, status: "ACTIVE" }, data: { status: "RETIRED" } });
     const en = await readyShowing({ language: "en" });
-    assert.ok(codes(await lib.evaluateShowing(db, en.showing.id)).blocking.includes("TEMPLATE_MISSING"));
+    assert.ok(codes(await lib.evaluateShowing(db, en.showing.id)).blocking.includes("TEMPLATE_NOT_ACTIVE"));
     await assert.rejects(lib.markShowingReady(db, en.showing.id, actor), lib.DocumentBlockedError);
+    await activeTemplate("SHOWING", "en");
   });
 
   it("a tampered template text is detected through its checksum", async () => {
@@ -296,7 +313,7 @@ describe("brokerage foundation (real Postgres)", { skip: SKIP }, () => {
     const { showing } = await readyShowing();
     await rejects(db.showing.update({ where: { id: showing.id }, data: { status: "ISSUED" } }), /cannot move from DRAFT to ISSUED/);
     await lib.markShowingReady(db, showing.id, actor);
-    const issued = await lib.issueShowing(db, showing.id, actor);
+    const issued = await issueShowing(showing.id);
     assert.equal(issued.status, "ISSUED");
     assert.ok(issued.number && issued.issuedAt && issued.templateVersionId && issued.templateChecksum);
 
@@ -524,7 +541,7 @@ describe("brokerage foundation (real Postgres)", { skip: SKIP }, () => {
     const m = await db.paymentMilestone.create({ data: { showingId: showing.id, sequence: 1, percentage: 100, trigger: "FINAL_CONTRACT" } });
     assert.equal((await lib.evaluateShowing(db, showing.id)).status, "READY");
     await lib.markShowingReady(db, showing.id, actor);
-    await lib.issueShowing(db, showing.id, actor);
+    await issueShowing(showing.id);
     await rejects(db.paymentMilestone.update({ where: { id: m.id }, data: { percentage: 90 } }), /payment schedule of an issued document/);
     await rejects(db.paymentMilestone.create({ data: { showingId: showing.id, sequence: 2, percentage: 10, trigger: "CUSTOM" } }), /payment schedule of an issued document/);
     await rejects(db.paymentMilestone.delete({ where: { id: m.id } }), /payment schedule of an issued document/);
@@ -598,7 +615,7 @@ describe("brokerage foundation (real Postgres)", { skip: SKIP }, () => {
 
     await lib.issueMandateExtension(db, x1.id, { text: "Παράταση έως 31/7/2027", actor });
     assert.equal((await lib.currentEndDate(db, mandate.id))!.toISOString().slice(0, 10), "2027-07-31", "an issued extension counts as pending until signed");
-    await lib.resolveMandateExtension(db, x1.id, "SIGNED", { actor, signedPdfStorageKey: "k" });
+    await lib.resolveMandateExtension(db, x1.id, "SIGNED", { actor, signedPdfStorageKey: "k", signedPdfChecksum: sha("signed") });
 
     const x2 = await lib.createMandateExtension(db, { mandateId: mandate.id, newEndDate: "2027-10-31", actor });
     assert.equal(x2.previousEndDate.toISOString().slice(0, 10), "2027-07-31", "chained to the current effective end");

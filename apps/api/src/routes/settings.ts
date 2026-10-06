@@ -15,9 +15,11 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { Prisma } from "@home88/database";
 import {
+  checkTemplateContent,
   childLevel,
+  DOCUMENT_KINDS,
+  TEMPLATE_TYPES,
   defaultNotificationEnabled,
-  MANDATE_TYPES,
   NOTIFICATION_CHANNELS,
   NOTIFICATION_EVENTS,
   PORTAL_CATALOG,
@@ -49,6 +51,8 @@ import {
 } from "@home88/validation";
 import { capabilitiesFor, availableActions, getAdapter, parseConditions, type IntegrationStatus } from "@home88/portals";
 import { loadConfig } from "../config";
+import { recordDocumentAudit } from "../lib/brokerage/documents/audit";
+import { requireDocPermission, requireLegalApprover } from "../lib/doc-permissions";
 import { badRequest, conflict, forbidden, HttpError, notFound, tooManyRequests, validationFailed } from "../lib/errors";
 import { clientIp, parseInput } from "../lib/http";
 import { sendMail } from "../lib/mailer";
@@ -614,9 +618,9 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   app.get("/settings/mandates/templates", async (request) => {
     await requireView(request, "mandates");
     const templates = await db().mandateTemplate.findMany({
-      include: { versions: { orderBy: { version: "desc" }, select: { id: true, version: true, status: true, checksum: true, notes: true, createdAt: true, activatedAt: true, retiredAt: true } } },
+      include: { versions: { orderBy: { version: "desc" }, select: { id: true, version: true, status: true, checksum: true, notes: true, createdAt: true, activatedAt: true, retiredAt: true, source: true, legalApprovedAt: true, legalApprovedChecksum: true } } },
     });
-    const data = MANDATE_TYPES.flatMap((t) =>
+    const data = TEMPLATE_TYPES.flatMap((t) =>
       TEMPLATE_LOCALES.map((l) => {
         const tpl = templates.find((x) => x.type === t.value && x.locale === l.value);
         return {
@@ -629,6 +633,8 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
             createdAt: v.createdAt.toISOString(),
             activatedAt: v.activatedAt?.toISOString() ?? null,
             retiredAt: v.retiredAt?.toISOString() ?? null,
+            legalApprovedAt: v.legalApprovedAt?.toISOString() ?? null,
+            legallyApproved: Boolean(v.legalApprovedAt && v.legalApprovedChecksum === v.checksum),
           })),
         };
       }),
@@ -653,6 +659,9 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
         notes: version.notes,
         createdAt: version.createdAt.toISOString(),
         activatedAt: version.activatedAt?.toISOString() ?? null,
+        source: version.source,
+        legallyApproved: Boolean(version.legalApprovedAt && version.legalApprovedChecksum === version.checksum),
+        legalApprovedAt: version.legalApprovedAt?.toISOString() ?? null,
       },
     };
   });
@@ -664,6 +673,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     const locale = parseInput(templateLocaleSchema, params.locale);
     const input = parseInput(mandateTemplateDraftSchema, request.body);
     assertTemplateFields(input.body);
+    if ((DOCUMENT_KINDS as readonly string[]).includes(type)) await requireDocPermission(request, "templates.create_draft");
     const actor = actorOf(request);
     const version = await db().$transaction(async (tx) => {
       const template = await tx.mandateTemplate.upsert({ where: { type_locale: { type, locale } }, create: { type, locale }, update: {} });
@@ -688,7 +698,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     const version = await db().mandateTemplateVersion.findUnique({ where: { id }, include: { template: true } });
     if (!version) throw notFound("Η έκδοση δεν βρέθηκε.");
     if (version.status !== "DRAFT") throw conflict("Μόνο πρόχειρη έκδοση αλλάζει. Για αλλαγή σε ενεργό κείμενο δημιουργήστε νέα έκδοση.");
-    const updated = await db().mandateTemplateVersion.update({ where: { id }, data: { body: input.body, checksum: sha256(input.body), notes: input.notes } });
+    const updated = await db().mandateTemplateVersion.update({ where: { id }, data: { body: input.body, checksum: sha256(input.body), notes: input.notes, legalApprovedAt: null, legalApprovedBy: null, legalApprovedChecksum: null } });
     await settings().appendAudit([
       { ...auditBase(request, "mandates"), field: `template:${version.template.type}:${version.template.locale}`, action: "VERSION_EDITED", masked: false, oldValue: { checksum: version.checksum }, newValue: { checksum: updated.checksum }, summary: `Πρόχειρη έκδοση ${version.version}` },
     ]);
@@ -702,6 +712,12 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     const version = await db().mandateTemplateVersion.findUnique({ where: { id }, include: { template: true } });
     if (!version) throw notFound("Η έκδοση δεν βρέθηκε.");
     if (version.status !== "DRAFT") throw conflict("Ενεργοποιείται μόνο πρόχειρη έκδοση.");
+    // Legal wording that goes into issued documents needs recorded counsel approval of this exact text.
+    if ((DOCUMENT_KINDS as readonly string[]).includes(version.template.type)) {
+      await requireDocPermission(request, "templates.activate");
+      if (version.source === "ESTATE_PLUS_LEGACY") throw conflict("Κείμενο από το παλιό σύστημα δεν ενεργοποιείται ως έχει. Δημιουργήστε νέο πρότυπο και εγκρίνετέ το νομικά.");
+      if (!version.legalApprovedAt || !version.legalApprovedBy || version.legalApprovedChecksum !== version.checksum) throw conflict("Το πρότυπο δεν έχει νομική έγκριση για αυτό ακριβώς το κείμενο.");
+    }
     const at = new Date();
     await db().$transaction([
       db().mandateTemplateVersion.updateMany({ where: { templateId: version.templateId, status: "ACTIVE" }, data: { status: "RETIRED", retiredAt: at } }),
@@ -710,6 +726,52 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     await settings().appendAudit([
       { ...auditBase(request, "mandates"), field: `template:${version.template.type}:${version.template.locale}`, action: "VERSION_ACTIVATED", masked: false, newValue: { version: version.version, checksum: version.checksum }, summary: `Ενεργή η έκδοση ${version.version}` },
     ]);
+    return { ok: true };
+  });
+
+  app.post("/settings/mandates/versions/:id/submit-for-review", async (request) => {
+    await requireManage(request, "mandates");
+    await requireDocPermission(request, "templates.submit_for_legal_review");
+    const { id } = request.params as { id: string };
+    const version = await db().mandateTemplateVersion.findUnique({ where: { id }, include: { template: true } });
+    if (!version) throw notFound("Η έκδοση δεν βρέθηκε.");
+    if (version.status !== "DRAFT") throw conflict("Σε νομικό έλεγχο υποβάλλεται μόνο πρόχειρη έκδοση.");
+    const problems = (DOCUMENT_KINDS as readonly string[]).includes(version.template.type) ? checkTemplateContent(version.template.type as never, version.body) : [];
+    if (problems.length > 0) throw validationFailed("Το κείμενο του προτύπου δεν είναι κατάλληλο.", { body: problems.map((p) => p.message) });
+    const user = request.auth!.user;
+    await recordDocumentAudit(db(), { actorUserId: user.id, actorRole: user.role, ipAddress: clientIp(request), type: "TEMPLATE_SUBMITTED_FOR_REVIEW", entityType: "TEMPLATE", entityId: id, metadata: { type: version.template.type, locale: version.template.locale, version: version.version, checksum: version.checksum } });
+    return { ok: true };
+  });
+
+  /** Counsel's approval of one exact text. Needs the permission AND the legal-approver flag; editing the text afterwards voids it. */
+  app.post("/settings/mandates/versions/:id/approve-legal", async (request) => {
+    await requireLegalApprover(request);
+    const { id } = request.params as { id: string };
+    const input = parseInput(z.object({ checksum: z.string().regex(/^[0-9a-f]{64}$/), notes: z.string().trim().max(500).optional() }), request.body);
+    const version = await db().mandateTemplateVersion.findUnique({ where: { id }, include: { template: true } });
+    if (!version) throw notFound("Η έκδοση δεν βρέθηκε.");
+    if (version.status !== "DRAFT") throw conflict("Εγκρίνεται νομικά μόνο πρόχειρη έκδοση.");
+    if (input.checksum !== version.checksum) throw conflict("Το κείμενο άλλαξε από τότε που το είδατε. Ελέγξτε το ξανά.");
+    if (sha256(version.body) !== version.checksum) throw conflict("Το checksum της έκδοσης δεν ταιριάζει με το κείμενο.");
+    const problems = (DOCUMENT_KINDS as readonly string[]).includes(version.template.type) ? checkTemplateContent(version.template.type as never, version.body) : [];
+    if (problems.length > 0) throw validationFailed("Το κείμενο του προτύπου δεν είναι κατάλληλο.", { body: problems.map((p) => p.message) });
+    const user = request.auth!.user;
+    const at = new Date();
+    await db().mandateTemplateVersion.update({ where: { id }, data: { legalApprovedAt: at, legalApprovedBy: user.id, legalApprovedChecksum: version.checksum } });
+    await recordDocumentAudit(db(), { actorUserId: user.id, actorRole: user.role, ipAddress: clientIp(request), type: "TEMPLATE_LEGAL_APPROVED", entityType: "TEMPLATE", entityId: id, reason: input.notes ?? null, metadata: { type: version.template.type, locale: version.template.locale, version: version.version, checksum: version.checksum } });
+    return { ok: true };
+  });
+
+  /** Only a system administrator names legal approvers; the permission alone is never enough. */
+  app.post("/settings/users/:id/legal-approver", async (request) => {
+    const user = request.auth!.user;
+    if (user.role !== "SUPER_ADMIN") throw forbidden("Μόνο ο διαχειριστής συστήματος ορίζει νομικούς εγκρίνοντες.");
+    const { id } = request.params as { id: string };
+    const input = parseInput(z.object({ legalApprover: z.boolean() }), request.body);
+    const target = await db().user.findUnique({ where: { id }, select: { id: true } });
+    if (!target) throw notFound("Ο χρήστης δεν βρέθηκε.");
+    await db().user.update({ where: { id }, data: { legalApprover: input.legalApprover } });
+    await settings().appendAudit([{ ...auditBase(request, "mandates"), field: `user:${id}:legalApprover`, action: "UPDATED", masked: false, newValue: { legalApprover: input.legalApprover }, summary: input.legalApprover ? "Ορίστηκε νομικός εγκρίνων" : "Αφαιρέθηκε ο νομικός εγκρίνων" }]);
     return { ok: true };
   });
 }

@@ -20,7 +20,7 @@ const LINE = BODY_SIZE * 1.45;
 let fonts: { regular: Uint8Array; bold: Uint8Array } | null = null;
 
 /** The font files ship in apps/api/assets/fonts; the CRM deployment traces them in. */
-function loadFonts() {
+export function loadFonts() {
   if (fonts) return fonts;
   const cwd = process.cwd();
   const candidates = [

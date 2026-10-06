@@ -4,7 +4,9 @@
  */
 
 import { createHash } from "node:crypto";
+import { DOCUMENT_KINDS, type DocumentKind } from "@home88/domain";
 
+import { templateRejection } from "./documents/templates";
 import type { Db } from "./types";
 
 export type CompanyFacts = {
@@ -15,9 +17,10 @@ export type CompanyFacts = {
 };
 
 export async function loadCompanyFacts(db: Db, language: string): Promise<CompanyFacts> {
-  const [legal, commission] = await Promise.all([
+  const [legal, commission, company] = await Promise.all([
     db.companyLegalDetails.findUnique({ where: { id: "default" } }),
     db.commissionSettings.findUnique({ where: { id: "default" } }),
+    db.companySettings.findUnique({ where: { id: "default" } }),
   ]);
   const en = language === "en";
   const clean = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null);
@@ -30,6 +33,8 @@ export async function loadCompanyFacts(db: Db, language: string): Promise<Compan
     address: clean(en ? legal?.registeredAddressEn || legal?.registeredAddressEl : legal?.registeredAddressEl),
     phone: clean(legal?.phone),
     email: clean(legal?.legalEmail),
+    // The place of issue is the office's city from Settings; if none is set it is left off, not guessed.
+    place: clean(company?.city),
   };
   const missing: string[] = [];
   if (!snapshot.legalName) missing.push("Επωνυμία");
@@ -42,16 +47,21 @@ export async function loadCompanyFacts(db: Db, language: string): Promise<Compan
   return { missing, snapshot, configuredVatRatePct: rate };
 }
 
-/** The wording a template version holds, verified against the checksum recorded with it. */
+/**
+ * The wording a document kind and language would be issued with, judged by the
+ * same rules the issue itself applies (see documents/templates.ts), so
+ * "validate" and "issue" never disagree.
+ */
 export async function loadTemplateCheck(db: Db, type: string, locale: string) {
   const template = await db.mandateTemplate.findUnique({ where: { type_locale: { type, locale } } });
   if (!template) return { check: { found: false, active: false, checksumValid: false }, version: null };
   const version = await db.mandateTemplateVersion.findFirst({ where: { templateId: template.id, status: "ACTIVE" } });
   if (!version) return { check: { found: true, active: false, type, locale, checksumValid: false }, version: null };
   const checksumValid = createHash("sha256").update(version.body).digest("hex") === version.checksum;
-  const legalApproved = !version.requiresLegalReview || (version.legalApprovedAt != null && version.legalApprovedBy != null && version.legalApprovedChecksum === version.checksum);
+  const legalApproved = version.legalApprovedAt != null && version.legalApprovedBy != null && version.legalApprovedChecksum === version.checksum;
+  const rejection = DOCUMENT_KINDS.includes(type as never) ? templateRejection(version, type as DocumentKind) : null;
   return {
-    check: { found: true, active: true, type, locale, checksumValid, requiresLegalReview: version.requiresLegalReview, legalApproved },
+    check: { found: true, active: true, type, locale, checksumValid, requiresLegalReview: version.requiresLegalReview, legalApproved, ...(rejection ? { rejection } : {}) },
     version,
   };
 }

@@ -39,6 +39,12 @@ import {
 import { label, PROPERTY_TYPE_LABELS } from "@home88/types";
 
 import { writeAudit } from "../lib/audit";
+import { recordDocumentAudit } from "../lib/brokerage/documents/audit";
+import { issueDocument, loadIssuedPdf } from "../lib/brokerage/documents/issue";
+import { assertFeeSaveable, milestoneInput, structuredMandateData, structuredShape } from "../lib/brokerage/documents/mandate-input";
+import { applyDocumentSignatureStatus, sendDocumentForSignature } from "../lib/brokerage/documents/signing";
+import { auditContext, guarded } from "../lib/doc-http";
+import { mayViewSensitive, requireDocPermission } from "../lib/doc-permissions";
 import { notify } from "../lib/notify";
 import { documentKey, documentStore, sha256 } from "../lib/document-store";
 import { badRequest, conflict, notFound } from "../lib/errors";
@@ -80,6 +86,8 @@ const termsSchema = z.object({
   viewingDate: z.union([z.literal(""), z.null(), z.undefined(), z.string().regex(/^\d{4}-\d{2}-\d{2}$/)]).transform((v) => (v ? v : null)),
   cadastralCode: text(40),
   special: text(4000),
+  /** Explicit exceptions to an exclusive assignment; only an exclusive assignment ever prints them. */
+  exceptions: z.array(z.string().trim().min(1).max(300)).max(10).optional(),
 });
 
 const draftShape = {
@@ -88,6 +96,7 @@ const draftShape = {
   endsAt: date,
   terms: termsSchema.default({}),
   parties: z.array(partySchema).max(6).optional(),
+  ...structuredShape,
 };
 
 const createSchema = z.object({
@@ -177,6 +186,16 @@ async function buildParties(role: string, input: PartyInput[]): Promise<Prisma.M
   }
   return rows;
 }
+
+const maskParty = (p: Party) => ({
+  fullName: p.fullName,
+  taxId: p.taxIdEncrypted ? "••••••••" : null,
+  idNumber: p.idNumberEncrypted ? "••••••" : null,
+  address: p.addressEncrypted ? "••••••••" : null,
+  email: p.emailEncrypted ? "••••••••" : null,
+  phone: p.phoneEncrypted ? "••••••••" : null,
+  masked: true,
+});
 
 type Party = { fullName: string; taxIdEncrypted: string | null; idNumberEncrypted: string | null; addressEncrypted: string | null; emailEncrypted: string | null; phoneEncrypted: string | null };
 const decryptParty = (p: Party) => ({
@@ -315,6 +334,10 @@ export async function applySignatureStatus(envelopeId: string, status: string): 
   });
   if (to === "SIGNED") await applyRetention(m.id);
   await writeAudit({ entity: "MANDATE", entityId: m.id, action: `provider_${to.toLowerCase()}`, changes: { envelopeId } });
+  const providerAudit = { VIEWED: "MANDATE_VIEWED", SIGNED: "MANDATE_SIGNED", DECLINED: "MANDATE_DECLINED" }[to as string];
+  if (providerAudit) {
+    await recordDocumentAudit(db(), { actorUserId: null, actorRole: "PROVIDER", type: providerAudit as "MANDATE_VIEWED", entityType: "MANDATE", entityId: m.id, documentNumber: m.number, metadata: { method: "PROVIDER", level: m.signatureLevel, signedCopyChecksum: signed?.checksum ?? null } });
+  }
   const notifyEvent = to === "VIEWED" ? "MANDATE_VIEWED" : to === "SIGNED" ? "MANDATE_SIGNED" : to === "EXPIRED" ? "MANDATE_EXPIRED" : null;
   if (notifyEvent) {
     await notify({ event: notifyEvent, title: `Εντολή ${m.number ?? m.reference}: ${statusLabel(to).toLowerCase()}`, entityType: "MANDATE", entityId: m.id, userIds: [m.agentId], link: `/mandates/${m.id}` });
@@ -417,6 +440,9 @@ export async function mandateRoutes(app: FastifyInstance): Promise<void> {
       if (c) partiesInput = [{ contactReference: c.reference, fullName: null, taxId: null, idNumber: null, address: null, email: null, phone: null }];
     }
     const parties = await buildParties(rule.role, partiesInput);
+    assertFeeSaveable(input);
+    const supersedes = input.supersedesReference ? await db().mandate.findUnique({ where: { reference: input.supersedesReference.toUpperCase() }, select: { id: true } }) : null;
+    if (input.supersedesReference && !supersedes) throw badRequest("Δεν βρέθηκε η εντολή που αντικαθίσταται.", { supersedesReference: ["Άγνωστη εντολή."] });
 
     const created = await db().$transaction(async (tx) => {
       const reference = await allocateReference(tx, "mandate", "MND");
@@ -433,12 +459,18 @@ export async function mandateRoutes(app: FastifyInstance): Promise<void> {
           agentId: actor.id,
           createdById: actor.id,
           parties: { create: parties },
+          ...(structuredMandateData(input) as Partial<Prisma.MandateUncheckedCreateInput>),
+          supersedesMandateId: supersedes?.id ?? null,
         },
       });
+      for (const ms of input.milestones ?? []) {
+        await tx.paymentMilestone.create({ data: { mandateId: m.id, sequence: ms.sequence, percentage: ms.percentage ?? null, fixedAmount: ms.fixedAmount ?? null, trigger: ms.trigger, description: ms.description, dueDateRule: ms.dueDateRule } });
+      }
       await event(tx, m.id, actor, "CREATED", `Νέα ${typeLabel(input.type).toLowerCase()} (πρόχειρη)`);
       if (seller) {
         await tx.sellerLeadEvent.create({ data: { sellerLeadId: seller.id, type: "MANDATE", summary: `Πρόχειρη εντολή ${reference}`, actorId: actor.id, actorName: nameOf(actor) } });
       }
+      await recordDocumentAudit(tx, { ...auditContext(request), type: "MANDATE_CREATED", entityType: "MANDATE", entityId: m.id, documentNumber: m.reference, after: { status: "DRAFT", type: input.type } });
       return m;
     });
     await writeAudit({ entity: "MANDATE", entityId: created.id, action: "create", changes: { type: input.type }, actorId: actor.id, ...meta(request) });
@@ -460,11 +492,12 @@ export async function mandateRoutes(app: FastifyInstance): Promise<void> {
         events: { orderBy: { createdAt: "desc" }, take: 200 },
       },
     });
+    const sensitive = await mayViewSensitive(actor.role, "mandates");
     const draft = m.status === "DRAFT";
     const template = draft ? await activeTemplate(m.type, m.locale) : null;
     const mandatesSettings = await settings().config("mandates");
     let preview: { text: string; missing: string[]; unknown: string[] } | null = null;
-    if (draft && template) {
+    if (draft && template && sensitive) {
       const values = await mergeValues(m, null, new Date());
       values["mandate.number"] = "«αριθμός κατά την έκδοση»";
       const r = renderTemplate(template.body, values);
@@ -488,9 +521,13 @@ export async function mandateRoutes(app: FastifyInstance): Promise<void> {
         startsAt: m.startsAt,
         endsAt: m.endsAt,
         terms: m.terms,
-        parties: m.parties.map((p) => ({ id: p.id, role: p.role, contactId: p.contactId, signedAt: p.signedAt, ...decryptParty(p) })),
+        parties: m.parties.map((p) => ({ id: p.id, role: p.role, contactId: p.contactId, signedAt: p.signedAt, ...(sensitive ? decryptParty(p) : maskParty(p)) })),
+        structured: {
+          fee: { payer: m.feePayer, method: m.feeMethod, basis: m.feeBasis, percentage: m.feePercentage, fixedAmount: m.feeFixedAmount, currency: m.feeCurrency, vatTreatment: m.vatTreatment, vatRate: m.vatRate, paymentTrigger: m.paymentTrigger },
+          durationType: m.durationType, specialTerms: m.specialTerms, knownDefects: m.knownDefects, storageState: m.storageState, verificationCode: m.verificationCode, supersedesMandateId: m.supersedesMandateId,
+        },
         template: m.templateVersion ? { version: m.templateVersion.version, checksum: m.templateChecksum } : template ? { version: template.version, checksum: template.checksum, pending: true } : null,
-        text: draft ? null : decryptField(m.renderedTextEncrypted),
+        text: draft || !sensitive ? null : decryptField(m.renderedTextEncrypted),
         renderedChecksum: m.renderedChecksum,
         pdf: m.pdfDocument,
         pdfChecksum: m.pdfChecksum,
@@ -540,10 +577,15 @@ export async function mandateRoutes(app: FastifyInstance): Promise<void> {
       }
     }
     const parties = input.parties ? await buildParties(MANDATE_PRINCIPAL[m.type]!.role, input.parties) : null;
+    assertFeeSaveable(input);
+    const supersedes = input.supersedesReference ? await db().mandate.findUnique({ where: { reference: input.supersedesReference.toUpperCase() }, select: { id: true } }) : null;
+    if (input.supersedesReference && !supersedes) throw badRequest("Δεν βρέθηκε η εντολή που αντικαθίσταται.", { supersedesReference: ["Άγνωστη εντολή."] });
     await db().$transaction(async (tx) => {
       await tx.mandate.update({
         where: { id },
         data: {
+          ...structuredMandateData(input),
+          ...(input.supersedesReference !== undefined ? { supersedesMandateId: supersedes?.id ?? null } : {}),
           ...(propertyId !== undefined ? { propertyId } : {}),
           ...(input.startsAt !== undefined ? { startsAt: input.startsAt } : {}),
           ...(input.endsAt !== undefined ? { endsAt: input.endsAt } : {}),
@@ -554,16 +596,29 @@ export async function mandateRoutes(app: FastifyInstance): Promise<void> {
         await tx.mandateParty.deleteMany({ where: { mandateId: id } });
         await tx.mandate.update({ where: { id }, data: { parties: { create: parties } } });
       }
+      if (input.milestones) {
+        await tx.paymentMilestone.deleteMany({ where: { mandateId: id } });
+        for (const ms of input.milestones) await tx.paymentMilestone.create({ data: { mandateId: id, sequence: ms.sequence, percentage: ms.percentage ?? null, fixedAmount: ms.fixedAmount ?? null, trigger: ms.trigger, description: ms.description, dueDateRule: ms.dueDateRule } });
+      }
       await event(tx, id, actor, "UPDATED", "Ενημέρωση πρόχειρης εντολής", { fields: Object.keys(input) });
+      await recordDocumentAudit(tx, { ...auditContext(request), type: "MANDATE_UPDATED", entityType: "MANDATE", entityId: id, documentNumber: m.number ?? m.reference, metadata: { fields: Object.keys(input) } });
     });
     await writeAudit({ entity: "MANDATE", entityId: id, action: "update", changes: { fields: Object.keys(input) }, actorId: actor.id, ...meta(request) });
     return { ok: true };
   });
 
   app.post("/mandates/:id/issue", agent, async (request) => {
+    await requireDocPermission(request, "mandates.issue");
     const actor = request.auth!.user as Actor;
     const { id } = request.params as { id: string };
     const base = await loadOwned(actor, id);
+    // Simple and exclusive assignments go through the document pipeline (validation, approved
+    // template, snapshot, PDF, private storage, audit). Asking again returns the issued document.
+    if (base.type !== "VIEWING") {
+      const input = parseInput(z.object({ acknowledgeFeeAnomaly: z.string().trim().min(3).max(500).optional() }).default({}), request.body ?? {});
+      const outcome = await guarded(() => issueDocument(db(), "MANDATE", id, { ...auditContext(request), acknowledgeFeeAnomaly: input.acknowledgeFeeAnomaly }));
+      return { ok: true, ...outcome };
+    }
     if (base.status !== "DRAFT") throw conflict("Η εντολή έχει ήδη εκδοθεί.");
     const m = await db().mandate.findUniqueOrThrow({ where: { id }, include: FULL });
 
@@ -637,10 +692,19 @@ export async function mandateRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post("/mandates/:id/send", agent, async (request) => {
+    await requireDocPermission(request, "mandates.send");
     const actor = request.auth!.user as Actor;
     const { id } = request.params as { id: string };
     const m = await loadOwned(actor, id);
     if (!canMoveMandate(m.status, "SENT")) throw conflict("Αποστέλλεται μόνο εντολή που έχει εκδοθεί.");
+    // Documents issued through the pipeline: the exact issued PDF, storage verified first.
+    if (m.storageState !== "NOT_STORED") {
+      const r = await guarded(() => sendDocumentForSignature(db(), "MANDATE", id, auditContext(request)));
+      if (m.agentId && m.agentId !== actor.id) {
+        await notify({ event: "MANDATE_SENT", title: `Εντολή ${m.number}: στάλθηκε για υπογραφή`, entityType: "MANDATE", entityId: id, userIds: [m.agentId], link: `/mandates/${id}` });
+      }
+      return { ok: true, signingUrls: r.signingUrls, documentChecksum: r.documentChecksum, level: r.level };
+    }
     const cfg = await settings().config("mandates");
     const missing = mandateSettingsMissing(cfg, true);
     if (missing.length) throw conflict(`Ρυθμίσεις → Ψηφιακές Εντολές: λείπουν ${missing.join(", ")}.`);
@@ -687,10 +751,13 @@ export async function mandateRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post("/mandates/:id/signed-copy", agent, async (request) => {
+    await requireDocPermission(request, "mandates.send");
     const actor = request.auth!.user as Actor;
     const { id } = request.params as { id: string };
     const m = await loadOwned(actor, id);
     if (!canMoveMandate(m.status, "SIGNED")) throw conflict("Υπογεγραμμένο αντίγραφο καταχωρίζεται μόνο για εντολή που έχει εκδοθεί και δεν έχει κλείσει.");
+    // The original issued PDF must still verify before a signed copy is attached to it.
+    if (m.storageState !== "NOT_STORED") await guarded(() => loadIssuedPdf(db(), "MANDATE", id));
     const input = parseInput(signedCopySchema, request.body);
     const signedAt = input.signedAt ?? new Date();
     if (signedAt > new Date()) throw badRequest("Η ημερομηνία υπογραφής δεν μπορεί να είναι μελλοντική.");
@@ -704,10 +771,12 @@ export async function mandateRoutes(app: FastifyInstance): Promise<void> {
         { title: `${typeLabel(m.type)} ${m.number} (υπογεγραμμένη)`, category: "MANDATE", propertyId: m.propertyId, contactId: party?.contactId ?? null, containsPersonalData: true },
         tx,
       );
+      if (d.checksum === m.pdfChecksum) throw badRequest("Το υπογεγραμμένο αντίγραφο δεν μπορεί να είναι το αρχικό μη υπογεγραμμένο PDF.");
       await tx.mandate.update({
         where: { id },
-        data: { status: "SIGNED", signedAt, signatureMethod: "PAPER", signedDocumentId: d.id, signedChecksum: d.checksum },
+        data: { status: "SIGNED", signedAt, signatureMethod: "PAPER", signatureLevel: "SIMPLE", signedDocumentId: d.id, signedChecksum: d.checksum },
       });
+      await recordDocumentAudit(tx, { ...auditContext(request), type: "MANDATE_SIGNED", entityType: "MANDATE", entityId: id, documentNumber: m.number, metadata: { method: "PAPER", level: "SIMPLE", signedCopyChecksum: d.checksum, originalChecksum: m.pdfChecksum, signedAt: signedAt.toISOString().slice(0, 10), uploadedAt: new Date().toISOString() } });
       await tx.mandateParty.updateMany({ where: { mandateId: id, signedAt: null }, data: { signedAt } });
       await event(tx, id, actor, "SIGNED", `Υπογράφηκε σε χαρτί· καταχωρίστηκε το υπογεγραμμένο αντίγραφο`, { checksum: d.checksum });
       if (m.sellerLeadId) {
@@ -724,6 +793,7 @@ export async function mandateRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post("/mandates/:id/cancel", agent, async (request) => {
+    await requireDocPermission(request, "mandates.cancel");
     const actor = request.auth!.user as Actor;
     const { id } = request.params as { id: string };
     const m = await loadOwned(actor, id);
@@ -732,6 +802,7 @@ export async function mandateRoutes(app: FastifyInstance): Promise<void> {
     await db().$transaction(async (tx) => {
       await tx.mandate.update({ where: { id }, data: { status: "CANCELLED", cancelledAt: new Date(), cancelReason: input.reason } });
       await event(tx, id, actor, "CANCELLED", `Ακυρώθηκε: ${input.reason}`);
+      await recordDocumentAudit(tx, { ...auditContext(request), type: "MANDATE_CANCELLED", entityType: "MANDATE", entityId: id, documentNumber: m.number ?? m.reference, reason: input.reason, before: { status: m.status }, after: { status: "CANCELLED" } });
     });
     await writeAudit({ entity: "MANDATE", entityId: id, action: "cancel", actorId: actor.id, ...meta(request) });
     return { ok: true };
@@ -789,7 +860,10 @@ export async function mandateRoutes(app: FastifyInstance): Promise<void> {
     const headers = Object.fromEntries(Object.entries(request.headers).map(([k, v]) => [k, Array.isArray(v) ? v.join(",") : String(v ?? "")]));
     const result = await provider.handleWebhook(request.body, headers);
     if (!result.handled) return reply.code(404).send({ error: { code: "not_found", message: "Not found." } });
-    if (result.envelopeId && result.status) await applySignatureStatus(result.envelopeId, result.status);
+    if (result.envelopeId && result.status) {
+      // A mandate's envelope, else a showing's or an extension's.
+      if (!(await applySignatureStatus(result.envelopeId, result.status))) await applyDocumentSignatureStatus(db(), result.envelopeId, result.status);
+    }
     return { ok: true };
   });
 }

@@ -41,7 +41,7 @@ test("documents and mandates: templates, issuing, immutability, paper and e-sign
   const hash = hashPassword(password, 10);
   const mk = (role: string, tag: string) =>
     db().user.create({ data: { email: `${tag}-${run}@test.invalid`, firstName: tag, lastName: "Test", role: role as never, passwordHash: hash } });
-  const [agentUser, other, manager, admin] = await Promise.all([mk("AGENT", "magent"), mk("AGENT", "magent2"), mk("MANAGER", "mmanager"), mk("ADMIN", "madmin")]);
+  const [agentUser, other, manager, admin, superAdmin] = await Promise.all([mk("AGENT", "magent"), mk("AGENT", "magent2"), mk("MANAGER", "mmanager"), mk("ADMIN", "madmin"), mk("SUPER_ADMIN", "msuper")]);
   const property = await db().property.create({
     data: {
       reference: `MND-P${RUN}`, slug: `mnd-p-${run}`, listingType: "SALE", propertyType: "APARTMENT", titleEl: "Δοκιμή", descriptionEl: "Δοκιμή",
@@ -54,7 +54,7 @@ test("documents and mandates: templates, issuing, immutability, paper and e-sign
     assert.equal(res.status, 200, `login ${email}`);
     return res.headers.get("set-cookie")!.split(";")[0]!;
   }
-  const [agentCookie, otherCookie, managerCookie, adminCookie] = await Promise.all([login(agentUser.email), login(other.email), login(manager.email), login(admin.email)]);
+  const [agentCookie, otherCookie, managerCookie, adminCookie, superCookie] = await Promise.all([login(agentUser.email), login(other.email), login(manager.email), login(admin.email), login(superAdmin.email)]);
   const call = async (cookie: string | null, method: string, path: string, body?: unknown) => {
     const headers: Record<string, string> = body === undefined ? {} : { "content-type": "application/json" };
     if (cookie) headers.cookie = cookie;
@@ -69,6 +69,10 @@ test("documents and mandates: templates, issuing, immutability, paper and e-sign
     return r.body.token as string;
   };
 
+  // The property's registered owner (Phase A ownership model).
+  const ownerContact = await db().contact.create({ data: { reference: `OWN-${RUN}`, firstName: "Ελένη", lastName: "Π." } });
+  await db().propertyOwner.create({ data: { propertyId: property.id, contactId: ownerContact.id, capacity: "OWNER", ownershipPercentage: 100, isPrimaryContact: true, isSignatory: true } });
+
   // Owner with contact details (encrypted), as in Phase 3.
   const seller = await call(agentCookie, "POST", "/sellers", {
     listingType: "SALE", firstName: "Ελένη", lastName: "Π.", phone: "6977000000", email: `owner-m-${run}@test.invalid`, propertyReference: property.reference,
@@ -78,8 +82,13 @@ test("documents and mandates: templates, issuing, immutability, paper and e-sign
 
   // Draft from the owner: the owner becomes the principal automatically.
   const start = "2026-11-01";
+  const STRUCT = {
+    feePayer: "OWNER", feeMethod: "PERCENTAGE", feeBasis: "ASKING_PRICE", feePercentage: 2, feeCurrency: "EUR", vatTreatment: "PLUS_VAT", vatRate: 24, paymentTrigger: "FINAL_CONTRACT",
+    knownDefects: false, defectsDisclosureConfirmed: true, photoPermission: true, videoPermission: true, floorplanPermission: true, signboardPermission: false, portalPublicationPermission: true,
+    socialMediaPermission: false, cooperatingBrokerPermission: false, brokerCooperationAllowed: false, dualRepresentationConsent: false, durationType: "FIXED_TERM",
+  };
   const created = await call(agentCookie, "POST", "/mandates", {
-    type: "EXCLUSIVE_ASSIGNMENT", sellerLeadId: sellerId, startsAt: start, endsAt: "2027-04-30",
+    type: "EXCLUSIVE_ASSIGNMENT", sellerLeadId: sellerId, startsAt: start, endsAt: "2027-04-30", ...STRUCT,
     terms: { price: 250000, commission: "[όρος αμοιβής δοκιμής]", cadastralCode: "KAEK-TEST" },
   });
   assert.equal(created.status, 200, JSON.stringify(created.body));
@@ -93,14 +102,16 @@ test("documents and mandates: templates, issuing, immutability, paper and e-sign
   const party = await db().mandateParty.findFirstOrThrow({ where: { mandateId: m1 } });
   assert.ok(party.phoneEncrypted?.startsWith("v1:") && !JSON.stringify(party).includes("6977000000"), "party details encrypted at rest");
 
-  // No template / no numbering → refused, with what is missing.
-  let issue = await call(agentCookie, "POST", `/mandates/${m1}/issue`, {});
-  assert.equal(issue.status, 409);
-  assert.match(issue.body.error.message, /Πρόθεμα αρίθμησης|πρότυπο|κείμενο/);
+  // Not ready: the exact blocking reasons are returned and nothing is issued.
+  let issue = await call(managerCookie, "POST", `/mandates/${m1}/issue`, {});
+  assert.equal(issue.status, 422, JSON.stringify(issue.body));
+  assert.equal(issue.body.error.code, "document_blocked");
+  assert.ok(issue.body.error.fields.template && issue.body.error.fields.company, JSON.stringify(issue.body.error.fields));
+  assert.equal((await call(agentCookie, "POST", `/mandates/${m1}/issue`, {})).status, 403, "agents prepare drafts; managers issue");
   assert.equal((await call(adminCookie, "PUT", "/settings/sections/mandates", { values: { numberingPrefix: `T${RUN.slice(0, 4)}`, numberingDigits: 5, retentionYears: 10 } })).status, 200);
-  issue = await call(agentCookie, "POST", `/mandates/${m1}/issue`, {});
-  assert.equal(issue.status, 409);
-  assert.match(issue.body.error.message, /ενεργό εγκεκριμένο κείμενο/);
+  assert.equal((await db().mandate.findUniqueOrThrow({ where: { id: m1 } })).number, null, "a refused issue leaves a draft with no number");
+  // The principal's identity, as the agent enters it.
+  assert.equal((await call(agentCookie, "PATCH", `/mandates/${m1}`, { parties: [{ fullName: "Ελένη Π.", phone: "6977000000", taxId: "123456783", idNumber: "ΑΒ123456", address: "Οδός Δοκιμής 7, Αθήνα" }] })).status, 200);
 
   // A template with a typo is refused when it is saved, so it can never reach a client.
   const tplPath = "/settings/mandates/templates/EXCLUSIVE_ASSIGNMENT/el/versions";
@@ -108,27 +119,33 @@ test("documents and mandates: templates, issuing, immutability, paper and e-sign
   assert.equal(bad.status, 400, JSON.stringify(bad.body));
   assert.match(bad.body.error.message, /owner\.name/);
 
-  const BODY = [
-    "[ΔΟΚΙΜΑΣΤΙΚΟ ΠΡΟΤΥΠΟ — ΟΧΙ ΝΟΜΙΚΟ ΚΕΙΜΕΝΟ]",
-    "Αρ. {{mandate.number}} / {{mandate.date}} · {{agency.legalName}} ΑΦΜ {{agency.vatNumber}}",
-    "Εντολέας: {{principal.fullName}} · τηλ. {{principal.phone}}",
-    "Ακίνητο: {{property.reference}}, {{property.address}}, {{property.size}} m², ΚΑΕΚ {{property.cadastralCode}}",
-    "Τιμή {{terms.price}} · Αμοιβή {{terms.commission}} · {{mandate.startDate}}–{{mandate.endDate}}",
-  ].join("\n");
-  assert.equal((await call(adminCookie, "POST", tplPath, { body: BODY })).status, 200);
+  // Template wording is drafted by an admin, submitted for review, approved by counsel (a flagged user) and only then activated.
+  const BODY = "{{document.number}} — {{document.date}}\n{{principal.fullName}} αναθέτει στο γραφείο {{company.legalName}} το ακίνητο {{properties.references}}. Είδος: {{term.type}}. Από {{term.startDate}} έως {{term.endDate}} ({{term.duration}}). Αμοιβή: {{fee.summary}}.";
+  assert.equal((await call(agentCookie, "POST", tplPath, { body: BODY })).status, 403, "agents cannot draft templates");
+  const drafted = await call(adminCookie, "POST", tplPath, { body: BODY });
+  assert.equal(drafted.status, 200, JSON.stringify(drafted.body));
   const good = await db().mandateTemplateVersion.findFirstOrThrow({ where: { template: { type: "EXCLUSIVE_ASSIGNMENT", locale: "el" }, status: "DRAFT" }, orderBy: { version: "desc" } });
+  assert.equal((await call(adminCookie, "POST", `/settings/mandates/versions/${good.id}/activate`, {})).status, 409, "no activation without counsel's approval");
+  assert.equal((await call(adminCookie, "POST", `/settings/mandates/versions/${good.id}/submit-for-review`, {})).status, 200);
+  assert.equal((await call(adminCookie, "POST", `/settings/mandates/versions/${good.id}/approve-legal`, { checksum: good.checksum })).status, 403, "admin is not counsel");
+  assert.equal((await call(superCookie, "POST", `/settings/mandates/versions/${good.id}/approve-legal`, { checksum: good.checksum })).status, 403, "the permission alone is not enough: the user must be a legal approver");
+  assert.equal((await call(adminCookie, "POST", `/settings/users/${superAdmin.id}/legal-approver`, { legalApprover: true })).status, 403, "only a system administrator names legal approvers");
+  assert.equal((await call(superCookie, "POST", `/settings/users/${superAdmin.id}/legal-approver`, { legalApprover: true })).status, 200);
+  assert.equal((await call(superCookie, "POST", `/settings/mandates/versions/${good.id}/approve-legal`, { checksum: "0".repeat(64) })).status, 409, "approval is of an exact text");
+  assert.equal((await call(superCookie, "POST", `/settings/mandates/versions/${good.id}/approve-legal`, { checksum: good.checksum })).status, 200);
   assert.equal((await call(adminCookie, "POST", `/settings/mandates/versions/${good.id}/activate`, {})).status, 200);
+  const approved = await db().mandateTemplateVersion.findUniqueOrThrow({ where: { id: good.id } });
+  assert.equal(approved.legalApprovedChecksum, approved.checksum);
+  assert.equal((await db().documentAuditEvent.count({ where: { type: "TEMPLATE_LEGAL_APPROVED", entityId: good.id } })), 1);
 
   // Company legal details still empty → the missing fields are named; nothing is invented.
-  detail = await call(agentCookie, "GET", `/mandates/${m1}`);
-  assert.ok(detail.body.preview.missing.includes("Επωνυμία γραφείου"), JSON.stringify(detail.body.preview.missing));
-  issue = await call(agentCookie, "POST", `/mandates/${m1}/issue`, {});
-  assert.equal(issue.status, 400);
-  assert.match(issue.body.error.message, /Επωνυμία γραφείου/);
-  { const r = await call(adminCookie, "PUT", "/settings/sections/legal", { values: { legalNameEl: "ΔΟΚΙΜΗ Μ.Ι.Κ.Ε.", vatNumber: "123456783" } }); assert.equal(r.status, 200, JSON.stringify(r.body)); }
+  issue = await call(managerCookie, "POST", `/mandates/${m1}/issue`, {});
+  assert.equal(issue.status, 422);
+  assert.ok(issue.body.error.fields.company.some((m: string) => m.includes("Επωνυμία")), JSON.stringify(issue.body.error.fields));
+  { const r = await call(adminCookie, "PUT", "/settings/sections/legal", { values: { legalNameEl: "ΔΟΚΙΜΗ Μ.Ι.Κ.Ε.", vatNumber: "123456783", taxOffice: "ΔΟΥ Δοκιμής", registeredAddressEl: "Οδός 1, Αθήνα", phone: "2100000000" } }); assert.equal(r.status, 200, JSON.stringify(r.body)); }
 
   // Issue.
-  issue = await call(agentCookie, "POST", `/mandates/${m1}/issue`, {});
+  issue = await call(managerCookie, "POST", `/mandates/${m1}/issue`, {});
   assert.equal(issue.status, 200, JSON.stringify(issue.body));
   assert.match(issue.body.number, new RegExp(`^T${RUN.slice(0, 4)}-\\d{5}$`));
   let row = await db().mandate.findUniqueOrThrow({ where: { id: m1 }, include: { pdfDocument: true } });
@@ -141,8 +158,8 @@ test("documents and mandates: templates, issuing, immutability, paper and e-sign
   assert.ok(row.pdfDocument!.storageKey.startsWith("private/documents/"), "private key space");
   assert.equal((await PDFDocument.load(pdf)).getTitle(), `Αποκλειστική Εντολή Ανάθεσης ${row.number}`);
   detail = await call(agentCookie, "GET", `/mandates/${m1}`);
-  assert.match(detail.body.mandate.text, /6977000000/);
-  assert.match(detail.body.mandate.text, /250\.000/);
+  assert.match(detail.body.mandate.text, /Ελένη/);
+  assert.match(detail.body.mandate.text, /Αποκλειστική/);
 
   // Frozen: API and database.
   assert.equal((await call(agentCookie, "PATCH", `/mandates/${m1}`, { terms: { price: 1 } })).status, 409);
@@ -169,30 +186,30 @@ test("documents and mandates: templates, issuing, immutability, paper and e-sign
 
   // Overlapping exclusive mandate on the same property is refused.
   const m2 = (await call(agentCookie, "POST", "/mandates", {
-    type: "EXCLUSIVE_ASSIGNMENT", propertyReference: property.reference, startsAt: "2027-01-01", endsAt: "2027-06-30",
-    terms: { price: 240000, commission: "[δοκιμή]", cadastralCode: "KAEK-TEST" }, parties: [{ fullName: "Ελένη Π.", phone: "6977000000" }],
+    type: "EXCLUSIVE_ASSIGNMENT", propertyReference: property.reference, startsAt: "2027-01-01", endsAt: "2027-06-30", ...STRUCT,
+    terms: { price: 240000, commission: "[δοκιμή]", cadastralCode: "KAEK-TEST" }, parties: [{ fullName: "Ελένη Π.", phone: "6977000000", taxId: "123456783", idNumber: "ΑΒ123456", address: "Οδός Δοκιμής 7, Αθήνα" }],
   })).body.mandate.id as string;
-  issue = await call(agentCookie, "POST", `/mandates/${m2}/issue`, {});
-  assert.equal(issue.status, 409);
-  assert.match(issue.body.error.message, /αποκλειστική εντολή/);
+  issue = await call(managerCookie, "POST", `/mandates/${m2}/issue`, {});
+  assert.equal(issue.status, 422, JSON.stringify(issue.body));
+  assert.ok(issue.body.error.fields.dates[0].includes("αποκλειστική"), "the conflict names the other mandate");
 
   // Paper signature: a wrong file is refused, the real one signs.
-  assert.equal((await call(agentCookie, "POST", `/mandates/${m1}/send`, {})).status, 409, "no provider configured");
-  const fakePdf = await upload(agentCookie, Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4]), "application/pdf");
-  assert.equal((await call(agentCookie, "POST", `/mandates/${m1}/signed-copy`, { token: fakePdf })).status, 400, "content must match the type");
+  assert.equal((await call(managerCookie, "POST", `/mandates/${m1}/send`, {})).status, 409, "no provider configured");
+  const fakePdf = await upload(managerCookie, Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4]), "application/pdf");
+  assert.equal((await call(managerCookie, "POST", `/mandates/${m1}/signed-copy`, { token: fakePdf })).status, 400, "content must match the type");
   const signedScan = Buffer.concat([Buffer.from("%PDF-1.4\n"), randomBytes(64)]);
-  const token = await upload(agentCookie, signedScan, "application/pdf");
-  assert.equal((await call(otherCookie, "POST", `/mandates/${m1}/signed-copy`, { token })).status, 404);
-  const signed = await call(agentCookie, "POST", `/mandates/${m1}/signed-copy`, { token, signedAt: new Date().toISOString().slice(0, 10) });
+  const token = await upload(managerCookie, signedScan, "application/pdf");
+  assert.equal((await call(otherCookie, "POST", `/mandates/${m1}/signed-copy`, { token })).status, 403, "agents cannot record signatures");
+  const signed = await call(managerCookie, "POST", `/mandates/${m1}/signed-copy`, { token, signedAt: new Date().toISOString().slice(0, 10) });
   assert.equal(signed.status, 200, JSON.stringify(signed.body));
   const signedRow = await db().mandate.findUniqueOrThrow({ where: { id: m1 }, include: { pdfDocument: true, signedDocument: true } });
   assert.equal(signedRow.status, "SIGNED");
   assert.equal(signedRow.signatureMethod, "PAPER");
   assert.equal(signedRow.signedChecksum, createHash("sha256").update(signedScan).digest("hex"));
   assert.ok(signedRow.signedDocument?.retentionExpiresAt && signedRow.pdfDocument?.retentionExpiresAt, "retention from Settings applied");
-  assert.equal((await call(agentCookie, "POST", `/mandates/${m1}/cancel`, { reason: "x" })).status, 409, "signed is final");
+  assert.equal((await call(managerCookie, "POST", `/mandates/${m1}/cancel`, { reason: "x" })).status, 409, "signed is final");
   await assert.rejects(db().mandate.update({ where: { id: m1 }, data: { status: "CANCELLED" } }), "database keeps it final");
-  assert.equal((await call(agentCookie, "POST", `/mandates/${m1}/signed-copy`, { token })).status, 409);
+  assert.equal((await call(managerCookie, "POST", `/mandates/${m1}/signed-copy`, { token })).status, 409);
 
   // E-signature through a provider (fake adapter).
   let envelopeStatus: "SENT" | "VIEWED" | "SIGNED" = "SENT";
@@ -217,12 +234,12 @@ test("documents and mandates: templates, issuing, immutability, paper and e-sign
     },
   });
   assert.equal((await call(agentCookie, "PATCH", `/mandates/${m2}`, { startsAt: "2027-05-01", endsAt: "2027-10-31" })).status, 200);
-  assert.equal((await call(agentCookie, "POST", `/mandates/${m2}/issue`, {})).status, 200, "no overlap after the dates change");
-  let send = await call(agentCookie, "POST", `/mandates/${m2}/send`, {});
+  assert.equal((await call(managerCookie, "POST", `/mandates/${m2}/issue`, {})).status, 200, "no overlap after the dates change");
+  let send = await call(managerCookie, "POST", `/mandates/${m2}/send`, {});
   assert.equal(send.status, 409);
-  assert.match(send.body.error.message, /Πάροχος υπογραφής/);
+  assert.match(send.body.error.message, /Πάροχος υπογραφής|επίπεδο υπογραφής/);
   assert.equal((await call(adminCookie, "PUT", "/settings/sections/mandates", { values: { numberingPrefix: `T${RUN.slice(0, 4)}`, numberingDigits: 5, retentionYears: 10, signatureProvider: "fake", signatureLevel: "ADVANCED", signingExpiryDays: 14 } })).status, 200);
-  send = await call(agentCookie, "POST", `/mandates/${m2}/send`, {});
+  send = await call(managerCookie, "POST", `/mandates/${m2}/send`, {});
   assert.equal(send.status, 200, JSON.stringify(send.body));
   const m2row = await db().mandate.findUniqueOrThrow({ where: { id: m2 } });
   assert.equal(createHash("sha256").update(sentPdf!).digest("hex"), m2row.pdfChecksum, "the provider received exactly the issued PDF");
@@ -231,7 +248,7 @@ test("documents and mandates: templates, issuing, immutability, paper and e-sign
   assert.equal((await call(null, "POST", "/webhooks/signature", { secret: "ok", envelope: `env-${run}`, status: "VIEWED" })).status, 200);
   assert.equal((await db().mandate.findUniqueOrThrow({ where: { id: m2 } })).status, "VIEWED");
   envelopeStatus = "SIGNED";
-  assert.equal((await call(agentCookie, "POST", `/mandates/${m2}/refresh`, {})).body.changed, true);
+  assert.equal((await call(managerCookie, "POST", `/mandates/${m2}/refresh`, {})).body.changed, true);
   const m2signed = await db().mandate.findUniqueOrThrow({ where: { id: m2 }, include: { signedDocument: true, parties: true } });
   assert.equal(m2signed.status, "SIGNED");
   assert.equal(m2signed.signatureMethod, "PROVIDER");
@@ -243,8 +260,8 @@ test("documents and mandates: templates, issuing, immutability, paper and e-sign
   // Viewing mandate: draft, cancel, duplicate.
   const v = await call(agentCookie, "POST", "/mandates", { type: "VIEWING", propertyReference: property.reference, terms: { viewingDate: "2026-11-05" }, parties: [{ fullName: "Πελάτης Δοκιμής" }] });
   assert.equal(v.status, 200, JSON.stringify(v.body));
-  assert.equal((await call(agentCookie, "POST", `/mandates/${v.body.mandate.id}/cancel`, {})).status, 422, "cancel needs a reason");
-  assert.equal((await call(agentCookie, "POST", `/mandates/${v.body.mandate.id}/cancel`, { reason: "Ο πελάτης δεν ήρθε" })).status, 200);
+  assert.equal((await call(managerCookie, "POST", `/mandates/${v.body.mandate.id}/cancel`, {})).status, 422, "cancel needs a reason");
+  assert.equal((await call(managerCookie, "POST", `/mandates/${v.body.mandate.id}/cancel`, { reason: "Ο πελάτης δεν ήρθε" })).status, 200);
   const dup = await call(agentCookie, "POST", `/mandates/${v.body.mandate.id}/duplicate`, {});
   assert.equal(dup.status, 200);
   assert.equal((await db().mandate.findUniqueOrThrow({ where: { id: dup.body.mandate.id } })).status, "DRAFT");

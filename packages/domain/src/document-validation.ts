@@ -65,6 +65,8 @@ export type TemplateCheck = {
   requiresLegalReview?: boolean;
   /** Counsel's approval is recorded against this exact text. */
   legalApproved?: boolean;
+  /** Set by the server when the full issuing rules (legacy, approval, content) reject this version. */
+  rejection?: { code: string; message: string };
 };
 
 /** A party's identity facts, as presence flags: the validator never sees the values. */
@@ -142,6 +144,7 @@ export function validateTemplateCheck(t: TemplateCheck | null | undefined, expec
     if (t.locale && t.locale !== expected.locale) blocking.push({ code: "TEMPLATE_LANGUAGE_MISMATCH", field: "template", message: "Το πρότυπο δεν αντιστοιχεί στη γλώσσα του εγγράφου." });
     if (!t.checksumValid) blocking.push({ code: "TEMPLATE_CHECKSUM_INVALID", field: "template", message: "Το κείμενο του προτύπου δεν ταιριάζει με το checksum του." });
     if (t.requiresLegalReview && !t.legalApproved) blocking.push({ code: "TEMPLATE_LEGAL_APPROVAL_MISSING", field: "template", message: "Το πρότυπο απαιτεί νομικό έλεγχο που δεν έχει καταγραφεί." });
+    if (t.rejection && blocking.length === 0) blocking.push({ code: t.rejection.code, field: "template", message: t.rejection.message });
   }
   return { blockingIssues: blocking, warnings: [] };
 }

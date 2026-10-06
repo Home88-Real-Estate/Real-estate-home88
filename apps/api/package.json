@@ -11,7 +11,7 @@
     "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "backfill:phone-hash": "tsx scripts/backfill-phone-hash.ts",
-    "test": "tsx --test \"src/**/*.test.ts\"",
+    "test": "tsx --test --test-concurrency=1 \"src/**/*.test.ts\"",
     "seed": "tsx scripts/seed.ts",
     "admin:create": "tsx scripts/create-admin.ts"
   },

@@ -11,6 +11,8 @@
  * reported as missing, so a mandate is never issued with blanks.
  */
 
+import { DOCUMENT_MERGE_FIELDS } from "./document-fields";
+
 export const MANDATE_STATUSES = ["DRAFT", "ISSUED", "SENT", "VIEWED", "SIGNED", "DECLINED", "EXPIRED", "CANCELLED"] as const;
 export type MandateStatus = (typeof MANDATE_STATUSES)[number];
 
@@ -99,8 +101,8 @@ export const MANDATE_MERGE_FIELDS = [
 ] as const;
 
 export type MandateMergeKey = (typeof MANDATE_MERGE_FIELDS)[number]["key"];
-const KNOWN = new Set<string>(MANDATE_MERGE_FIELDS.map((f) => f.key));
-const LABEL: Record<string, string> = Object.fromEntries(MANDATE_MERGE_FIELDS.map((f) => [f.key, f.label]));
+const KNOWN = new Set<string>([...MANDATE_MERGE_FIELDS, ...DOCUMENT_MERGE_FIELDS].map((f) => f.key));
+const LABEL: Record<string, string> = Object.fromEntries([...DOCUMENT_MERGE_FIELDS, ...MANDATE_MERGE_FIELDS].map((f) => [f.key, f.label]));
 
 const PLACEHOLDER = /\{\{\s*([a-zA-Z][a-zA-Z0-9]*(?:\.[a-zA-Z][a-zA-Z0-9]*)*)\s*\}\}/g;
 

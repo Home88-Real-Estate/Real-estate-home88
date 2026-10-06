@@ -155,14 +155,14 @@ export async function issueMandateExtension(db: Db, extensionId: string, input: 
 }
 
 /** ISSUED → SIGNED (the new end now counts) or CANCELLED. */
-export async function resolveMandateExtension(db: Db, extensionId: string, to: "SIGNED" | "CANCELLED", input: { actor: Actor; signedPdfStorageKey?: string | null; now?: Date }) {
+export async function resolveMandateExtension(db: Db, extensionId: string, to: "SIGNED" | "CANCELLED", input: { actor: Actor; signedPdfStorageKey?: string | null; signedPdfChecksum?: string | null; now?: Date }) {
   const x = await db.mandateExtension.findUnique({ where: { id: extensionId } });
   if (!x) throw new BrokerageError("EXTENSION_NOT_FOUND", "Η παράταση δεν βρέθηκε.");
   const allowed = (x.status === "ISSUED" && (to === "SIGNED" || to === "CANCELLED")) || (x.status === "DRAFT" && to === "CANCELLED");
   if (!allowed) throw new BrokerageError("INVALID_TRANSITION", "Μη επιτρεπτή αλλαγή κατάστασης παράτασης.");
   const updated = await db.mandateExtension.update({
     where: { id: extensionId },
-    data: to === "SIGNED" ? { status: "SIGNED", signedAt: input.now ?? new Date(), signedPdfStorageKey: input.signedPdfStorageKey ?? null } : { status: "CANCELLED" },
+    data: to === "SIGNED" ? { status: "SIGNED", signedAt: input.now ?? new Date(), signedPdfStorageKey: input.signedPdfStorageKey ?? null, signedPdfChecksum: input.signedPdfChecksum ?? null } : { status: "CANCELLED" },
   });
   await db.mandateEvent.create({ data: { mandateId: x.mandateId, type: to === "SIGNED" ? "EXTENSION_SIGNED" : "EXTENSION_CANCELLED", summary: to === "SIGNED" ? `Υπογράφηκε παράταση έως ${day(x.newEndDate)}` : "Ακυρώθηκε παράταση", data: { extensionId }, actorId: input.actor.id, actorName: input.actor.name } });
   return updated;
@@ -172,7 +172,7 @@ export async function resolveMandateExtension(db: Db, extensionId: string, to: "
 // Validation
 // ---------------------------------------------------------------------------
 
-export async function buildMandateValidationInput(db: Db, mandateId: string, now = new Date()): Promise<MandateValidationInput> {
+export async function buildMandateValidationInput(db: Db, mandateId: string, now = new Date(), opts: { blockAnomalies?: boolean } = {}): Promise<MandateValidationInput> {
   const m = await db.mandate.findUnique({ where: { id: mandateId }, include: { parties: { orderBy: { sortOrder: "asc" } }, milestones: { orderBy: { sequence: "asc" } }, property: true } });
   if (!m) throw new BrokerageError("MANDATE_NOT_FOUND", "Η εντολή δεν βρέθηκε.");
   const [company, tpl, settings, owners, conflicts] = await Promise.all([
@@ -219,7 +219,7 @@ export async function buildMandateValidationInput(db: Db, mandateId: string, now
     })),
     owners,
     fee,
-    feeContext: { configuredVatRatePct: company.configuredVatRatePct },
+    feeContext: { configuredVatRatePct: company.configuredVatRatePct, blockAnomalies: opts.blockAnomalies ?? false },
     knownDefects: m.knownDefects,
     defectsDisclosureConfirmed: m.defectsDisclosureConfirmed,
     defectsDescription: m.defectsDescription,
@@ -241,8 +241,8 @@ export async function buildMandateValidationInput(db: Db, mandateId: string, now
   };
 }
 
-export async function evaluateMandate(db: Db, mandateId: string, now = new Date()): Promise<DocumentCompletenessResult> {
-  return validateMandate(await buildMandateValidationInput(db, mandateId, now));
+export async function evaluateMandate(db: Db, mandateId: string, now = new Date(), opts: { blockAnomalies?: boolean } = {}): Promise<DocumentCompletenessResult> {
+  return validateMandate(await buildMandateValidationInput(db, mandateId, now, opts));
 }
 
 /** The fee as it will be printed, from the stored terms and the property's current price. Null while undecided. */
