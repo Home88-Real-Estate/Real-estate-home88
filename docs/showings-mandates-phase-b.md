@@ -74,3 +74,19 @@ signer's date, uploader and timestamp; the original PDF is never overwritten.
   fields and an approved template to be issued (deliberately stricter).
 - The API test suite now runs with `--test-concurrency=1`: several suites share
   singleton settings rows (company details, templates).
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every pull request to `main` and every push to `main`: a Postgres 16 service,
+three migrated throwaway databases (`TEST_DATABASE_URL`, `INTAKE_TEST_DATABASE_URL`, `VALUATION_TEST_DATABASE_URL`),
+then typecheck, lint, build and the full test suite.
+
+A green run that skipped its database suites is not a pass, so `scripts/check-test-skips.mjs` enforces it:
+`--preflight` fails the job when `CI=true` and any database URL is missing, and the post-test step fails when the
+test log contains any skipped test other than the live-database check (`DB_SECURITY_TEST_URL`), which targets a
+production database and never runs in CI. The summary line, e.g. `Tests: 573 passed, 0 failed, 1 skipped (1 allowed)`,
+is written to the job summary.
+
+To reproduce locally, create the three databases, run `prisma migrate deploy` against each with `DATABASE_URL` set,
+export the three variables and run `npm test`. Set `H88_DUMP_DIR` to a directory to have the mandate integration test
+write the issued mandate and addendum PDFs there for visual inspection.

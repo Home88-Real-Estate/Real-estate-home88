@@ -211,6 +211,94 @@ test("documents and mandates: templates, issuing, immutability, paper and e-sign
   await assert.rejects(db().mandate.update({ where: { id: m1 }, data: { status: "CANCELLED" } }), "database keeps it final");
   assert.equal((await call(managerCookie, "POST", `/mandates/${m1}/signed-copy`, { token })).status, 409);
 
+  // ---------------------------------------------------------------------------
+  // Access control for issued PDFs, signed copies and addenda. Not merely "the key starts with private/":
+  // every route that can hand a document out is exercised as an anonymous caller, a role without the
+  // permission, an agent who does not own the record, and the people who may have it.
+  // ---------------------------------------------------------------------------
+  const viewerUser = await mk("VIEWER", "mviewer");
+  const viewerCookie = await login(viewerUser.email);
+  const mandateRow = await db().mandate.findUniqueOrThrow({ where: { id: m1 }, include: { pdfDocument: true, signedDocument: true } });
+  const originalPdf = Buffer.from(store.objects.get(mandateRow.pdfDocument!.storageKey)!.body);
+
+  const assertCannotFetch = async (path: string) => {
+    assert.equal((await call(null, "GET", path)).status, 401, `anonymous: ${path}`);
+    assert.equal((await call(viewerCookie, "GET", path)).status, 403, `no permission: ${path}`);
+    assert.equal((await call(otherCookie, "GET", path)).status, 404, `not the owner's record: ${path}`);
+  };
+  const assertShortLivedSignedLink = (body: any, key: string) => {
+    assert.equal(body.expiresInSeconds, 120, "short-lived");
+    // The in-memory store signs as memory://<key>; the S3 store signs with an expiring signature (unit-tested separately).
+    assert.equal(body.url, `memory://${key}`);
+    assert.ok(!("storageKey" in body) && !("key" in body), "no bare storage key in the response");
+  };
+
+  await assertCannotFetch(`/mandates/${m1}/pdf`);
+  const mandatePdf = await call(agentCookie, "GET", `/mandates/${m1}/pdf`);
+  assert.equal(mandatePdf.status, 200, JSON.stringify(mandatePdf.body));
+  assertShortLivedSignedLink(mandatePdf.body, mandateRow.pdfDocument!.storageKey);
+  assert.equal((await call(managerCookie, "GET", `/mandates/${m1}/pdf`)).status, 200, "a manager may fetch any mandate");
+
+  // The paper-signed copy is a Document: the same wall around it.
+  const signedId = mandateRow.signedDocumentId!;
+  assert.equal((await call(null, "GET", `/documents/${signedId}/download`)).status, 401);
+  assert.equal((await call(viewerCookie, "GET", `/documents/${signedId}/download`)).status, 403);
+  assert.equal((await call(otherCookie, "GET", `/documents/${signedId}/download`)).status, 404);
+  const signedDl = await call(agentCookie, "GET", `/documents/${signedId}/download`);
+  assert.equal(signedDl.status, 200, JSON.stringify(signedDl.body));
+  assert.equal(signedDl.body.url, `memory://${mandateRow.signedDocument!.storageKey}`);
+  assert.equal(signedDl.body.expiresInSeconds, 120);
+  // Guessing a key does not help: downloads are by document id, checked against the caller; keys are not routes.
+  const guessed = await call(agentCookie, "GET", `/documents/${encodeURIComponent(mandateRow.pdfDocument!.storageKey)}/download`);
+  assert.ok([400, 404, 414].includes(guessed.status) && !guessed.body.url, `a storage key is not a download route (${guessed.status})`);
+
+  // An addendum: its own document, number, PDF and checksum; the signed original is untouched.
+  assert.equal((await call(viewerCookie, "POST", `/mandates/${m1}/extensions`, { newEndDate: "2027-10-30" })).status, 403);
+  assert.equal((await call(otherCookie, "POST", `/mandates/${m1}/extensions`, { newEndDate: "2027-10-30" })).status, 403, "agents do not hold mandates.extend");
+  const ext = await call(managerCookie, "POST", `/mandates/${m1}/extensions`, { newEndDate: "2027-10-30", reason: "Παράταση για δοκιμή" });
+  assert.equal(ext.status, 200, JSON.stringify(ext.body));
+  const extId = ext.body.extension.id as string;
+  const { installApprovedTemplate } = await import("../lib/brokerage/documents/test-support");
+  await installApprovedTemplate(db(), "MANDATE_EXTENSION", "el");
+  assert.equal((await call(managerCookie, "GET", `/mandate-extensions/${extId}/pdf`)).status, 409, "no PDF before the addendum is issued");
+  const extIssued = await call(managerCookie, "POST", `/mandate-extensions/${extId}/issue`, {});
+  assert.equal(extIssued.status, 200, JSON.stringify(extIssued.body));
+  const extRow = await db().mandateExtension.findUniqueOrThrow({ where: { id: extId } });
+  assert.ok(extRow.number?.startsWith(`${mandateRow.number}/`), `the addendum number derives from the mandate number: ${extRow.number}`);
+  assert.equal(extRow.previousEndDate.toISOString().slice(0, 10), "2027-04-30");
+  assert.equal(extRow.newEndDate.toISOString().slice(0, 10), "2027-10-30");
+  assert.ok(extRow.pdfChecksum && extRow.pdfChecksum !== mandateRow.pdfChecksum, "its own checksum");
+  assert.notEqual(extRow.pdfStorageKey, mandateRow.pdfDocument!.storageKey, "its own object");
+  assert.ok(extRow.pdfStorageKey!.startsWith("private/documents/"));
+  assert.ok(originalPdf.equals(store.objects.get(mandateRow.pdfDocument!.storageKey)!.body), "the original mandate PDF is byte-for-byte unchanged");
+  const extBytes = store.objects.get(extRow.pdfStorageKey!)!.body;
+  assert.equal(createHash("sha256").update(extBytes).digest("hex"), extRow.pdfChecksum);
+  if (process.env.H88_DUMP_DIR) {
+    // Optional, for manual visual inspection of the rendered documents.
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(`${process.env.H88_DUMP_DIR}/mandate.pdf`, originalPdf);
+    writeFileSync(`${process.env.H88_DUMP_DIR}/extension.pdf`, extBytes);
+  }
+
+  await assertCannotFetch(`/mandate-extensions/${extId}/pdf`);
+  const extPdf = await call(agentCookie, "GET", `/mandate-extensions/${extId}/pdf`);
+  assert.equal(extPdf.status, 200, JSON.stringify(extPdf.body));
+  assertShortLivedSignedLink(extPdf.body, extRow.pdfStorageKey!);
+  assert.equal((await call(otherCookie, "POST", `/mandate-extensions/${extId}/signed-copy`, { token: "x".repeat(20) })).status, 403, "an agent cannot attach a signed copy");
+  assert.equal((await call(null, "POST", `/mandate-extensions/${extId}/signed-copy`, { token: "x".repeat(20) })).status, 401);
+
+  // Public verification: confirms a document exists; never a way to read it.
+  const verify = await call(null, "GET", `/verify/${extRow.verificationCode}`);
+  assert.equal(verify.status, 200);
+  assert.deepEqual(Object.keys(verify.body), ["document"]);
+  assert.deepEqual(Object.keys(verify.body.document).sort(), ["checksumPrefix", "issuedAt", "number", "status", "type"]);
+  const publicText = JSON.stringify(verify.body) + JSON.stringify((await call(null, "GET", `/verify/${mandateRow.verificationCode}`)).body);
+  for (const secret of ["private/", "memory://", extRow.pdfStorageKey!, mandateRow.pdfDocument!.storageKey, "123456783", "Οδός Δοκιμής", "6977000000", "url", extId, m1]) {
+    assert.ok(!publicText.includes(secret), `the public verification response must not contain ${secret.slice(0, 12)}…`);
+  }
+  assert.equal((await call(null, "GET", `/verify/${extRow.verificationCode}/pdf`)).status, 404, "no document sub-route on the public endpoint");
+  assert.deepEqual((await call(null, "GET", `/verify/${extRow.verificationCode}?download=1&format=pdf`)).body, verify.body, "query parameters cannot widen the response");
+
   // E-signature through a provider (fake adapter).
   let envelopeStatus: "SENT" | "VIEWED" | "SIGNED" = "SENT";
   let sentPdf: Buffer | null = null;
@@ -233,7 +321,7 @@ test("documents and mandates: templates, issuing, immutability, paper and e-sign
       return { handled: true, envelopeId: p.envelope, status: p.status };
     },
   });
-  assert.equal((await call(agentCookie, "PATCH", `/mandates/${m2}`, { startsAt: "2027-05-01", endsAt: "2027-10-31" })).status, 200);
+  assert.equal((await call(agentCookie, "PATCH", `/mandates/${m2}`, { startsAt: "2027-11-01", endsAt: "2028-04-30" })).status, 200);
   assert.equal((await call(managerCookie, "POST", `/mandates/${m2}/issue`, {})).status, 200, "no overlap after the dates change");
   let send = await call(managerCookie, "POST", `/mandates/${m2}/send`, {});
   assert.equal(send.status, 409);
