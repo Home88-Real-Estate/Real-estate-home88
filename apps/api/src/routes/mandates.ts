@@ -56,7 +56,7 @@ import { allocateReference } from "../lib/references";
 import { requireRole, roleAtLeast } from "../plugins/auth";
 import { resolveSignatureProvider } from "../providers/signature";
 import { settings } from "../settings";
-import { confirmUpload } from "./documents";
+import { confirmUpload, SIGNED_COPY_MIME_TYPES } from "./documents";
 
 type Actor = { id: string; role: string; firstName: string; lastName: string; email: string };
 
@@ -770,6 +770,7 @@ export async function mandateRoutes(app: FastifyInstance): Promise<void> {
         input.token,
         { title: `${typeLabel(m.type)} ${m.number} (υπογεγραμμένη)`, category: "MANDATE", propertyId: m.propertyId, contactId: party?.contactId ?? null, containsPersonalData: true },
         tx,
+        { allowedMimeTypes: SIGNED_COPY_MIME_TYPES },
       );
       if (d.checksum === m.pdfChecksum) throw badRequest("Το υπογεγραμμένο αντίγραφο δεν μπορεί να είναι το αρχικό μη υπογεγραμμένο PDF.");
       await tx.mandate.update({

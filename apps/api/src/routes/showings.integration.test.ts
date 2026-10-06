@@ -145,6 +145,16 @@ test("showings: draft → validate → issue → PDF → paper signature → rep
   assert.equal(send.status, 409, "no e-signature provider");
   const original = Buffer.from(store.objects.get(row.pdfStorageKey!)!.body);
   const scan = Buffer.concat([Buffer.from("%PDF-1.4\n"), randomBytes(64)]);
+  // A signed copy is a scan: an editable DOCX, or bytes that are not the declared type, are refused.
+  const docxMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  const docxBytes = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), randomBytes(64)]);
+  const docxUp = await call(managerC, "POST", "/documents/uploads", { fileName: "f.docx", mimeType: docxMime, byteSize: docxBytes.length });
+  assert.equal(docxUp.status, 200, JSON.stringify(docxUp.body));
+  await store.put(String(docxUp.body.upload.url).replace("memory://", ""), docxBytes, docxMime);
+  assert.equal((await call(managerC, "POST", `/showings/${id}/signed-copy`, { token: docxUp.body.token })).status, 400, "DOCX is not an acceptable signed copy");
+  const fake = await upload(managerC, Buffer.concat([Buffer.from("<html>"), randomBytes(64)]));
+  assert.equal((await call(managerC, "POST", `/showings/${id}/signed-copy`, { token: fake })).status, 400, "content must match the declared type");
+  assert.equal((await db().showing.findUniqueOrThrow({ where: { id } })).status, "ISSUED", "refused uploads change nothing");
   const token = await upload(managerC, scan);
   assert.equal((await call(agentC, "POST", `/showings/${id}/signed-copy`, { token })).status, 403, "agents cannot record signatures");
   const signed = await call(managerC, "POST", `/showings/${id}/signed-copy`, { token, signedAt: new Date().toISOString().slice(0, 10) });

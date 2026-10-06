@@ -30,6 +30,8 @@ import { requireRole, roleAtLeast } from "../plugins/auth";
 type Actor = { id: string; role: string; firstName: string; lastName: string; email: string };
 
 const CATEGORIES = ["CONTRACT", "DEED", "ID_VERIFICATION", "TAX", "INSPECTION", "APPRAISAL", "INVOICE", "MANDATE", "OTHER"] as const;
+/** A signed paper copy is a scan or photo: never an editable document. */
+export const SIGNED_COPY_MIME_TYPES = ["application/pdf", "image/jpeg", "image/png"] as const;
 const TOKEN_TTL_MS = 30 * 60 * 1000;
 
 const uploadSchema = z.object({
@@ -129,9 +131,11 @@ export async function confirmUpload(
   token: string,
   data: Omit<Prisma.DocumentUncheckedCreateInput, "storageKey" | "mimeType" | "byteSize" | "checksum" | "uploadedById">,
   tx: Prisma.TransactionClient = db(),
+  options: { allowedMimeTypes?: readonly string[] } = {},
 ) {
   const store = requireStore();
   const { key, mimeType, byteSize } = verifyUpload(token, actor.id);
+  if (options.allowedMimeTypes && !options.allowedMimeTypes.includes(mimeType)) throw badRequest("Το υπογεγραμμένο αντίγραφο πρέπει να είναι PDF, JPG ή PNG.");
   const head = await store.head(key);
   if (!head) throw badRequest("Το αρχείο δεν ανέβηκε. Δοκιμάστε ξανά.");
   if (head.byteSize !== byteSize) throw badRequest("Το μέγεθος του αρχείου δεν ταιριάζει με αυτό που δηλώθηκε.");
