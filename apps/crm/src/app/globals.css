@@ -1309,3 +1309,8 @@ td.actions .btn { margin: 2px 4px 2px 0; }
 @media print {
   .doc-preview { border: 0; padding: 0; }
 }
+
+/* Property list cover thumbnail */
+.thumb-col { width: 76px; padding-right: 0; }
+.thumb { display: block; width: 64px; height: 48px; object-fit: cover; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line); }
+.thumb--empty { background: repeating-linear-gradient(45deg, var(--surface-2), var(--surface-2) 6px, var(--surface) 6px, var(--surface) 12px); }

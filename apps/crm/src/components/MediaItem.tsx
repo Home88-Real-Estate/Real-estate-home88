@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 
-import { deleteMedia, makePrimary, setMediaStatus, updateMedia } from "@/actions/media";
+import { deleteMedia, makePrimary, moveMedia, setMediaStatus, updateMedia } from "@/actions/media";
 import { idleState } from "@/lib/form";
 
 export type MediaItemData = {
@@ -100,6 +100,16 @@ export function MediaItem({
       </form>
 
       <div className="media-card__actions">
+        {(["earlier", "later"] as const).map((direction) => (
+          <form action={moveMedia} key={direction}>
+            <input type="hidden" name="propertyId" value={propertyId} />
+            <input type="hidden" name="mediaId" value={item.id} />
+            <input type="hidden" name="direction" value={direction} />
+            <button type="submit" className="btn btn--sm" aria-label={direction === "earlier" ? "Μετακίνηση νωρίτερα" : "Μετακίνηση αργότερα"}>
+              {direction === "earlier" ? "←" : "→"}
+            </button>
+          </form>
+        ))}
         {!item.isPrimary && (
           <form action={makePrimary}>
             <input type="hidden" name="propertyId" value={propertyId} />

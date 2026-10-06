@@ -60,18 +60,52 @@ planned offline PWA phase.
 
 ### Bucket CORS (required)
 
-The bucket must accept browser PUTs from the CRM origin:
+The bucket must accept browser PUTs from **every origin the CRM is opened on**.
+The browser sends the file straight to the bucket, so the bucket's CORS rule is
+a second, separate check from the API's origin check below. List each origin
+explicitly (no `*`, no `*.vercel.app`):
 
 ```json
 [
   {
-    "AllowedOrigins": ["https://crm.home88.estate"],
+    "AllowedOrigins": ["https://crm.home88.estate", "https://real-estate-home88-iota.vercel.app"],
     "AllowedMethods": ["PUT", "GET", "HEAD"],
     "AllowedHeaders": ["content-type", "cache-control"],
     "MaxAgeSeconds": 3600
   }
 ]
 ```
+
+### Which origins the API accepts for writes
+
+Every cookie-authenticated write (POST/PUT/PATCH/DELETE) is checked against the
+browser's `Origin` header (CSRF defence). A write is accepted when the origin is
+
+1. the origin the request was **served from** (the CRM page and its `/crm/api/…`
+   calls are same-origin, so opening the CRM on `https://real-estate-home88-iota.vercel.app`
+   works without naming that address anywhere), or
+2. `CRM_URL` or `SITE_URL`, or
+3. one of the comma-separated `CRM_PUBLIC_ORIGINS` (for example the website's
+   origin when it also serves the CRM under its own `/crm`).
+
+Anything else gets `403 Origin not allowed.` There is no wildcard and no
+`*.vercel.app` rule, so another deployment, a preview of a different project or
+a look-alike domain is rejected. Preview deployments of this project are
+same-origin with themselves and work without configuration; to use one from a
+different front-end origin, add that exact origin to `CRM_PUBLIC_ORIGINS` for
+that environment only (and to the bucket's CORS rule).
+
+How "served from" is known: the CRM's `/crm/api/[...path]` route passes the
+request's real host and protocol (from the platform's `x-forwarded-host` /
+`x-forwarded-proto`, else `Host`) to the in-process API as `x-forwarded-*`
+headers, replacing anything the client sent. Required variables: none beyond
+`CRM_URL`/`SITE_URL`; optionally `CRM_PUBLIC_ORIGINS`. Per file: 25 MB
+(`MAX_UPLOAD_BYTES`), 40 files per property.
+
+History: before this check accepted the serving origin, uploads (the only CRM
+calls made by browser JavaScript; forms run on the server and send no `Origin`)
+failed with 403 whenever `CRM_URL` named a different address from the one in the
+address bar, while saving the property itself still worked.
 
 ## Setting up the two projects
 

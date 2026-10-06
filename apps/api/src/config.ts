@@ -48,6 +48,13 @@ const schema = z.object({
     .default("/crm")
     .transform((v) => (v === "/" || v === "" ? "" : `/${v.replace(/^\/+|\/+$/g, "")}`)),
   SITE_URL: z.string().url().default("http://localhost:3000"),
+  /**
+   * Extra origins allowed to send writes, comma-separated (for example the
+   * public website when it also serves the CRM under its own /crm). The origin a
+   * request was actually served from is always accepted; nothing else is, and
+   * there is no wildcard.
+   */
+  CRM_PUBLIC_ORIGINS: z.string().default(""),
 
   // --- Database ------------------------------------------------------------
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required."),

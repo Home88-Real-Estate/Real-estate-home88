@@ -69,3 +69,22 @@ export async function deleteMedia(formData: FormData): Promise<void> {
   await apiFetch(`/api/properties/${propertyId}/media/${mediaId}`, { method: "DELETE" });
   refresh(propertyId);
 }
+
+/** Moves one item a step earlier or later; the whole order is saved on the server. */
+export async function moveMedia(formData: FormData): Promise<void> {
+  const propertyId = str(formData, "propertyId");
+  const mediaId = str(formData, "mediaId");
+  const direction = str(formData, "direction");
+  if (!propertyId || !mediaId || (direction !== "earlier" && direction !== "later")) return;
+
+  const list = await apiFetch<{ media: Array<{ id: string }> }>(`/api/properties/${propertyId}/media`);
+  if (!list.ok) return;
+  const ids = list.data.media.map((m) => m.id);
+  const at = ids.indexOf(mediaId);
+  const to = direction === "earlier" ? at - 1 : at + 1;
+  if (at < 0 || to < 0 || to >= ids.length) return;
+  [ids[at], ids[to]] = [ids[to]!, ids[at]!];
+
+  await apiFetch(`/api/properties/${propertyId}/media/reorder`, { method: "POST", json: { ids } });
+  refresh(propertyId);
+}
