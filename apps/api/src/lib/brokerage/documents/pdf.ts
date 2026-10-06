@@ -241,8 +241,14 @@ export async function renderDocumentPdf(input: { blocks: Block[]; snapshot: Docu
       case "section": {
         // Keep the heading with what follows: reserve room for the heading and the next block's first row.
         // A signature section that fits on one page is never split: it moves whole, heading included.
-        const next = blocks[i + 1];
-        const sigsH = next && next.t === "signatures" ? signaturesHeight(next.boxes) : 0;
+        let j = i + 1;
+        let leadH = 0;
+        while (blocks[j]?.t === "para") {
+          leadH += (blocks[j] as { text: string }).text.split("\n").reduce((n, p) => n + wrap(p, fonts.regular, BODY, contentWidth).length, 0) * LEAD + 5;
+          j++;
+        }
+        const next = blocks[j];
+        const sigsH = next && next.t === "signatures" ? leadH + signaturesHeight(next.boxes) : 0;
         ensure(sigsH && sigsH + 34 <= A4.height - MARGIN.top - bottom ? 34 + sigsH : 34 + 28);
         y -= 8;
         text(b.text, MARGIN.left, 11, fonts.bold, fonts.boldSet, "section");

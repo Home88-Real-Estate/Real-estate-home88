@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck, lint, build and database tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci_only_not_a_secret
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      CI: "true"
+      PGPASSWORD: ci_only_not_a_secret
+      # Throwaway databases on the job's own Postgres service; one per suite family.
+      TEST_DATABASE_URL: postgresql://ci:ci_only_not_a_secret@localhost:5432/ci_main?schema=public
+      INTAKE_TEST_DATABASE_URL: postgresql://ci:ci_only_not_a_secret@localhost:5432/ci_intake?schema=public
+      VALUATION_TEST_DATABASE_URL: postgresql://ci:ci_only_not_a_secret@localhost:5432/ci_valuation?schema=public
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Require database test URLs
+        run: node scripts/check-test-skips.mjs --preflight
+
+      - name: Install
+        run: npm ci
+
+      - name: Create and migrate test databases
+        run: |
+          for db in ci_main ci_intake ci_valuation; do
+            psql -h localhost -U ci -d postgres -c "create database $db"
+            DATABASE_URL="postgresql://ci:ci_only_not_a_secret@localhost:5432/$db?schema=public" \
+              npx prisma migrate deploy --schema packages/database/prisma/schema.prisma
+          done
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: set -o pipefail; npm test 2>&1 | tee test.log
+
+      - name: No skipped database tests
+        if: always()
+        run: node scripts/check-test-skips.mjs test.log

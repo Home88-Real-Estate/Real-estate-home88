@@ -177,6 +177,8 @@ const EL: Dict = {
   "section.clauses": "Όροι",
   "section.extension": "Παράταση",
   "section.signatures": "Υπογραφές",
+  "section.acknowledgement": "Δήλωση ανάγνωσης και υπογραφής",
+  "acknowledgement.SHOWING": "Ο/Η υπογράφων/ουσα δηλώνει ότι έλαβε γνώση, κατανόησε και αποδέχεται το περιεχόμενο της παρούσας Εντολής Υπόδειξης Ακινήτου με αριθμό {number}.",
   "fullName": "Ονοματεπώνυμο",
   "taxId": "ΑΦΜ",
   "idNumber": "Αρ. ταυτότητας",
@@ -303,6 +305,8 @@ const EN: Dict = {
   "section.clauses": "Terms",
   "section.extension": "Extension",
   "section.signatures": "Signatures",
+  "section.acknowledgement": "Declaration of reading and signature",
+  "acknowledgement.SHOWING": "The undersigned declares that they have read, understood and accept the content of this Property Showing Mandate no. {number}.",
   "fullName": "Full name",
   "taxId": "Tax ID (AFM)",
   "idNumber": "ID number",
@@ -692,7 +696,12 @@ export function buildDocumentBlocks(s: DocumentSnapshot, clauses: string): Block
   }
 
   if (clauses.trim()) blocks.push({ t: "section", text: l("section.clauses") }, { t: "clauses", text: clauses.trim() });
-  blocks.push({ t: "section", text: l("section.signatures") }, signatureBlock(s));
+  if (s.kind === "SHOWING") {
+    // A showing is short, so its signatures often sit alone on the last page: say what is being signed, by number.
+    blocks.push({ t: "section", text: l("section.acknowledgement") }, { t: "para", text: l("acknowledgement.SHOWING").replace("{number}", s.number) }, signatureBlock(s));
+  } else {
+    blocks.push({ t: "section", text: l("section.signatures") }, signatureBlock(s));
+  }
   return blocks;
 }
 

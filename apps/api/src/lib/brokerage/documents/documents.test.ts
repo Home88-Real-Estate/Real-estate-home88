@@ -118,6 +118,23 @@ test("a signature section that fits on one page is never split across pages", as
   }
 });
 
+test("a showing's signatures say what is being signed, by number, and stay together with that declaration", async () => {
+  for (const [language, heading, needle] of [["el", "Δήλωση ανάγνωσης και υπογραφής", "Εντολής Υπόδειξης Ακινήτου με αριθμό T-00001"], ["en", "Declaration of reading and signature", "Property Showing Mandate no. T-00001"]] as const) {
+    const s = snapshot("SHOWING", 1, language);
+    const { layout } = await renderDocumentPdf({ blocks: buildDocumentBlocks(s, "Ρήτρες."), snapshot: s, title: "T", issuedAt });
+    const text = layout.items.map((i) => i.text).join(" ");
+    assert.ok(text.includes(heading), `${language}: heading`);
+    assert.ok(text.replace(/\s+/g, " ").includes(needle), `${language}: acknowledgement names the document number`);
+    const head = layout.items.find((i) => i.text === heading)!;
+    const sig = layout.items.find((i) => i.kind === "signature-role")!;
+    assert.equal(head.page, sig.page, `${language}: the declaration is on the signature page`);
+  }
+  // Mandates keep their own approved wording: no declaration is added to them.
+  const m = snapshot("EXCLUSIVE_ASSIGNMENT");
+  const { layout } = await renderDocumentPdf({ blocks: buildDocumentBlocks(m, "Ρήτρες."), snapshot: m, title: "T", issuedAt });
+  assert.ok(!layout.items.some((i) => i.text.includes("Δήλωση ανάγνωσης")));
+});
+
 test("a character the font cannot print fails the render instead of printing a gap", async () => {
   const s = snapshot("SHOWING");
   s.parties = [{ ...party, fullName: "Test \u4e2d\u6587" }];
