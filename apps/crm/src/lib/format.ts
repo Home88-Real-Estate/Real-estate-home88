@@ -42,6 +42,20 @@ export function formatDateTime(value: unknown): string {
   return new Intl.DateTimeFormat("el-GR", { dateStyle: "medium", timeStyle: "short", hourCycle: "h23", timeZone: TIME_ZONE }).format(d);
 }
 
+export function formatTime(value: unknown): string {
+  const d = toDate(value);
+  if (!d) return EMPTY;
+  return new Intl.DateTimeFormat("el-GR", { timeStyle: "short", hourCycle: "h23", timeZone: TIME_ZONE }).format(d);
+}
+
+/** Value for <input type="date"> and <input type="time"> in the office's time zone. */
+export function inputDateTime(value: unknown): { date: string; time: string } {
+  const d = toDate(value);
+  if (!d) return { date: "", time: "" };
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: TIME_ZONE }).formatToParts(d).map((p) => [p.type, p.value]));
+  return { date: `${parts.year}-${parts.month}-${parts.day}`, time: `${parts.hour}:${parts.minute}` };
+}
+
 export function formatDate(value: unknown): string {
   const d = toDate(value);
   if (!d) return EMPTY;

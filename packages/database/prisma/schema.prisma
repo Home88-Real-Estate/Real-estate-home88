@@ -157,6 +157,11 @@ enum ContactRole {
   OTHER
 }
 
+enum ContactStatus {
+  ACTIVE
+  INACTIVE
+}
+
 enum PreferredContactMethod {
   PHONE
   EMAIL
@@ -371,6 +376,7 @@ model User {
   viewings            Viewing[]
   showingsResponsible Showing[]            @relation("ShowingResponsible")
   tasks               Task[]               @relation("TaskAssignee")
+  assignedContacts    Contact[]            @relation("ContactAssignee")
   buyerRequests       BuyerRequest[]       @relation("RequestAssignee")
   submissions         PropertySubmission[] @relation("SubmissionAssignee")
   notes               Note[]
@@ -492,6 +498,18 @@ model Contact {
   taxIdEncrypted   String?
   addressEncrypted String?
 
+  // --- Contact workspace (Phase C) -----------------------------------------
+  status             ContactStatus @default(ACTIVE)
+  /// The user who looks after this contact (Διαχειριστής).
+  assignedToId       String?
+  assignedTo         User?         @relation("ContactAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  /// Bumped when something happens with the contact (note, showing, reminder, request ...).
+  lastActivityAt     DateTime?
+  city               String?
+  postalCode         String?
+  workPhoneEncrypted String?
+  tasks              Task[]
+
   preferredContactMethod PreferredContactMethod @default(ANY)
   preferredLocale        String                 @default("el")
 
@@ -523,10 +541,14 @@ model Contact {
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   valuationRequests ValuationRequest[]
+  ContactProperty   ContactProperty[]
 
   @@index([emailHash])
   @@index([phoneHash])
   @@index([lastName])
+  @@index([assignedToId])
+  @@index([status])
+  @@index([lastActivityAt])
   @@map("contacts")
 }
 
@@ -618,6 +640,7 @@ model Property {
   media             PropertyMedia[]
   leads             Lead[]
   owners            PropertyOwner[]
+  contactLinks      ContactProperty[]
   showingProperties ShowingProperty[]
   viewings          Viewing[]
   offers            Offer[]
@@ -1043,6 +1066,10 @@ model Task {
   property   Property? @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   viewingId  String?
   viewing    Viewing?  @relation(fields: [viewingId], references: [id], onDelete: Cascade)
+  contactId  String?
+  contact    Contact?  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  showingId  String?
+  showing    Showing?  @relation(fields: [showingId], references: [id], onDelete: Cascade)
 
   /// When the assignee was told the task is due (sent once).
   dueNotifiedAt DateTime?
@@ -1052,6 +1079,8 @@ model Task {
   updatedAt   DateTime @updatedAt
 
   @@index([assignedToId, status])
+  @@index([contactId])
+  @@index([showingId])
   @@index([dueAt])
   @@index([status, priority])
   @@map("tasks")
@@ -3107,6 +3136,8 @@ model Showing {
   viewings        Viewing[] @relation("ShowingViewings")
 
   documentDate DateTime? @db.Date
+  /// When the client is (or was) shown the properties; the date and time of the showing.
+  visitAt      DateTime?
   issuedAt     DateTime?
   sentAt       DateTime?
   viewedAt     DateTime?
@@ -3176,6 +3207,7 @@ model Showing {
   properties ShowingProperty[]
   parties    ShowingParty[]
   events     ShowingEvent[]
+  tasks      Task[]
   milestones PaymentMilestone[]
 
   createdById String?
@@ -3188,6 +3220,7 @@ model Showing {
   @@index([responsibleUserId, status])
   @@index([sourceViewingId])
   @@index([createdAt])
+  @@index([visitAt])
   @@map("showings")
 }
 
@@ -3454,4 +3487,33 @@ model DocumentAuditEvent {
   @@index([type, occurredAt])
   @@index([documentNumber])
   @@map("document_audit_events")
+}
+
+// ---------------------------------------------------------------------------
+// Contact ↔ property relationships (Phase C)
+// ---------------------------------------------------------------------------
+
+enum ContactPropertyRelation {
+  BUYER
+  TENANT
+  INTERESTED
+}
+
+/// How a contact relates to a property when they are not an owner. Owners and
+/// co-owners stay in property_owners (and Property.ownerId); this table holds
+/// the relationships that had no home before, so nothing is stored twice.
+model ContactProperty {
+  id          String                  @id @default(cuid())
+  contactId   String
+  contact     Contact                 @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  propertyId  String
+  property    Property                @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  relation    ContactPropertyRelation
+  notes       String?
+  createdById String?
+  createdAt   DateTime                @default(now())
+
+  @@unique([contactId, propertyId, relation])
+  @@index([propertyId])
+  @@map("contact_properties")
 }

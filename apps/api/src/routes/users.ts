@@ -87,6 +87,12 @@ function canManageRole(actorRole: string, targetRole: string): boolean {
 }
 
 export async function userRoutes(app: FastifyInstance): Promise<void> {
+  // Names only, for choosing who looks after a contact or showing. No email, role or status detail.
+  app.get("/users/directory", { preHandler: requireRole("AGENT") }, async () => {
+    const rows = await db().user.findMany({ where: { status: "ACTIVE" }, orderBy: [{ firstName: "asc" }, { lastName: "asc" }], select: { id: true, firstName: true, lastName: true } });
+    return { data: rows.map((u) => ({ id: u.id, name: `${u.firstName} ${u.lastName}`.trim() })) };
+  });
+
   app.get("/users", { preHandler: requireRole("MANAGER") }, async (request) => {
     const q = parseInput(listQuerySchema, request.query);
     const where: Prisma.UserWhereInput = {};

@@ -681,6 +681,10 @@ export const DOCUMENT_PERMISSIONS: readonly PermissionDef[] = [
   { code: "templates.submit_for_legal_review", label: "Πρότυπα εγγράφων: υποβολή για νομικό έλεγχο", group: "Έγγραφα & εντολές" },
   { code: "templates.approve_legal_version", label: "Πρότυπα εγγράφων: νομική έγκριση (και ένδειξη «νομικός εγκρίνων» στον χρήστη)", group: "Έγγραφα & εντολές" },
   { code: "templates.activate", label: "Πρότυπα εγγράφων: ενεργοποίηση εγκεκριμένης έκδοσης", group: "Έγγραφα & εντολές" },
+  { code: "contacts.export", label: "Επαφές: εξαγωγή CSV (χωρίς στοιχεία ταυτότητας)", group: "Επαφές" },
+  { code: "contacts.export_sensitive", label: "Επαφές: εξαγωγή και με ευαίσθητα στοιχεία (ΑΦΜ, διεύθυνση)", group: "Επαφές" },
+  { code: "contacts.bulk_assign", label: "Επαφές: μαζική ανάθεση σε διαχειριστή", group: "Επαφές" },
+  { code: "contacts.bulk_update", label: "Επαφές: μαζική αλλαγή κατάστασης και συναινέσεων", group: "Επαφές" },
 ] as const;
 
 export const SETTINGS_PERMISSIONS: readonly PermissionDef[] = [
@@ -727,8 +731,9 @@ const MANAGER_DOCUMENTS = [
   "showings.issue", "showings.send", "showings.cancel", "showings.replace",
   "mandates.issue", "mandates.send", "mandates.cancel", "mandates.replace", "mandates.extend",
   "mandates.override_conflict",
+  "contacts.export", "contacts.bulk_assign", "contacts.bulk_update",
 ];
-const ADMIN_DOCUMENTS = [...MANAGER_DOCUMENTS, "templates.create_draft", "templates.submit_for_legal_review", "templates.activate"];
+const ADMIN_DOCUMENTS = [...MANAGER_DOCUMENTS, "contacts.export_sensitive", "templates.create_draft", "templates.submit_for_legal_review", "templates.activate"];
 
 /** Defaults per role; SUPER_ADMIN always holds every permission. Overrides live in role_permissions. */
 export const DEFAULT_SETTINGS_GRANTS: Readonly<Record<string, readonly string[]>> = {

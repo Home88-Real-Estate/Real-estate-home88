@@ -12,7 +12,7 @@ const viewer = { role: "VIEWER", canOpenSettings: false };
 
 test("every existing CRM route has exactly one sidebar link", () => {
   const routes = ["/", "/properties", "/leads", "/submissions", "/requests", "/media", "/sellers", "/valuations",
-    "/mandates", "/transactions", "/calendar", "/reminders", "/contacts", "/documents", "/messages",
+    "/mandates", "/transactions", "/calendar", "/reminders", "/contacts", "/showings", "/documents", "/messages",
     "/users", "/invitations", "/settings", "/security", "/connections", "/reports", "/automation"];
   const hrefs = allHrefs(navFor(admin));
   for (const r of routes) assert.equal(hrefs.filter((h) => h === r).length, 1, r);
