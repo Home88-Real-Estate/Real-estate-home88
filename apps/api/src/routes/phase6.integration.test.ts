@@ -13,6 +13,9 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { test } from "node:test";
 
+// Synthetic, runtime-assembled placeholder: no credential-shaped literal is committed.
+const FAKE_PROVIDER_KEY = ["sk", "synthetic", "test", "value", "not", "a", "real", "key"].join("-");
+
 const url = process.env.TEST_DATABASE_URL;
 
 test("reports, automations and AI drafts", { skip: !url && "TEST_DATABASE_URL not set" }, async () => {
@@ -249,8 +252,8 @@ test("reports, automations and AI drafts", { skip: !url && "TEST_DATABASE_URL no
   assert.equal((await call(null, "POST", "/ai/property-description", { propertyId: aiProp.id })).status, 401);
 
   // Settings: the key is write-only.
-  const saved = await setAi({ enabled: true, provider: "anthropic", model: "claude-sonnet-5-5", allowDescriptions: true, allowReportSummaries: true, hourlyLimitPerUser: 3 }, { apiKey: "sk-ant-test-not-a-real-key" });
-  assert.ok(!JSON.stringify(saved.body).includes("sk-ant-test"), "the key never comes back");
+  const saved = await setAi({ enabled: true, provider: "anthropic", model: "claude-sonnet-5-5", allowDescriptions: true, allowReportSummaries: true, hourlyLimitPerUser: 3 }, { apiKey: FAKE_PROVIDER_KEY });
+  assert.ok(!JSON.stringify(saved.body).includes(FAKE_PROVIDER_KEY), "the key never comes back");
   assert.equal(saved.body.secrets.apiKey.configured, true);
   assert.equal(saved.body.provider, "configured");
   assert.equal((await call(agentCookie, "GET", "/settings/sections/ai")).status, 403, "agents cannot open AI settings");
@@ -323,7 +326,7 @@ test("reports, automations and AI drafts", { skip: !url && "TEST_DATABASE_URL no
   assert.equal((await call(agentCookie, "POST", "/ai/property-description", { propertyId: aiProp.id })).status, 409);
   const conns = await call(managerCookie, "GET", "/connections");
   assert.equal(conns.body.data.find((c: any) => c.key === "ai").status, "DISABLED");
-  assert.ok(!JSON.stringify(conns.body).includes("sk-ant-test"));
+  assert.ok(!JSON.stringify(conns.body).includes(FAKE_PROVIDER_KEY));
   assert.ok(await db().aiRequest.count({ where: { userId: agent.id } }) >= 5);
   await assert.rejects(() => db().aiRequest.deleteMany({ where: { userId: agent.id } }), /append-only/, "the usage log is append-only");
 

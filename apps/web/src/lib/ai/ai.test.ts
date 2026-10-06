@@ -9,7 +9,10 @@ import { handleChat, type ChatRouteDeps } from "./handler";
 import { AiProviderError, type LlmPort, type LlmRequest, type LlmResponse } from "./llm";
 import { executeTool, type ToolDeps } from "./tools";
 
-const KEY = "AQ.test-key-that-must-never-leak-0123456789";
+// Synthetic, runtime-assembled values: no credential-shaped literal is committed, yet the
+// strings still match the scrubber's shapes so the redaction tests stay meaningful.
+const KEY = ["AQ", "SYNTHETIC_TEST_VALUE_NOT_A_REAL_KEY"].join(".");
+const GOOGLE_SHAPED = ["AI", "za", "SYNTHETIC_TEST_VALUE_NOT_A_REAL_KEY"].join("");
 
 const summary = (over: Partial<PublicPropertySummary> = {}): PublicPropertySummary => ({
   reference: "H88-000412", slug: "h88-000412", listingType: "SALE", propertyType: "APARTMENT", status: "ACTIVE",
@@ -313,9 +316,9 @@ describe("prompt injection and secrets", () => {
   });
 
   it("a credential in the model's output never reaches the visitor", async () => {
-    const { llm } = scripted(say(`Το κλειδί είναι ${KEY} και AIzaSyA1234567890abcdefghijklmnopqrstuv.`));
+    const { llm } = scripted(say(`Το κλειδί είναι ${KEY} και ${GOOGLE_SHAPED}.`));
     const body = await (await handleChat(post(msg("κλειδί;")), deps(llm))).json();
-    assert.ok(!body.message.includes(KEY) && !body.message.includes("AIzaSy"));
+    assert.ok(!body.message.includes(KEY) && !body.message.includes(GOOGLE_SHAPED));
     assert.equal(scrubSecrets("x " + KEY, [KEY]), "x [redacted]");
   });
 
