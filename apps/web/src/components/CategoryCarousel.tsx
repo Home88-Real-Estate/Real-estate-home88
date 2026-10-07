@@ -9,24 +9,27 @@ import { CATEGORIES } from "./CategoryNav";
 const AUTOPLAY_MS = 4500;
 const RESUME_AFTER_MS = 6000;
 const DRAG_THRESHOLD_PX = 6;
-const LAST_INDEX = CATEGORIES.length - 1;
 
 /**
  * Finite landing-page carousel built on the existing category card artwork
  * (public/images/categories, 720x456 plus a 480px copy for phones) and the
  * `.catcards`/`.catcard` styles. No clone slides are rendered, so content is
- * never shown twice for screen readers; prev/next are disabled at the ends.
- * Autoplay pauses on hover, focus, mouse-drag and touch, and resumes after a
- * short idle period. prefers-reduced-motion disables autoplay and animation
- * while keeping the arrows, the keyboard and swiping.
+ * never shown twice for screen readers. Autoplay keeps moving: it advances
+ * from slide to slide and loops back to the first slide after the last.
+ * Manual prev/next stay bounded (prev disabled at the start, next at the
+ * end). Autoplay pauses on hover, focus, mouse-drag and touch, and resumes
+ * after a short idle period. prefers-reduced-motion disables autoplay and
+ * animation while keeping the arrows, the keyboard and swiping.
  */
 export function CategoryCarousel() {
   const trackRef = useRef<HTMLDivElement>(null);
 
   const [index, setIndex] = useState(0);
   const [scrollable, setScrollable] = useState(true);
+  const [maxIndex, setMaxIndex] = useState(0);
 
   const indexRef = useRef(0);
+  const maxIndexRef = useRef(0);
   const reducedRef = useRef(false);
   const pauseDepth = useRef(0);
   const holdUntilRef = useRef(0);
@@ -43,13 +46,6 @@ export function CategoryCarousel() {
     pauseDepth.current = Math.max(0, pauseDepth.current - 1);
   }, []);
 
-  const measure = useCallback(() => {
-    const track = trackRef.current;
-    if (!track) return;
-    stepRef.current = 0;
-    setScrollable(track.scrollWidth > track.clientWidth + 1);
-  }, []);
-
   const getStep = useCallback(() => {
     const track = trackRef.current;
     if (!track || track.children.length < 2) return 0;
@@ -58,6 +54,17 @@ export function CategoryCarousel() {
     stepRef.current = step;
     return step;
   }, []);
+
+  const measure = useCallback(() => {
+    const track = trackRef.current;
+    if (!track) return;
+    const step = getStep();
+    const maxScroll = track.scrollWidth - track.clientWidth;
+    const maxIndex = step > 0 ? Math.max(0, Math.round(maxScroll / step)) : 0;
+    maxIndexRef.current = maxIndex;
+    setMaxIndex(maxIndex);
+    setScrollable(maxScroll > 1);
+  }, [getStep]);
 
   const scrollToIndex = useCallback(
     (next: number) => {
@@ -84,7 +91,7 @@ export function CategoryCarousel() {
     const track = trackRef.current;
     if (!track || track.scrollWidth <= track.clientWidth + 1) return;
     const i = indexRef.current;
-    if (i >= LAST_INDEX) return;
+    if (i >= maxIndexRef.current) return;
     holdUntilRef.current = Date.now() + RESUME_AFTER_MS;
     scrollToIndex(i + 1);
     autoplayRef.current?.restart();
@@ -122,8 +129,11 @@ export function CategoryCarousel() {
       }
       const track = trackRef.current;
       if (!track || track.scrollWidth <= track.clientWidth + 1) return;
-      if (indexRef.current >= LAST_INDEX) return;
-      scrollToIndex(indexRef.current + 1);
+      if (indexRef.current >= maxIndexRef.current) {
+        scrollToIndex(0);
+      } else {
+        scrollToIndex(indexRef.current + 1);
+      }
       schedule();
     }
     autoplayRef.current = { restart: schedule };
@@ -153,7 +163,7 @@ export function CategoryCarousel() {
     if (!track || track.children.length < 2) return;
     const step = stepRef.current > 0 ? stepRef.current : getStep();
     if (step <= 0) return;
-    const i = Math.max(0, Math.min(Math.round(track.scrollLeft / step), LAST_INDEX));
+    const i = Math.max(0, Math.min(Math.round(track.scrollLeft / step), maxIndexRef.current));
     if (i !== indexRef.current) {
       indexRef.current = i;
       setIndex(i);
@@ -225,7 +235,7 @@ export function CategoryCarousel() {
   }, [resume]);
 
   const canPrev = index > 0;
-  const canNext = scrollable && index < LAST_INDEX;
+  const canNext = scrollable && index < maxIndex;
 
   return (
     <section
