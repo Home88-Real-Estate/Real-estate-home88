@@ -3,6 +3,7 @@ import { CRM_LOGIN_URL } from "@/lib/config";
 import type { CompanyInfo } from "@/lib/company";
 
 import { ContactEmail } from "./ContactEmail";
+import { WaveDivider } from "./landing/WaveDivider";
 
 const SOCIAL_LABEL: Record<string, string> = {
   FACEBOOK: "Facebook",
@@ -21,6 +22,7 @@ export function SiteFooter({ company }: { company: CompanyInfo }) {
 
   return (
     <footer className="site-footer">
+      <WaveDivider position="top" />
       <div className="wrap site-footer__inner">
         <div>
           <div className="brand" style={{ marginBottom: 12 }}>
