@@ -9,6 +9,7 @@ import { idleState } from "@/lib/form";
 /** Moves that take the listing off the market get a confirmation step. */
 const CONFIRM: Record<string, string> = {
   ARCHIVED: "Αρχειοθέτηση; Το ακίνητο θα αφαιρεθεί και από τον ιστότοπο.",
+  DELETED: "Να μεταφερθεί το ακίνητο στα «Διαγραμμένα»; Θα εξαφανιστεί από τη λίστα και τον ιστότοπο.",
   SOLD: "Σήμανση ως πωλημένο; Θα αφαιρεθεί από τον ιστότοπο και τα portals.",
   RENTED: "Σήμανση ως νοικιασμένο; Θα αφαιρεθεί από τον ιστότοπο και τα portals.",
   INACTIVE: "Απόσυρση από την αγορά; Θα αφαιρεθεί από τον ιστότοπο και τα portals.",
@@ -48,7 +49,11 @@ export function PropertyStatusActions({ id, allowed }: { id: string; allowed: st
             name="status"
             value={status}
             disabled={pending}
-            className={status === "ARCHIVED" ? "btn btn--danger btn--sm" : "btn btn--outline btn--sm"}
+            className={
+              status === "ARCHIVED" || status === "DELETED"
+                ? "btn btn--danger btn--sm"
+                : "btn btn--outline btn--sm"
+            }
           >
             → {label(PROPERTY_STATUS_LABELS, status, "el")}
           </button>

@@ -94,8 +94,11 @@ export async function viewingRoutes(app: FastifyInstance): Promise<void> {
     if (!property) {
       throw badRequest("Δεν βρέθηκε ακίνητο με αυτόν τον κωδικό.", { propertyReference: ["Άγνωστος κωδικός ακινήτου."] });
     }
-    if (property.status === "ARCHIVED") {
-      throw badRequest("Το ακίνητο είναι αρχειοθετημένο.", { propertyReference: ["Το ακίνητο είναι αρχειοθετημένο."] });
+    if (property.status === "ARCHIVED" || property.status === "DELETED") {
+      const message = property.status === "DELETED"
+        ? "Το ακίνητο είναι διαγραμμένο."
+        : "Το ακίνητο είναι αρχειοθετημένο.";
+      throw badRequest(message, { propertyReference: [message] });
     }
 
     const agentId = input.agentId ?? actor.id;

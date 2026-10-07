@@ -503,7 +503,9 @@ export async function sellerRoutes(app: FastifyInstance): Promise<void> {
     if (!contact) throw notFound("Η επαφή δεν βρέθηκε.");
     const now = new Date();
     const properties = await db().property.findMany({
-      where: { ownerId: id },
+      // Deleted listings are out of the CRM entirely; the report shows what is
+      // or was on the market, not rows sitting in the bin.
+      where: { ownerId: id, status: { not: "DELETED" } },
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
@@ -516,7 +518,7 @@ export async function sellerRoutes(app: FastifyInstance): Promise<void> {
         publishedAt: true,
         createdAt: true,
         priceHistory: { orderBy: { createdAt: "asc" }, select: { fromPrice: true, toPrice: true, fromMonthlyRent: true, toMonthlyRent: true, createdAt: true } },
-        statusHistory: { where: { toStatus: { in: ["SOLD", "RENTED", "ARCHIVED", "INACTIVE"] } }, orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } },
+        statusHistory: { where: { toStatus: { in: ["SOLD", "RENTED", "ARCHIVED", "DELETED", "INACTIVE"] } }, orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } },
         _count: { select: { leads: true } },
         viewings: { select: { status: true, startsAt: true, feedback: true, outcome: true }, orderBy: { startsAt: "desc" } },
         offers: { select: { amount: true, status: true, party: true, createdAt: true } },
@@ -525,7 +527,7 @@ export async function sellerRoutes(app: FastifyInstance): Promise<void> {
       },
     });
 
-    const offMarket = (status: string) => ["SOLD", "RENTED", "ARCHIVED", "INACTIVE"].includes(status);
+    const offMarket = (status: string) => ["SOLD", "RENTED", "ARCHIVED", "DELETED", "INACTIVE"].includes(status);
     return {
       owner: { id: contact.id, reference: contact.reference, name: `${contact.firstName} ${contact.lastName}`.trim() },
       generatedAt: now,

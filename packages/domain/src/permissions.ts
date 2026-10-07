@@ -26,6 +26,12 @@ export const PERMISSIONS = {
   /** Bring a property back from SOLD, RENTED or ARCHIVED. */
   PROPERTY_REOPEN: "property:reopen",
   PROPERTY_ARCHIVE: "property:archive",
+  /** Move a property into the deleted folder (soft delete). Scoped like PROPERTY_UPDATE. */
+  PROPERTY_DELETE: "property:delete",
+  /** Bring a property back out of the deleted folder. Scoped like PROPERTY_UPDATE. */
+  PROPERTY_RESTORE: "property:restore",
+  /** Permanently remove a deleted property row. Never granted below ADMIN. */
+  PROPERTY_DELETE_PERMANENT: "property:delete-permanent",
   PROPERTY_PUBLISH: "property:publish",
   PROPERTY_VIEW_COMMERCIAL: "property:view-commercial",
 } as const;
@@ -39,11 +45,13 @@ const AGENT: readonly Permission[] = [
   P.PROPERTY_CREATE,
   P.PROPERTY_UPDATE,
   P.PROPERTY_CLOSE,
+  P.PROPERTY_DELETE,
+  P.PROPERTY_RESTORE,
   P.PROPERTY_PUBLISH,
   P.PROPERTY_VIEW_COMMERCIAL,
 ];
 const MANAGER: readonly Permission[] = [...AGENT, P.PROPERTY_UPDATE_ANY, P.PROPERTY_REOPEN];
-const ADMIN: readonly Permission[] = [...MANAGER, P.PROPERTY_ARCHIVE];
+const ADMIN: readonly Permission[] = [...MANAGER, P.PROPERTY_ARCHIVE, P.PROPERTY_DELETE_PERMANENT];
 
 export const ROLE_PERMISSIONS: Readonly<Record<Role, ReadonlySet<Permission>>> = {
   SUPER_ADMIN: new Set(ADMIN),
@@ -60,7 +68,12 @@ export type Actor = { id: string; role: string };
 export type PropertyScope = { agentId: string | null; createdById: string | null };
 
 /** Permissions that, held alone, apply only to the actor's own properties. */
-const SCOPED: ReadonlySet<Permission> = new Set([P.PROPERTY_UPDATE, P.PROPERTY_CLOSE]);
+const SCOPED: ReadonlySet<Permission> = new Set([
+  P.PROPERTY_UPDATE,
+  P.PROPERTY_CLOSE,
+  P.PROPERTY_DELETE,
+  P.PROPERTY_RESTORE,
+]);
 
 export function hasPermission(actor: Actor, permission: Permission): boolean {
   return ROLE_PERMISSIONS[actor.role as Role]?.has(permission) ?? false;

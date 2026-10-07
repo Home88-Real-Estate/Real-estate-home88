@@ -33,6 +33,8 @@ function classFor(kind: Kind, value: string): string {
       case "DRAFT":
       case "ARCHIVED":
         return "badge--muted";
+      case "DELETED":
+        return "badge--danger";
       default:
         return "";
     }

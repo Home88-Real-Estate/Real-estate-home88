@@ -23,7 +23,7 @@ import { loadCompanyFacts, loadTemplateCheck } from "./company";
 import { BrokerageError, DocumentBlockedError } from "./errors";
 import type { Actor, Db } from "./types";
 
-const OFF_MARKET = new Set(["SOLD", "RENTED", "INACTIVE", "ARCHIVED"]);
+const OFF_MARKET = new Set(["SOLD", "RENTED", "INACTIVE", "ARCHIVED", "DELETED"]);
 
 // ---------------------------------------------------------------------------
 // Numbering

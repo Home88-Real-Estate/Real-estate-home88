@@ -3,11 +3,20 @@ import { notFound } from "next/navigation";
 
 import { MediaPanel } from "@/components/MediaPanel";
 import type { MediaItemData } from "@/components/MediaItem";
+import { PermanentDeleteButton } from "@/components/PermanentDeleteButton";
 import { PropertyHistory, type PriceEntry, type StatusEntry } from "@/components/PropertyHistory";
 import { PropertyStatusActions } from "@/components/PropertyStatusActions";
 import { StatusBadge } from "@/components/StatusBadge";
 import { apiFetch } from "@/lib/api";
-import { CONDITION_LABELS, describeProperty, listingProfileFor, profileFor, type PropertyCondition } from "@home88/domain";
+import {
+  CONDITION_LABELS,
+  describeProperty,
+  hasPermission,
+  listingProfileFor,
+  profileFor,
+  PERMISSIONS,
+  type PropertyCondition,
+} from "@home88/domain";
 import { LISTING_TYPE_LABELS, PROPERTY_TYPE_LABELS, label } from "@home88/types";
 
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
@@ -137,6 +146,17 @@ export default async function PropertyDetailPage({
       <div className="panel">
         <h2>Κατάσταση</h2>
         <PropertyStatusActions id={id} allowed={allowedTransitions} />
+        {p.status === "DELETED" && (
+          <div className="stack" style={{ marginTop: 12 }}>
+            <p className="muted" style={{ margin: 0 }}>
+              Το ακίνητο βρίσκεται στο φάκελο «Διαγραμμένα». Από εδώ επανέρχεται στη λίστα ή
+              διαγράφεται οριστικά.
+            </p>
+            {hasPermission({ id: user.id, role: user.role }, PERMISSIONS.PROPERTY_DELETE_PERMANENT) && (
+              <PermanentDeleteButton id={id} title={p.titleEl} />
+            )}
+          </div>
+        )}
       </div>
 
       <div className="panel">

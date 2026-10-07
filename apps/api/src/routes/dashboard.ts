@@ -249,7 +249,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       portalFailed,
       mediaPending,
     ] = await Promise.all([
-      db().property.count({ where: { ...propertyScope(scope), status: { not: "ARCHIVED" } } }),
+      db().property.count({ where: { ...propertyScope(scope), status: { notIn: ["ARCHIVED", "DELETED"] } } }),
       db().property.count({ where: { ...propertyScope(scope), status: { in: PUBLIC } } }),
       db().property.count({ where: { ...propertyScope(scope), status: "DRAFT" } }),
       db().property.count({
@@ -257,7 +257,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       }),
       db().property.groupBy({
         by: ["propertyType"],
-        where: { ...propertyScope(scope), status: { not: "ARCHIVED" } },
+        where: { ...propertyScope(scope), status: { notIn: ["ARCHIVED", "DELETED"] } },
         _count: { _all: true },
       }),
       periodCounts(scope, range.from, range.to),
@@ -326,13 +326,13 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
         },
       }),
       db().property.findMany({
-        where: { ...propertyScope(scope), status: { not: "ARCHIVED" } },
+        where: { ...propertyScope(scope), status: { notIn: ["ARCHIVED", "DELETED"] } },
         orderBy: { createdAt: "desc" },
         take: 5,
         select: PROPERTY_CARD_SELECT,
       }),
       db().property.findMany({
-        where: { ...propertyScope(scope), status: { not: "ARCHIVED" } },
+        where: { ...propertyScope(scope), status: { notIn: ["ARCHIVED", "DELETED"] } },
         orderBy: { updatedAt: "desc" },
         take: 5,
         select: PROPERTY_CARD_SELECT,
@@ -432,7 +432,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     const now = new Date();
     const today = localDay(now);
     const [properties, newLeads, dueTasks, newSubmissions] = await Promise.all([
-      db().property.count({ where: { ...propertyScope(scope), status: { not: "ARCHIVED" } } }),
+      db().property.count({ where: { ...propertyScope(scope), status: { notIn: ["ARCHIVED", "DELETED"] } } }),
       db().lead.count({ where: { ...leadScope(scope), status: "NEW" } }),
       db().task.count({ where: { assignedToId: actor.id, status: OPEN_TASK, dueAt: { lt: today.to } } }),
       // Same visibility as the submissions list: everything for a manager, else mine or unassigned.

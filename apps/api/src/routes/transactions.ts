@@ -285,7 +285,12 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
     const input = parseInput(createSchema, request.body);
     const property = await db().property.findUnique({ where: { reference: input.propertyReference } });
     if (!property) throw badRequest("Δεν βρέθηκε ακίνητο με αυτόν τον κωδικό.", { propertyReference: ["Άγνωστος κωδικός ακινήτου."] });
-    if (property.status === "ARCHIVED") throw badRequest("Το ακίνητο είναι αρχειοθετημένο.", { propertyReference: ["Το ακίνητο είναι αρχειοθετημένο."] });
+    if (property.status === "ARCHIVED" || property.status === "DELETED") {
+      const message = property.status === "DELETED"
+        ? "Το ακίνητο είναι διαγραμμένο."
+        : "Το ακίνητο είναι αρχειοθετημένο.";
+      throw badRequest(message, { propertyReference: [message] });
+    }
     const lead = input.leadReference ? await db().lead.findUnique({ where: { reference: input.leadReference } }) : null;
     if (input.leadReference && !lead) throw badRequest("Δεν βρέθηκε lead με αυτόν τον κωδικό.", { leadReference: ["Άγνωστος κωδικός lead."] });
 

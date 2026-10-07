@@ -468,8 +468,8 @@ export const propertySearchSchema = z.object({
   status: propertyStatusSchema.optional(),
   /** Residential / commercial / land / other (see @home88/domain catalog). */
   category: z.enum(PROPERTY_CATEGORIES).optional(),
-  /** CURRENT = everything but archived; PUBLIC = on the market. */
-  statusGroup: z.enum(["CURRENT", "PUBLIC"]).optional(),
+  /** CURRENT = everything but archived/deleted; PUBLIC = on the market; DELETED = the bin. */
+  statusGroup: z.enum(["CURRENT", "PUBLIC", "DELETED"]).optional(),
   /** Only the signed-in user's properties (assigned or created). */
   mine: z.enum(["1", "true"]).optional(),
 

@@ -64,6 +64,9 @@ enum PropertyStatus {
   RENTED
   INACTIVE
   ARCHIVED
+  /// The CRM's deleted folder: hidden from listings, feeds and dashboards,
+  /// restorable, or removable permanently by an administrator.
+  DELETED
 }
 
 enum PropertyType {

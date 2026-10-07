@@ -80,6 +80,7 @@ test("availableTransitions lists only what the actor may do", () => {
     "RESERVED",
     "SOLD",
     "INACTIVE",
+    "DELETED",
   ]);
   assert.deepEqual(availableTransitions(otherAgent, sale("ACTIVE")), []);
   assert.deepEqual(availableTransitions(admin, { ...mine, status: "ACTIVE", listingType: "RENT" }), [
@@ -88,7 +89,33 @@ test("availableTransitions lists only what the actor may do", () => {
     "RENTED",
     "INACTIVE",
     "ARCHIVED",
+    "DELETED",
   ]);
+});
+
+test("the deleted folder: soft delete, restore, and only admins remove for good", () => {
+  // An agent may move their own listing to the bin, but not someone else's.
+  assert.equal(checkTransition(agent, sale("ACTIVE"), "DELETED").ok, true);
+  assert.equal(checkTransition(otherAgent, sale("ACTIVE"), "DELETED").ok, false);
+  // Archived listings go to the bin too; like any scoped edit, a manager may
+  // do it to any property while an agent only to their own.
+  assert.equal(checkTransition(admin, sale("ARCHIVED"), "DELETED").ok, true);
+  assert.equal(checkTransition(manager, sale("ARCHIVED"), "DELETED").ok, true);
+  assert.equal(checkTransition(otherAgent, sale("ARCHIVED"), "DELETED").ok, false);
+
+  // Out of the bin the only move is back to draft, and it is scoped like an edit.
+  assert.equal(checkTransition(agent, sale("DELETED"), "DRAFT").ok, true);
+  assert.equal(checkTransition(agent, sale("DELETED"), "ACTIVE").ok, false);
+  assert.equal(checkTransition(otherAgent, sale("DELETED"), "DRAFT").ok, false);
+
+  // Permanent removal is not a transition at all; its permission is admin-only.
+  assert.equal(can(agent, PERMISSIONS.PROPERTY_DELETE_PERMANENT), false);
+  assert.equal(can(agent, PERMISSIONS.PROPERTY_DELETE, mine), true);
+  assert.equal(can(otherAgent, PERMISSIONS.PROPERTY_DELETE, mine), false);
+  assert.equal(can(admin, PERMISSIONS.PROPERTY_DELETE_PERMANENT), true);
+
+  // Deleted is never a public status.
+  assert.equal(isPublicStatus("DELETED"), false);
 });
 
 test("public statuses", () => {

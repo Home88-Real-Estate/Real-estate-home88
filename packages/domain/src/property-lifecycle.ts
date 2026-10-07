@@ -18,6 +18,12 @@ export const PROPERTY_STATUSES = [
   "RENTED",
   "INACTIVE",
   "ARCHIVED",
+  /**
+   * The CRM's deleted folder: a soft-delete state, hidden from listings,
+   * dashboards and feeds, that can be restored or removed permanently. It is
+   * not a market state, so nothing on the public site ever matches it.
+   */
+  "DELETED",
 ] as const;
 export type PropertyStatus = (typeof PROPERTY_STATUSES)[number];
 
@@ -33,20 +39,25 @@ export function isPublicStatus(status: string): boolean {
 
 /** Where each status may go next, before listing-type and permission checks. */
 const NEXT: Readonly<Record<PropertyStatus, readonly PropertyStatus[]>> = {
-  DRAFT: ["ACTIVE", "ARCHIVED"],
-  ACTIVE: ["UNDER_OFFER", "RESERVED", "SOLD", "RENTED", "INACTIVE", "ARCHIVED"],
-  UNDER_OFFER: ["ACTIVE", "RESERVED", "SOLD", "RENTED", "INACTIVE", "ARCHIVED"],
-  RESERVED: ["ACTIVE", "UNDER_OFFER", "SOLD", "RENTED", "INACTIVE", "ARCHIVED"],
-  SOLD: ["ACTIVE", "ARCHIVED"],
-  RENTED: ["ACTIVE", "ARCHIVED"],
-  INACTIVE: ["ACTIVE", "DRAFT", "ARCHIVED"],
-  ARCHIVED: ["DRAFT"],
+  DRAFT: ["ACTIVE", "ARCHIVED", "DELETED"],
+  ACTIVE: ["UNDER_OFFER", "RESERVED", "SOLD", "RENTED", "INACTIVE", "ARCHIVED", "DELETED"],
+  UNDER_OFFER: ["ACTIVE", "RESERVED", "SOLD", "RENTED", "INACTIVE", "ARCHIVED", "DELETED"],
+  RESERVED: ["ACTIVE", "UNDER_OFFER", "SOLD", "RENTED", "INACTIVE", "ARCHIVED", "DELETED"],
+  SOLD: ["ACTIVE", "ARCHIVED", "DELETED"],
+  RENTED: ["ACTIVE", "ARCHIVED", "DELETED"],
+  INACTIVE: ["ACTIVE", "DRAFT", "ARCHIVED", "DELETED"],
+  ARCHIVED: ["DRAFT", "DELETED"],
+  // Out of the bin: restore only. Removing the row is a separate, permanent
+  // operation that is never a status change.
+  DELETED: ["DRAFT"],
 };
 
 const CLOSED: ReadonlySet<PropertyStatus> = new Set(["SOLD", "RENTED"]);
 
 /** The permission a given move needs; scoping to own properties is applied by `can`. */
 function permissionFor(from: PropertyStatus, to: PropertyStatus): Permission {
+  if (to === "DELETED") return PERMISSIONS.PROPERTY_DELETE;
+  if (from === "DELETED") return PERMISSIONS.PROPERTY_RESTORE;
   if (to === "ARCHIVED") return PERMISSIONS.PROPERTY_ARCHIVE;
   if (from === "ARCHIVED" || CLOSED.has(from)) return PERMISSIONS.PROPERTY_REOPEN;
   if (CLOSED.has(to)) return PERMISSIONS.PROPERTY_CLOSE;

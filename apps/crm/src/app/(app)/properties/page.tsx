@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { PROPERTY_CATEGORIES } from "@home88/domain";
+import { can, hasPermission, PERMISSIONS, PROPERTY_CATEGORIES } from "@home88/domain";
 import { PROPERTY_STATUS_LABELS, PROPERTY_TYPE_LABELS, label, type Paginated } from "@home88/types";
 
 import { EmptyState } from "@/components/EmptyState";
 import { Pagination } from "@/components/Pagination";
+import { PropertyRowActions } from "@/components/PropertyRowActions";
 import { StatusBadge } from "@/components/StatusBadge";
 import { apiFetch } from "@/lib/api";
 import { formatArea, formatDate, formatMoney, personName } from "@/lib/format";
@@ -30,6 +31,8 @@ type PropertyRow = {
   yearBuilt: number | null;
   createdAt: string;
   updatedAt: string;
+  agentId: string | null;
+  createdById: string | null;
   agent: { firstName: string; lastName: string } | null;
   owner: { firstName: string; lastName: string } | null;
   _count: { media: number; leads: number };
@@ -50,7 +53,23 @@ const STATUS_OPTIONS: Array<[string, string]> = [
 const GROUP_LABEL: Record<string, string> = {
   CURRENT: "Χωρίς τα αρχειοθετημένα",
   PUBLIC: "Στην αγορά",
+  DELETED: "Διαγραμμένα",
 };
+
+/** The folders offered above the table; the bin is one of them. */
+const GROUPS = ["CURRENT", "PUBLIC", "DELETED"];
+
+/** A folder link that keeps every other filter the user has picked. */
+function groupHref(group: string, params: Record<string, string>): string {
+  const next = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (!value || key === "status" || key === "statusGroup") continue;
+    next.set(key, value);
+  }
+  next.set("statusGroup", group);
+  const qs = next.toString();
+  return qs ? `/properties?${qs}` : "/properties";
+}
 
 function first(value: string | string[] | undefined): string {
   return (Array.isArray(value) ? value[0] : value) ?? "";
@@ -61,7 +80,8 @@ export default async function PropertiesPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await requireRole("AGENT");
+  const user = await requireRole("AGENT");
+  const actor = { id: user.id, role: user.role };
   const sp = await searchParams;
 
   const q = first(sp.q);
@@ -87,7 +107,7 @@ export default async function PropertiesPage({
     <>
       <div className="page-head">
         <div>
-          <h1>Ακίνητα</h1>
+<h1>{statusGroup === "DELETED" ? "Διαγραμμένα" : "Ακίνητα"}</h1>
           <p className="muted">Παρακάτω θα βρείτε όλα τα καταχωρημένα ακίνητα.</p>
           {result.ok && (
             <p className="muted">
@@ -141,11 +161,19 @@ export default async function PropertiesPage({
         )}
       </form>
 
-      {statusGroup && GROUP_LABEL[statusGroup] && (
-        <p className="filter-chip-row">
-          <span className="filter-chip">{GROUP_LABEL[statusGroup]}</span>
-        </p>
-      )}
+      <p className="filter-chip-row">
+        {GROUPS.map((group) =>
+          statusGroup === group ? (
+            <span key={group} className="filter-chip">
+              {GROUP_LABEL[group]}
+            </span>
+          ) : (
+            <Link key={group} href={groupHref(group, params)} className="filter-chip">
+              {GROUP_LABEL[group]}
+            </Link>
+          ),
+        )}
+      </p>
 
       {!result.ok ? (
         <div className="notice notice--danger">{result.error.message}</div>
@@ -170,54 +198,73 @@ export default async function PropertiesPage({
                   <th>Ημερ/νία</th>
                   <th className="num">Τιμή</th>
                   <th className="num">Εμβαδόν</th>
-                  <th className="num">Όροφος</th>
+<th className="num">Όροφος</th>
                   <th>Περιοχή</th>
                   <th>Υποκατηγορία</th>
                   <th className="num">Έτος Κατασκευής</th>
                   <th>Υπεύθυνος</th>
                   <th>Κατάσταση</th>
                   <th>Ιδιοκτήτης</th>
+                  <th>Ενέργειες</th>
                 </tr>
               </thead>
               <tbody>
-                {result.data.data.map((row) => (
-                  <tr key={row.id}>
-                    <td className="mono">
-                      <Link href={`/properties/${row.id}`}>{row.reference}</Link>
-                      {row.tags && row.tags.length > 0 && (
-                        <ul className="taglist-inline" aria-label="Ετικέτες">
-                          {row.tags.map((t) => (
-                            <li key={t.code} className={`tagchip tagchip--${t.color}`}>
-                              {t.labelEl}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </td>
-                    <td className="thumb-col">
-                      <Link href={`/properties/${row.id}`} tabIndex={-1} aria-hidden="true">
-                        {row.coverThumbnailUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element -- signed storage URL, already a small variant
-                          <img src={row.coverThumbnailUrl} alt="" className="thumb" loading="lazy" width={160} height={120} />
-                        ) : (
-                          <span className="thumb thumb--empty" />
+                {result.data.data.map((row) => {
+                  const inBin = row.status === "DELETED";
+                  const scope = { agentId: row.agentId, createdById: row.createdById };
+                  return (
+                    <tr key={row.id}>
+                      <td className="mono">
+                        <Link href={`/properties/${row.id}`}>{row.reference}</Link>
+                        {row.tags && row.tags.length > 0 && (
+                          <ul className="taglist-inline" aria-label="Ετικέτες">
+                            {row.tags.map((t) => (
+                              <li key={t.code} className={`tagchip tagchip--${t.color}`}>
+                                {t.labelEl}
+                              </li>
+                            ))}
+                          </ul>
                         )}
-                      </Link>
-                    </td>
-                    <td>{formatDate(row.createdAt)}</td>
-                    <td className="num">{formatMoney(row.price)}</td>
-                    <td className="num">{formatArea(row.area)}</td>
-                    <td className="num">{row.floor ?? "-"}</td>
-                    <td>{row.areaName ?? row.neighborhood ?? row.city ?? "-"}</td>
-                    <td>{label(PROPERTY_TYPE_LABELS, row.propertyType, "el")}</td>
-                    <td className="num">{row.yearBuilt ?? "-"}</td>
-                    <td>{row.agent ? personName(row.agent.firstName, row.agent.lastName) : "-"}</td>
-                    <td>
-                      <StatusBadge value={row.status} kind="property" />
-                    </td>
-                    <td>{row.owner ? personName(row.owner.firstName, row.owner.lastName) : "-"}</td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="thumb-col">
+                        <Link href={`/properties/${row.id}`} tabIndex={-1} aria-hidden="true">
+                          {row.coverThumbnailUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element -- signed storage URL, already a small variant
+                            <img src={row.coverThumbnailUrl} alt="" className="thumb" loading="lazy" width={160} height={120} />
+                          ) : (
+                            <span className="thumb thumb--empty" />
+                          )}
+                        </Link>
+                      </td>
+                      <td>{formatDate(row.createdAt)}</td>
+                      <td className="num">{formatMoney(row.price)}</td>
+                      <td className="num">{formatArea(row.area)}</td>
+                      <td className="num">{row.floor ?? "-"}</td>
+                      <td>{row.areaName ?? row.neighborhood ?? row.city ?? "-"}</td>
+                      <td>{label(PROPERTY_TYPE_LABELS, row.propertyType, "el")}</td>
+                      <td className="num">{row.yearBuilt ?? "-"}</td>
+                      <td>{row.agent ? personName(row.agent.firstName, row.agent.lastName) : "-"}</td>
+                      <td>
+                        <StatusBadge value={row.status} kind="property" />
+                      </td>
+                      <td>{row.owner ? personName(row.owner.firstName, row.owner.lastName) : "-"}</td>
+                      <td>
+                        <PropertyRowActions
+                          id={row.id}
+                          canDelete={
+                            !inBin && can(actor, PERMISSIONS.PROPERTY_DELETE, scope)
+                          }
+                          canRestore={
+                            inBin && can(actor, PERMISSIONS.PROPERTY_RESTORE, scope)
+                          }
+                          canPermanentlyDelete={
+                            inBin && hasPermission(actor, PERMISSIONS.PROPERTY_DELETE_PERMANENT)
+                          }
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

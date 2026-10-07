@@ -59,8 +59,11 @@ async function transitionStatus(
 
       const updated = await tx.property.update({
         where: { id },
-        // An archived listing is taken off the website as well.
-        data: { status: to, ...(to === "ARCHIVED" ? { publishedOnWebsite: false } : {}) },
+        // An archived or deleted listing is taken off the website as well.
+        data: {
+          status: to,
+          ...(to === "ARCHIVED" || to === "DELETED" ? { publishedOnWebsite: false } : {}),
+        },
       });
       await tx.propertyStatusHistory.create({
         data: { propertyId: id, fromStatus: existing.status, toStatus: to, reason, actorId: actor.id },
@@ -69,7 +72,14 @@ async function transitionStatus(
         {
           entity: "PROPERTY",
           entityId: id,
-          action: to === "ARCHIVED" ? "archive" : "status_change",
+          action:
+            to === "ARCHIVED"
+              ? "archive"
+              : to === "DELETED"
+                ? "delete"
+                : existing.status === "DELETED"
+                  ? "restore"
+                  : "status_change",
           actorId: actor.id,
           ipAddress: clientIp(request),
           userAgent: userAgent(request),
@@ -264,6 +274,10 @@ const LIST_SELECT = {
   yearBuilt: true,
   publishedOnWebsite: true,
   featured: true,
+  // Used by the CRM list to decide which row actions the actor may see; the
+  // server still re-checks every request.
+  agentId: true,
+  createdById: true,
   createdAt: true,
   updatedAt: true,
   agent: { select: { id: true, firstName: true, lastName: true } },
@@ -282,8 +296,12 @@ export async function propertyRoutes(app: FastifyInstance): Promise<void> {
       and.push({ propertyType: { in: [...CATEGORY_PROPERTY_TYPES[q.category]] as PropertyTypeValue[] } });
     }
     if (q.status) where.status = q.status;
-    if (q.statusGroup === "CURRENT") and.push({ status: { not: "ARCHIVED" } });
-    if (q.statusGroup === "PUBLIC") and.push({ status: { in: [...PUBLIC_PROPERTY_STATUSES] } });
+    // The bin is a separate folder: deleted rows stay out of the ordinary
+    // list until DELETED is asked for explicitly.
+    if (q.statusGroup === "DELETED") and.push({ status: "DELETED" });
+    else if (q.statusGroup === "CURRENT") and.push({ status: { notIn: ["ARCHIVED", "DELETED"] } });
+    else if (q.statusGroup === "PUBLIC") and.push({ status: { in: [...PUBLIC_PROPERTY_STATUSES] } });
+    else if (!q.status) and.push({ status: { not: "DELETED" } });
     if (q.mine) {
       const me = request.auth!.user.id;
       and.push({ OR: [{ agentId: me }, { createdById: me }] });
@@ -552,11 +570,62 @@ export async function propertyRoutes(app: FastifyInstance): Promise<void> {
     return { property };
   });
 
-  // Archive rather than delete: leads, offers and viewings reference the row.
-  app.delete("/properties/:id", { preHandler: requireRole("ADMIN") }, async (request) => {
+  /**
+   * Soft delete: moves the listing to the deleted folder (`DELETED`), which
+   * keeps every row so it can be restored or removed permanently later. The
+   * lifecycle decides whether this actor may make the move.
+   */
+  app.delete("/properties/:id", { preHandler: requireRole("AGENT") }, async (request) => {
     const actor = request.auth!.user;
     const { id } = request.params as { id: string };
-    const property = await transitionStatus(request, actor, id, "ARCHIVED", null);
+    const property = await transitionStatus(request, actor, id, "DELETED", null);
     return { property };
+  });
+
+  /**
+   * Permanent removal of the row. Only from the deleted folder, never for a
+   * property with transactions (the commercial ledger keeps them), and never
+   * below ADMIN.
+   */
+  app.delete("/properties/:id/permanent", { preHandler: requireRole("ADMIN") }, async (request) => {
+    const actor = request.auth!.user;
+    const { id } = request.params as { id: string };
+
+    const deleted = await db().$transaction(
+      async (tx) => {
+        const existing = await tx.property.findUnique({
+          where: { id },
+          select: { id: true, status: true, reference: true, titleEl: true },
+        });
+        if (!existing) throw notFound("Το ακίνητο δεν βρέθηκε.");
+        if (existing.status !== "DELETED") {
+          throw conflict(
+            "Μόνο ένα ακίνητο στο φάκελο «Διαγραμμένα» διαγράφεται οριστικά. Πρώτα μεταφέρτε το εκεί.",
+          );
+        }
+        const transactions = await tx.transaction.count({ where: { propertyId: id } });
+        if (transactions > 0) {
+          throw conflict("Το ακίνητο έχει συναλλαγές και δεν διαγράφεται οριστικά.");
+        }
+
+        await writeAudit(
+          {
+            entity: "PROPERTY",
+            entityId: id,
+            action: "delete_permanent",
+            actorId: actor.id,
+            ipAddress: clientIp(request),
+            userAgent: userAgent(request),
+            changes: { reference: existing.reference, titleEl: existing.titleEl },
+          },
+          tx,
+        );
+        await tx.property.delete({ where: { id } });
+        return existing;
+      },
+      { isolationLevel: "Serializable" },
+    );
+
+    return { deleted };
   });
 }

@@ -64,6 +64,7 @@ export const PROPERTY_STATUS_LABELS: Record<string, Localised> = {
   RENTED: { el: "Νοικιάστηκε", en: "Rented" },
   INACTIVE: { el: "Αποσυρμένο", en: "Withdrawn" },
   ARCHIVED: { el: "Αρχειοθετημένο", en: "Archived" },
+  DELETED: { el: "Διαγραμμένο", en: "Deleted" },
 };
 
 export const LEAD_STATUS_LABELS: Record<string, Localised> = {

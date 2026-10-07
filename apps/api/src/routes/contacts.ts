@@ -350,9 +350,10 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
     const { id } = request.params as { id: string };
     await loadContact(id);
     const [owned, shared, links] = await Promise.all([
-      db().property.findMany({ where: { ownerId: id }, select: PROPERTY_PICK }),
-      db().propertyOwner.findMany({ where: { contactId: id }, select: { id: true, capacity: true, ownershipPercentage: true, property: { select: PROPERTY_PICK } } }),
-      db().contactProperty.findMany({ where: { contactId: id }, orderBy: { createdAt: "desc" }, select: { id: true, relation: true, notes: true, createdAt: true, property: { select: PROPERTY_PICK } } }),
+      // Deleted properties live in the bin, not in a contact's tabs.
+      db().property.findMany({ where: { ownerId: id, status: { not: "DELETED" } }, select: PROPERTY_PICK }),
+      db().propertyOwner.findMany({ where: { contactId: id, property: { status: { not: "DELETED" } } }, select: { id: true, capacity: true, ownershipPercentage: true, property: { select: PROPERTY_PICK } } }),
+      db().contactProperty.findMany({ where: { contactId: id, property: { status: { not: "DELETED" } } }, orderBy: { createdAt: "desc" }, select: { id: true, relation: true, notes: true, createdAt: true, property: { select: PROPERTY_PICK } } }),
     ]);
     const seen = new Set<string>();
     const data: Array<{ key: string; linkId: string | null; removable: boolean; relation: string; relationLabel: string; share: number | null; property: unknown }> = [];

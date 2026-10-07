@@ -616,8 +616,9 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
 .filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 18px; }
 .filters .field { margin-bottom: 0; min-width: 170px; }
 .filters__check { padding-bottom: 10px; }
-.filter-chip-row { margin: -6px 0 16px; }
+.filter-chip-row { margin: -6px 0 16px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .filter-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; font-weight: 650; padding: 4px 11px; border-radius: 999px; background: var(--brand-tint); color: var(--link); border: 1px solid var(--info-line); }
+a.filter-chip:hover { text-decoration: none; border-color: var(--link); }
 .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .between { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .muted { color: var(--ink-muted); }

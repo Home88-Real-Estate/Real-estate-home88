@@ -206,7 +206,7 @@ export async function buildMandateValidationInput(db: Db, mandateId: string, now
     startDate: m.startsAt,
     endDate: m.endsAt,
     hasProperty: p != null,
-    property: p ? { propertyId: p.id, code: p.reference, hasAddress: !!p.address?.trim(), price, transactionType: p.listingType, offMarket: ["SOLD", "RENTED", "INACTIVE", "ARCHIVED"].includes(p.status) } : null,
+    property: p ? { propertyId: p.id, code: p.reference, hasAddress: !!p.address?.trim(), price, transactionType: p.listingType, offMarket: ["SOLD", "RENTED", "INACTIVE", "ARCHIVED", "DELETED"].includes(p.status) } : null,
     parties: m.parties.map((x) => ({
       fullName: x.fullName,
       role: x.role,
