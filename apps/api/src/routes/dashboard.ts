@@ -33,7 +33,7 @@ import {
 } from "../lib/dashboard";
 import { parseInput } from "../lib/http";
 import { mapLimit, runAll } from "../lib/map-limit";
-import { db } from "../lib/prisma";
+import { lockedDb } from "../lib/prisma";
 import { mediaUrlFor } from "../lib/storage";
 import { requireRole, roleAtLeast } from "../plugins/auth";
 
@@ -51,7 +51,13 @@ const OPEN_TASK = { in: ["OPEN", "IN_PROGRESS"] as Array<"OPEN" | "IN_PROGRESS">
 const WEBSITE_SOURCES = [...CHANNEL_LEAD_SOURCES.WEBSITE] as LeadSource[];
 const PORTAL_SOURCES = [...CHANNEL_LEAD_SOURCES.PORTAL] as LeadSource[];
 
-/** In-flight Prisma queries per dashboard request; the serverless pool is small. */
+/**
+ * Target parallelism for the group helpers (`mapLimit` / `runAll`) within one
+ * dashboard request. The leaf queries all run through `lockedDb()`, whose
+ * process-wide semaphore (`query-lock.ts`) is the real ceiling: however many
+ * groups this fan out across, at most DASHBOARD_QUERY_CONCURRENCY queries are
+ * in flight at once against the small serverless pool.
+ */
 const QUERY_CONCURRENCY = 4;
 
 type Scope = { all: boolean; userId: string };
@@ -76,25 +82,25 @@ function between(from: Date, to: Date) {
 async function periodCounts(scope: Scope, from: Date, to: Date) {
   const created = between(from, to);
   const queries = [
-    () => db().property.count({ where: { ...propertyScope(scope), createdAt: created } }),
-    () => db().lead.count({ where: { ...leadScope(scope), createdAt: created } }),
+    () => lockedDb().property.count({ where: { ...propertyScope(scope), createdAt: created } }),
+    () => lockedDb().lead.count({ where: { ...leadScope(scope), createdAt: created } }),
     () =>
-      db().lead.count({
+      lockedDb().lead.count({
         where: { ...leadScope(scope), createdAt: created, source: { in: WEBSITE_SOURCES } },
       }),
     () =>
-      db().lead.count({
+      lockedDb().lead.count({
         where: { ...leadScope(scope), createdAt: created, source: { in: PORTAL_SOURCES } },
       }),
     () =>
-      db().viewing.count({ where: { ...viewingScope(scope), status: "COMPLETED", startsAt: created } }),
-    () => db().offer.count({ where: { ...offerScope(scope), createdAt: created } }),
+      lockedDb().viewing.count({ where: { ...viewingScope(scope), status: "COMPLETED", startsAt: created } }),
+    () => lockedDb().offer.count({ where: { ...offerScope(scope), createdAt: created } }),
     () =>
-      db().propertyStatusHistory.count({
+      lockedDb().propertyStatusHistory.count({
         where: { toStatus: "SOLD", createdAt: created, property: propertyScope(scope) },
       }),
     () =>
-      db().propertyStatusHistory.count({
+      lockedDb().propertyStatusHistory.count({
         where: { toStatus: "RENTED", createdAt: created, property: propertyScope(scope) },
       }),
   ] as const;
@@ -118,10 +124,10 @@ async function monthlySeries(scope: Scope, now: Date) {
   const series = await mapLimit(months, QUERY_CONCURRENCY, async (month) => {
     const window = between(month.from, month.to);
     const [newProperties, leads, viewings, closings] = await Promise.all([
-      db().property.count({ where: { ...propertyScope(scope), createdAt: window } }),
-      db().lead.count({ where: { ...leadScope(scope), createdAt: window } }),
-      db().viewing.count({ where: { ...viewingScope(scope), status: "COMPLETED", startsAt: window } }),
-      db().propertyStatusHistory.count({
+      lockedDb().property.count({ where: { ...propertyScope(scope), createdAt: window } }),
+      lockedDb().lead.count({ where: { ...leadScope(scope), createdAt: window } }),
+      lockedDb().viewing.count({ where: { ...viewingScope(scope), status: "COMPLETED", startsAt: window } }),
+      lockedDb().propertyStatusHistory.count({
         where: { toStatus: { in: ["SOLD", "RENTED"] }, createdAt: window, property: propertyScope(scope) },
       }),
     ]);
@@ -135,24 +141,24 @@ async function agentPerformance(range: DateRange) {
   const [agents, active, leads, viewings, offers, closings] = await runAll(
     [
       () =>
-        db().user.findMany({
+        lockedDb().user.findMany({
           where: { status: "ACTIVE", role: { in: ["AGENT", "MANAGER", "ADMIN", "SUPER_ADMIN"] } },
           select: { id: true, firstName: true, lastName: true },
           orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
         }),
-      () => db().property.groupBy({ by: ["agentId"], where: { status: { in: PUBLIC } }, _count: { _all: true } }),
-      () => db().lead.groupBy({ by: ["assignedToId"], where: { createdAt: created }, _count: { _all: true } }),
+      () => lockedDb().property.groupBy({ by: ["agentId"], where: { status: { in: PUBLIC } }, _count: { _all: true } }),
+      () => lockedDb().lead.groupBy({ by: ["assignedToId"], where: { createdAt: created }, _count: { _all: true } }),
       () =>
-        db().viewing.groupBy({
+        lockedDb().viewing.groupBy({
           by: ["agentId"],
           where: { status: "COMPLETED", startsAt: created },
           _count: { _all: true },
         }),
-      () => db().offer.groupBy({ by: ["agentId"], where: { createdAt: created }, _count: { _all: true } }),
+      () => lockedDb().offer.groupBy({ by: ["agentId"], where: { createdAt: created }, _count: { _all: true } }),
       // A closing is credited to the property's agent; groupBy cannot follow a
       // relation, so the (few) closing rows of the period are read and counted.
       () =>
-        db().propertyStatusHistory.findMany({
+        lockedDb().propertyStatusHistory.findMany({
           where: { toStatus: { in: ["SOLD", "RENTED"] }, createdAt: created },
           select: { property: { select: { agentId: true } } },
         }),
@@ -264,62 +270,62 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       mediaPending,
     ] = await runAll(
       [
-        () => db().property.count({ where: { ...propertyScope(scope), status: { notIn: ["ARCHIVED", "DELETED"] } } }),
-        () => db().property.count({ where: { ...propertyScope(scope), status: { in: PUBLIC } } }),
-        () => db().property.count({ where: { ...propertyScope(scope), status: "DRAFT" } }),
+        () => lockedDb().property.count({ where: { ...propertyScope(scope), status: { notIn: ["ARCHIVED", "DELETED"] } } }),
+        () => lockedDb().property.count({ where: { ...propertyScope(scope), status: { in: PUBLIC } } }),
+        () => lockedDb().property.count({ where: { ...propertyScope(scope), status: "DRAFT" } }),
         () =>
-          db().property.count({
+          lockedDb().property.count({
             where: { ...propertyScope(scope), status: { in: PUBLIC }, publishedOnWebsite: true },
           }),
         () =>
-          db().property.groupBy({
+          lockedDb().property.groupBy({
             by: ["propertyType"],
             where: { ...propertyScope(scope), status: { notIn: ["ARCHIVED", "DELETED"] } },
             _count: { _all: true },
           }),
         () => periodCounts(scope, range.from, range.to),
         () => periodCounts(scope, range.previousFrom, range.previousTo),
-        () => db().viewing.count({ where: { ...viewingScope(scope), status: "SCHEDULED", startsAt: { gte: now } } }),
+        () => lockedDb().viewing.count({ where: { ...viewingScope(scope), status: "SCHEDULED", startsAt: { gte: now } } }),
         () => monthlySeries(scope, now),
         () =>
-          db().lead.groupBy({
+          lockedDb().lead.groupBy({
             by: ["source"],
             where: { ...leadScope(scope), createdAt: rangeWindow },
             _count: { _all: true },
           }),
         () =>
-          db().lead.groupBy({
+          lockedDb().lead.groupBy({
             by: ["status"],
             where: { ...leadScope(scope), createdAt: rangeWindow },
             _count: { _all: true },
           }),
         () => (isManager && scope.all ? agentPerformance(range) : Promise.resolve(null)),
         () =>
-          db().task.findMany({
+          lockedDb().task.findMany({
             where: { ...myOpenTasks, dueAt: { lt: now } },
             orderBy: { dueAt: "asc" },
             take: 5,
             select: taskSelect,
           }),
         () =>
-          db().task.findMany({
+          lockedDb().task.findMany({
             where: { ...myOpenTasks, dueAt: { gte: now, lt: today.to } },
             orderBy: { dueAt: "asc" },
             take: 5,
             select: taskSelect,
           }),
         () =>
-          db().task.findMany({
+          lockedDb().task.findMany({
             where: { ...myOpenTasks, dueAt: { gte: today.to, lt: weekAhead } },
             orderBy: { dueAt: "asc" },
             take: 5,
             select: taskSelect,
           }),
-        () => db().task.count({ where: { ...myOpenTasks, dueAt: { lt: now } } }),
-        () => db().task.count({ where: { ...myOpenTasks, dueAt: { gte: now, lt: today.to } } }),
-        () => db().task.count({ where: { ...myOpenTasks, dueAt: { gte: today.to, lt: weekAhead } } }),
+        () => lockedDb().task.count({ where: { ...myOpenTasks, dueAt: { lt: now } } }),
+        () => lockedDb().task.count({ where: { ...myOpenTasks, dueAt: { gte: now, lt: today.to } } }),
+        () => lockedDb().task.count({ where: { ...myOpenTasks, dueAt: { gte: today.to, lt: weekAhead } } }),
         () =>
-          db().viewing.findMany({
+          lockedDb().viewing.findMany({
             where: { ...viewingScope(scope), startsAt: between(today.from, today.to), status: { not: "CANCELLED" } },
             orderBy: { startsAt: "asc" },
             take: 8,
@@ -334,7 +340,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
             },
           }),
         () =>
-          db().lead.findMany({
+          lockedDb().lead.findMany({
             where: leadScope(scope),
             orderBy: { createdAt: "desc" },
             take: 6,
@@ -350,21 +356,21 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
             },
           }),
         () =>
-          db().property.findMany({
+          lockedDb().property.findMany({
             where: { ...propertyScope(scope), status: { notIn: ["ARCHIVED", "DELETED"] } },
             orderBy: { createdAt: "desc" },
             take: 5,
             select: PROPERTY_CARD_SELECT,
           }),
         () =>
-          db().property.findMany({
+          lockedDb().property.findMany({
             where: { ...propertyScope(scope), status: { notIn: ["ARCHIVED", "DELETED"] } },
             orderBy: { updatedAt: "desc" },
             take: 5,
             select: PROPERTY_CARD_SELECT,
           }),
         () =>
-          db().offer.findMany({
+          lockedDb().offer.findMany({
             where: offerScope(scope),
             orderBy: { createdAt: "desc" },
             take: 5,
@@ -379,24 +385,24 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
             },
           }),
         () =>
-          db().lead.count({
+          lockedDb().lead.count({
             where: { ...leadScope(scope), status: "NEW", createdAt: { lt: new Date(now.getTime() - DAY) } },
           }),
         () =>
-          db().property.count({
+          lockedDb().property.count({
             where: {
               ...propertyScope(scope),
               status: { in: PUBLIC },
               media: { none: { kind: "PHOTO", status: { in: ["approved", "published"] } } },
             },
           }),
-        () => db().offer.count({ where: { ...offerScope(scope), status: { in: ["SUBMITTED", "COUNTERED"] } } }),
+        () => lockedDb().offer.count({ where: { ...offerScope(scope), status: { in: ["SUBMITTED", "COUNTERED"] } } }),
         () =>
-          db().property.count({
+          lockedDb().property.count({
             where: { ...propertyScope(scope), status: "DRAFT", updatedAt: { lt: new Date(now.getTime() - 14 * DAY) } },
           }),
-        () => (isManager ? db().portalListing.count({ where: { state: "FAILED" } }) : Promise.resolve(null)),
-        () => (isManager ? db().propertyMedia.count({ where: { status: "pending_review" } }) : Promise.resolve(null)),
+        () => (isManager ? lockedDb().portalListing.count({ where: { state: "FAILED" } }) : Promise.resolve(null)),
+        () => (isManager ? lockedDb().propertyMedia.count({ where: { status: "pending_review" } }) : Promise.resolve(null)),
       ] as const,
       QUERY_CONCURRENCY,
     );
@@ -464,11 +470,11 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     const now = new Date();
     const today = localDay(now);
     const [properties, newLeads, dueTasks, newSubmissions] = await Promise.all([
-      db().property.count({ where: { ...propertyScope(scope), status: { notIn: ["ARCHIVED", "DELETED"] } } }),
-      db().lead.count({ where: { ...leadScope(scope), status: "NEW" } }),
-      db().task.count({ where: { assignedToId: actor.id, status: OPEN_TASK, dueAt: { lt: today.to } } }),
+      lockedDb().property.count({ where: { ...propertyScope(scope), status: { notIn: ["ARCHIVED", "DELETED"] } } }),
+      lockedDb().lead.count({ where: { ...leadScope(scope), status: "NEW" } }),
+      lockedDb().task.count({ where: { assignedToId: actor.id, status: OPEN_TASK, dueAt: { lt: today.to } } }),
       // Same visibility as the submissions list: everything for a manager, else mine or unassigned.
-      db().propertySubmission.count({
+      lockedDb().propertySubmission.count({
         where: { status: "NEW", ...(scope.all ? {} : { OR: [{ assignedToId: actor.id }, { assignedToId: null }] }) },
       }),
     ]);
