@@ -260,11 +260,14 @@ const LIST_SELECT = {
   city: true,
   areaName: true,
   neighborhood: true,
+  floor: true,
+  yearBuilt: true,
   publishedOnWebsite: true,
   featured: true,
   createdAt: true,
   updatedAt: true,
   agent: { select: { id: true, firstName: true, lastName: true } },
+  owner: { select: { id: true, firstName: true, lastName: true } },
   _count: { select: { media: true, leads: true } },
 } satisfies Prisma.PropertySelect;
 
@@ -330,8 +333,22 @@ export async function propertyRoutes(app: FastifyInstance): Promise<void> {
       coverUrls.set(c.propertyId, await mediaUrlFor(c.thumbnailKey ?? c.previewKey ?? c.storageKey, c.status));
     }
 
+    // Internal tags are shown beside each row so the list can be scanned without opening files.
+    const assignments = await db().propertyTagAssignment.findMany({
+      where: { propertyId: { in: data.map((p) => p.id) } },
+      select: { propertyId: true, tag: { select: { code: true, labelEl: true, color: true, sortOrder: true } } },
+    });
+    const tagsByProperty = new Map<string, Array<{ code: string; labelEl: string; color: string; sortOrder: number }>>();
+    for (const a of assignments) tagsByProperty.set(a.propertyId, [...(tagsByProperty.get(a.propertyId) ?? []), a.tag]);
+
     return {
-      data: data.map((p) => ({ ...p, coverThumbnailUrl: coverUrls.get(p.id) ?? null })),
+      data: data.map((p) => ({
+        ...p,
+        coverThumbnailUrl: coverUrls.get(p.id) ?? null,
+        tags: (tagsByProperty.get(p.id) ?? [])
+          .sort((a, b) => a.sortOrder - b.sortOrder)
+          .map(({ code, labelEl, color }) => ({ code, labelEl, color })),
+      })),
       pagination: {
         page: q.page,
         limit: q.limit,

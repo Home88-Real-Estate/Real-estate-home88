@@ -809,17 +809,20 @@ export const TAG_COLORS = [
 export const SYSTEM_PROPERTY_TAGS: ReadonlyArray<{ code: string; labelEl: string; labelEn: string; color: string; legacy: string[] }> = [
   { code: "DO_NOT_CALL", labelEl: "Δεν καλούμε", labelEn: "Do not call", color: "red", legacy: ["Δεν καλούμε"] },
   { code: "OWNER_CONTACT", labelEl: "Να καλέσουμε τον ιδιοκτήτη", labelEn: "Call the owner", color: "amber", legacy: [] },
-  { code: "CONTACTED", labelEl: "Επικοινωνήσαμε — διαθέσιμο", labelEn: "Contacted — available", color: "green", legacy: ["Πήραμε τηλ. και είναι διαθέσιμο"] },
-  { code: "NO_ANSWER", labelEl: "Δεν απάντησε", labelEn: "No answer", color: "amber", legacy: ["Πήραμε δεν απάντησε"] },
-  { code: "WRONG_PHONE", labelEl: "Λάθος τηλέφωνο", labelEn: "Wrong phone", color: "red", legacy: ["Έχει λάθος τηλ"] },
-  { code: "DO_NOT_PUBLISH", labelEl: "Να μη δημοσιευθεί", labelEn: "Do not publish", color: "red", legacy: ["Να μην δημοσιευθεί πουθενά"] },
-  { code: "EXCLUSIVE", labelEl: "Αποκλειστική ανάθεση", labelEn: "Exclusive mandate", color: "violet", legacy: ["Αποκλειστική Ανάθεση"] },
-  { code: "WEBSITE_ONLY", labelEl: "Μόνο στον ιστότοπο", labelEn: "Website only", color: "blue", legacy: ["Μόνο site μας"] },
+  { code: "CONTACTED", labelEl: "Πήραμε τηλ. και είναι διαθέσιμο", labelEn: "Contacted — available", color: "green", legacy: ["Πήραμε τηλ. και είναι διαθέσιμο"] },
+  { code: "NO_ANSWER", labelEl: "Πήραμε δεν απάντησε", labelEn: "No answer", color: "amber", legacy: ["Πήραμε δεν απάντησε"] },
+  { code: "WRONG_PHONE", labelEl: "Έχει λάθος τηλ", labelEn: "Wrong phone", color: "red", legacy: ["Έχει λάθος τηλ"] },
+  { code: "DO_NOT_PUBLISH", labelEl: "Να μην δημοσιευθεί πουθενά", labelEn: "Do not publish", color: "red", legacy: ["Να μην δημοσιευθεί πουθενά"] },
+  { code: "EXCLUSIVE", labelEl: "Αποκλειστική Ανάθεση", labelEn: "Exclusive mandate", color: "violet", legacy: ["Αποκλειστική Ανάθεση"] },
+  { code: "WEBSITE_ONLY", labelEl: "Μόνο site μας", labelEn: "Website only", color: "blue", legacy: ["Μόνο site μας"] },
   { code: "PORTAL_ONLY", labelEl: "Μόνο σε portals", labelEn: "Portals only", color: "blue", legacy: [] },
   { code: "COOPERATION", labelEl: "Συνεργασία", labelEn: "Co-broker", color: "slate", legacy: ["Συνεργασία"] },
   { code: "DEVELOPER", labelEl: "Κατασκευαστής", labelEn: "Developer", color: "slate", legacy: ["Κατασκευαστής"] },
-  { code: "ANTIPAROCHI", labelEl: "Αντιπαροχή", labelEn: "Land-for-flats exchange", color: "slate", legacy: ["Αντιπαροχή / Δίνεται και Αντιπαροχή"] },
-  { code: "REVIEW_NOTES", labelEl: "Έλεγχος σημειώσεων", labelEn: "Review notes", color: "amber", legacy: ["Να κοιτάξουμε σημειώσεις!!"] },
+  { code: "ANTIPAROCHI", labelEl: "Αντιπαροχή / Δίνεται και Αντιπαροχή", labelEn: "Land-for-flats exchange", color: "slate", legacy: ["Αντιπαροχή / Δίνεται και Αντιπαροχή"] },
+  { code: "REVIEW_NOTES", labelEl: "Να κοιτάξουμε σημειώσεις!!", labelEn: "Review notes", color: "amber", legacy: ["Να κοιτάξουμε σημειώσεις!!"] },
+  { code: "SITE", labelEl: "Site", labelEn: "Site", color: "blue", legacy: ["Site"] },
+  { code: "PHONE_EFTHYMIS", labelEl: "Τηλ Ευθύμης", labelEn: "Efthymis phone", color: "slate", legacy: ["Τηλ Ευθύμης"] },
+  { code: "GOLDEN_DEAL", labelEl: "Χρυσή Ευκαιρία", labelEn: "Golden opportunity", color: "amber", legacy: ["Χρυσή Ευκαιρία"] },
 ];
 
 // ---------------------------------------------------------------------------
