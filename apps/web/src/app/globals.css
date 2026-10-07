@@ -866,35 +866,34 @@ p { margin: 0 0 1em; }
   border-bottom-color: var(--brand-light);
 }
 
-/* Landing page: the categories as cards (CategoryCarousel). A finite
-   horizontal carousel that keeps the original artwork and its 720:456 ratio,
-   one slide on phones and two from 640px (the original grid's two columns).
-   Slides scroll-snap, the arrows overlay the artwork, autoplay advances and
-   loops back after the last slide, and prefers-reduced-motion disables
-   animation but keeps the arrows, keyboard and swipe. No cloned slides are
-   rendered, so nothing is shown twice for screen readers. */
+/* Landing page: the categories as cards (CategoryCarousel). A continuously
+   moving carousel that keeps the original artwork and its 720:456 ratio, one
+   slide on phones and two from 640px (the original grid's two columns). The
+   track holds the four cards twice (aria-hidden clone set, so screen readers
+   are never double-listed) and slides at a steady speed, wrapping seamlessly
+   when one set width has passed. The frame clips the motion; the arrows float
+   above its edges. Hover, focus and drag pause the slide; prefers-reduced-
+   motion shows the static strip and keeps the arrows, keyboard and swipe. */
 .catcarousel {
+  position: relative;
   padding-top: 40px;
   padding-bottom: 8px;
 }
 .catcarousel__stage {
   position: relative;
 }
+.catcarousel__frame {
+  overflow: hidden;
+}
 .catcards {
   display: flex;
   gap: 16px;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  overscroll-behavior-x: contain;
-  scrollbar-width: none;
-  scroll-padding: 4px;
   padding: 4px 4px 22px;
   user-select: none;
+  will-change: transform;
 }
-.catcards::-webkit-scrollbar { display: none; }
 .card-slide {
   flex: 0 0 100%;
-  scroll-snap-align: start;
 }
 @media (min-width: 640px) {
   .catcards { gap: 20px; }
