@@ -30,30 +30,4 @@ export function CategoryNav({ active }: { active?: string }) {
   );
 }
 
-/**
- * The same categories as image cards, for the landing page. The artwork
- * carries the icon, label and arrow (public/images/categories, cropped from
- * the HOME88 design at 720x456 plus a 480px copy for phones), so the label
- * reaches screen readers and search engines through aria-label and the image
- * itself is decorative.
- */
-export function CategoryCards() {
-  return (
-    <nav className="catcards wrap" aria-label="Κατηγορίες ακινήτων">
-      {CATEGORIES.map((c) => (
-        <Link key={c.key} href={c.href} className="catcard" aria-label={c.label}>
-          <img
-            src={`/images/categories/${c.image}.webp`}
-            srcSet={`/images/categories/${c.image}-480.webp 480w, /images/categories/${c.image}.webp 720w`}
-            sizes="(min-width: 1320px) 620px, (min-width: 640px) calc(50vw - 40px), calc(100vw - 32px)"
-            width={720}
-            height={456}
-            alt=""
-            loading="lazy"
-            decoding="async"
-          />
-        </Link>
-      ))}
-    </nav>
-  );
-}
+

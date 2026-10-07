@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 
 import { PropertyCardGrid } from "@/components/PropertyCard";
-import { CategoryCards } from "@/components/CategoryNav";
+import { CategoryCarousel } from "@/components/CategoryCarousel";
 import { listFeaturedProperties, listRecentProperties, countPublicProperties } from "@/lib/property";
 import { listAreas } from "@/lib/areas";
 import { COMPANY } from "@/lib/config";
@@ -245,7 +245,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <CategoryCards />
+      <CategoryCarousel />
 
       <section className="section">
         <div className="wrap">
