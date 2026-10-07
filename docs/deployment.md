@@ -184,12 +184,34 @@ values), for example:
 |---|---|
 | `DATABASE_URL` missing/invalid | Set the database connection string. |
 | `JWT_SECRET` missing/too_short | Set a random value of 32+ characters. |
+| `SETTINGS_ENCRYPTION_KEY` invalid | Set it to 32 bytes (`base64`) or 64 hex characters. A malformed value never boots (see below). |
 | `API_URL` unreachable | Delete `API_URL` (production runs the API inside the CRM). |
 | `"database": "down"` | The connection string is wrong, or the database is paused or unreachable. |
 
 Redeploy after changing variables. While any of these is wrong, sign-in and
 "forgot password" show «Η υπηρεσία δεν είναι προσωρινά διαθέσιμη» and answer
 503, and the function log says which variable to fix.
+
+## Migrations: apply and verify
+
+Migrations run from a trusted machine, never from a web function: the pooled
+`DATABASE_URL` the apps use (port 6543, `?pgbouncer=true`) cannot run DDL, and
+the direct connection string must not live on a web deployment.
+
+1. Push to `main` (CI runs `prisma migrate deploy` against the preview branch only).
+2. From a trusted machine, apply to production with the **direct** connection URL:
+   `DATABASE_URL=<direct prod URL> npm run prisma:deploy -w @home88/database`.
+3. Verify the schema is exactly what was merged. The API's health only proves
+   the database answers, not that the latest migration ran, so check the applied
+   migrations and the shape of the changed objects:
+   - `SELECT * FROM _prisma_migrations WHERE finished_at IS NOT NULL ORDER BY started_at DESC LIMIT 5;`
+   - `SELECT enum_range(NULL::"PropertyStatus");` (or the equivalent for any
+     enum/column a migration touched) and compare with the migration in
+     `packages/database/prisma/migrations/`.
+4. `https://<CRM domain>/crm/health/ready` must report `"database": "up"` after.
+
+A migration that is applied in preview but not in production is the usual cause
+of "it worked in preview, 500/`column does not exist` in production".
 
 `CRM_URL` (the origin used in reset/invitation links and the CSRF check)
 defaults to the CRM deployment's own production address on Vercel
@@ -221,6 +243,36 @@ For Supabase's transaction pooler (`*.pooler.supabase.com:6543`) the apps add
 `pgbouncer=true`, raise `connection_limit` to at least 5 and set
 `pool_timeout=30` when absent (`serverlessDatabaseUrl` in
 `packages/database`). Other database URLs are used unchanged.
+
+The dashboard launches dozens of counts per request, so the API caps the number
+of database queries in flight at once. The ceiling is the process-wide query
+semaphore, default 4, overridable with `DASHBOARD_QUERY_CONCURRENCY`; the
+request-local group helpers use the same default per group. Raise it only
+together with the pooler's `connection_limit` — otherwise queries just queue.
+
+## Provider secrets and the encryption key
+
+Portal credentials, SMTP passwords and signature keys are sealed with AES-256-GCM
+under `SETTINGS_ENCRYPTION_KEY` (a 32-byte key, `base64` or 64 hex characters).
+The key is never stored next to the values it protects and is read at call time.
+
+- **Missing** (unset/blank): the API boots and answers; anything that would need
+  the box (portal test connections, signing, sending real mail) reports a clear
+  "not configured" error instead. Useful for a dev or guest deployment that
+  stores no secrets.
+- **Invalid** (set to something that is not a 32-byte key): a configuration
+  error, not a degradation — every stored secret would look like it was written
+  with a different key. The API refuses to boot, `/health/ready` names
+  `SETTINGS_ENCRYPTION_KEY` (name only, never the value) and `loadConfig` throws.
+
+Generate one with:
+`node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`.
+
+Portal endpoint overrides are additionally checked before they are stored:
+https-only, no credentials in the URL, and the host may not be loopback,
+private, link-local, CGNAT, the cloud metadata service or any reserved address
+— as a literal or after DNS resolution of every address a hostname resolves to.
+Redirects a fetch follows are re-checked the same way.
 
 ## Limits to know
 
