@@ -22,6 +22,7 @@ import {
   checkDeclaration,
   displayFileName,
   isQuarantineKeyFor,
+  PUBLIC_PHOTO_MIME,
   sniffMime,
   type UploadKind,
   type UploadLimits,
@@ -88,7 +89,12 @@ async function claimOne(deps: Deps, target: Target, prefix: string, file: Upload
 
   const body = await storage.read(file.storageKey);
   const actual = sniffMime(body.subarray(0, 16));
-  if (actual !== mime) {
+  // A photo saved under the wrong extension (a JPEG or WebP named .png, common
+  // for screenshots and "save image as") is still a photo: what matters is that
+  // the bytes are a supported image, and photos are decoded and re-encoded
+  // below anyway. Documents must be exactly what they claim to be.
+  const photoUnderWrongName = file.kind === "PHOTO" && actual !== null && (PUBLIC_PHOTO_MIME as readonly string[]).includes(actual);
+  if (actual !== mime && !photoUnderWrongName) {
     // Declared one thing, is another: never keep it, never process it.
     await storage.delete(file.storageKey).catch(() => undefined);
     await recordQuarantine(prisma, target, file, mime, head.byteSize, index, "REJECTED", "content does not match the declared type", sha256(body));
