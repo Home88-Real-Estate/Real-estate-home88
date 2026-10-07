@@ -869,10 +869,10 @@ p { margin: 0 0 1em; }
 /* Landing page: the categories as cards (CategoryCarousel). A finite
    horizontal carousel that keeps the original artwork and its 720:456 ratio,
    one slide on phones and two from 640px (the original grid's two columns).
-   Slides scroll-snap, the arrows overlay the artwork, autoplay stops at the
-   ends and prefers-reduced-motion disables animation but keeps the arrows,
-   keyboard and swipe. No cloned slides are rendered, so nothing is shown
-   twice for screen readers. */
+   Slides scroll-snap, the arrows overlay the artwork, autoplay advances and
+   loops back after the last slide, and prefers-reduced-motion disables
+   animation but keeps the arrows, keyboard and swipe. No cloned slides are
+   rendered, so nothing is shown twice for screen readers. */
 .catcarousel {
   padding-top: 40px;
   padding-bottom: 8px;
