@@ -104,3 +104,18 @@ test("document permissions: agents prepare, managers issue and send, legal appro
   for (const role of Object.keys(DEFAULT_SETTINGS_GRANTS)) assert.ok(!has(role, "templates.approve_legal_version"), `${role} must not hold legal approval by default`);
   assert.ok(SETTINGS_PERMISSIONS.some((p) => p.code === "templates.approve_legal_version"));
 });
+
+test("portal permissions: agents publish, managers withdraw, administrators configure, credentials are for admins, production is reserved", () => {
+  const codes = new Set(SETTINGS_PERMISSIONS.map((p) => p.code));
+  for (const code of ["portals.view", "portals.preview", "portals.publish", "portals.update", "portals.unpublish", "portals.retry", "portals.configure", "portals.test_connection", "portals.manage_credentials", "portals.view_sync_history", "portals.view_sensitive_errors", "portals.bulk_publish", "portals.activate_production"]) {
+    assert.ok(codes.has(code), code);
+  }
+  const g = DEFAULT_SETTINGS_GRANTS;
+  assert.ok(g.AGENT!.includes("portals.publish") && !g.AGENT!.includes("portals.unpublish") && !g.AGENT!.includes("portals.configure"));
+  assert.ok(g.MANAGER!.includes("portals.unpublish") && !g.MANAGER!.includes("portals.configure") && !g.MANAGER!.includes("portals.manage_credentials"));
+  assert.ok(g.ADMIN!.includes("portals.configure") && g.ADMIN!.includes("portals.test_connection"));
+  assert.ok(g.ADMIN!.includes("portals.manage_credentials"));
+  assert.ok(!g.VIEWER!.some((p) => p.startsWith("portals.")));
+  assert.ok(RESERVED_PERMISSIONS.has("portals.activate_production"));
+  for (const role of Object.keys(g)) assert.ok(!g[role]!.includes("portals.activate_production"), role);
+});

@@ -26,6 +26,7 @@ import { isAllowedOrigin, parseOriginList } from "./lib/origin";
 import { mediaRoutes } from "./routes/media";
 import { submissionRoutes } from "./routes/submissions";
 import { portalRoutes } from "./routes/portals";
+import { portalAccountRoutes } from "./routes/portal-accounts";
 import { propertyRoutes } from "./routes/properties";
 import { requestRoutes } from "./routes/requests";
 import { sellerRoutes } from "./routes/sellers";
@@ -122,6 +123,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(leadRoutes, { prefix: "/api" });
   await app.register(contactRoutes, { prefix: "/api" });
   await app.register(portalRoutes, { prefix: "/api" });
+  await app.register(portalAccountRoutes, { prefix: "/api" });
   await app.register(mediaRoutes, { prefix: "/api" });
   await app.register(submissionRoutes, { prefix: "/api" });
   await app.register(userRoutes, { prefix: "/api" });

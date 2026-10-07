@@ -22,6 +22,7 @@ export const PORTAL_ERROR_CODES = [
   "REMOTE_SERVER_ERROR",
   "PORTAL_REJECTED",
   "TRANSPORT_UNAVAILABLE",
+  "DUPLICATE_LISTING",
 ] as const;
 
 export type PortalErrorCode = (typeof PORTAL_ERROR_CODES)[number];

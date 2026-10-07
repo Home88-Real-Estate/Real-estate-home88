@@ -34,12 +34,21 @@ export function mediaBase(cfg: { MEDIA_BASE_URL: string; SITE_URL: string }): st
   return cfg.MEDIA_BASE_URL || `${cfg.SITE_URL}/media`;
 }
 
-export function toPortalProperty(property: PropertyForPortal, base: string): PortalProperty {
+/**
+ * `urlFor` lets a caller replace the media link (portal delivery uses scoped,
+ * expiring links instead of the storage-key URL). The content hash must always
+ * be taken from the default projection, so it does not change with every token.
+ */
+export function toPortalProperty(
+  property: PropertyForPortal,
+  base: string,
+  urlFor?: (item: PropertyForPortal["media"][number]) => string,
+): PortalProperty {
   const media: PortalMedia[] = property.media
     .filter((item) => (EXPORTABLE_MEDIA_STATUSES as readonly string[]).includes(item.status))
     .map((item) => ({
       kind: item.kind as MediaKind,
-      url: resolveMediaUrl(item.storageKey, base),
+      url: urlFor ? urlFor(item) : resolveMediaUrl(item.storageKey, base),
       alt: item.altEl,
       sortOrder: item.sortOrder,
       isPrimary: item.isPrimary,

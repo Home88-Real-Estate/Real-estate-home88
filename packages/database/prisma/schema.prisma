@@ -245,6 +245,45 @@ enum PortalSyncState {
   IN_FEED
 }
 
+/// Which side of a portal an account talks to. A TEST account can never be
+/// used against production, and the choice is always explicit.
+enum PortalEnvironment {
+  TEST
+  PRODUCTION
+}
+
+enum PortalAccountStatus {
+  CONFIGURED
+  TESTING
+  ACTIVE
+  PAUSED
+  ERROR
+}
+
+enum PortalRunTrigger {
+  MANUAL
+  PROPERTY_SAVE
+  CRON
+  RETRY
+  BULK_ACTION
+}
+
+enum PortalRunOperation {
+  CONNECTION_TEST
+  PREVIEW
+  PUBLISH
+  UPDATE
+  UNPUBLISH
+  RETRY
+}
+
+enum PortalRunStatus {
+  RUNNING
+  SUCCEEDED
+  PARTIAL
+  FAILED
+}
+
 enum SyncAction {
   PUBLISH
   UPDATE
@@ -1178,6 +1217,8 @@ model Portal {
   publicationRule PortalPublicationRule?
   taxonomy        PortalMapping[]
   feedVersions    PortalFeedVersion[]
+  accounts        PortalAccount[]
+  syncRuns        PortalSyncRun[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1210,12 +1251,27 @@ model PortalListing {
   /// Hash of the payload last sent, so an unchanged property is not re-pushed.
   lastPayloadHash String?
 
+  /// Manual operations: which account the listing went through, who did what
+  /// last, and the last outcome. A property has one listing per portal, so a
+  /// live listing is moved to another account only after it is withdrawn.
+  portalAccountId      String?
+  portalAccount        PortalAccount?      @relation(fields: [portalAccountId], references: [id], onDelete: SetNull)
+  lastAction           PortalRunOperation?
+  lastActionAt         DateTime?
+  lastActionById       String?
+  lastSuccessfulSyncAt DateTime?
+  lastFailedAt         DateTime?
+  /// Payload as last sent, for debugging. Built from the normalised property
+  /// only: it never contains credentials, and media are portal-scoped links.
+  payloadSnapshot      Json?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   syncLogs PortalSyncLog[]
 
   @@unique([portalId, propertyId])
+  @@index([portalAccountId])
   @@index([portalId, state])
   @@index([portalId, needsReview])
   @@index([propertyId])
@@ -1231,6 +1287,10 @@ model PortalSyncLog {
   portalListing   PortalListing? @relation(fields: [portalListingId], references: [id], onDelete: SetNull)
   propertyId      String?
 
+  /// The run (one manual operation) this event belongs to, when there is one.
+  syncRunId String?
+  syncRun   PortalSyncRun? @relation(fields: [syncRunId], references: [id], onDelete: SetNull)
+
   action     SyncAction
   ok         Boolean
   detail     String?
@@ -1242,8 +1302,90 @@ model PortalSyncLog {
 
   @@index([portalId, createdAt])
   @@index([portalListingId])
+  @@index([syncRunId])
   @@index([ok])
   @@map("portal_sync_logs")
+}
+
+/// One connection of the agency to a portal: a portal can have several (for
+/// instance a TEST account and a PRODUCTION account). Secrets are never stored
+/// here: they are sealed in provider_credentials under scope
+/// "portal-account:<id>"; this row keeps only whether each is set, when it was
+/// last changed and the last four characters, for the masked display.
+model PortalAccount {
+  id       String @id @default(cuid())
+  portalId String
+  portal   Portal @relation(fields: [portalId], references: [id], onDelete: Restrict)
+
+  accountName      String
+  agencyExternalId String?
+  /// Endpoint override, where a portal needs one. Never contains credentials.
+  endpointUrl      String?
+  environment      PortalEnvironment   @default(TEST)
+  status           PortalAccountStatus @default(CONFIGURED)
+  enabled          Boolean             @default(false)
+
+  /// field -> last four characters (only for values long enough to mask safely).
+  credentialHints     Json?
+  credentialRotatedAt DateTime?
+
+  lastConnectionTestAt     DateTime?
+  lastConnectionTestStatus String?
+  lastSuccessfulSyncAt     DateTime?
+  lastErrorCode            String?
+  lastErrorMessage         String?
+
+  /// Non-secret options. `mockMode` is honoured on TEST accounts only.
+  settings Json?
+
+  createdById String?
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  listings PortalListing[]
+  syncRuns PortalSyncRun[]
+
+  @@unique([portalId, accountName, environment])
+  @@index([portalId, environment])
+  @@map("portal_accounts")
+}
+
+/// One manual operation (or, later, one scheduled or bulk pass). The detailed
+/// per-listing events stay in portal_sync_logs, linked by syncRunId.
+model PortalSyncRun {
+  id              String         @id @default(cuid())
+  portalId        String
+  portal          Portal         @relation(fields: [portalId], references: [id], onDelete: Cascade)
+  portalAccountId String?
+  portalAccount   PortalAccount? @relation(fields: [portalAccountId], references: [id], onDelete: SetNull)
+  propertyId      String?
+
+  trigger   PortalRunTrigger   @default(MANUAL)
+  operation PortalRunOperation
+  status    PortalRunStatus    @default(RUNNING)
+
+  startedAt   DateTime  @default(now())
+  finishedAt  DateTime?
+  createdById String?
+  requestId   String?
+
+  totalListings  Int     @default(0)
+  createdCount   Int     @default(0)
+  updatedCount   Int     @default(0)
+  withdrawnCount Int     @default(0)
+  failedCount    Int     @default(0)
+  /// Short, credential-free summary of what went wrong.
+  errorSummary   String?
+
+  createdAt DateTime @default(now())
+
+  logs PortalSyncLog[]
+
+  @@index([portalId, startedAt])
+  @@index([propertyId, startedAt])
+  @@index([portalAccountId])
+  @@map("portal_sync_runs")
 }
 
 /// Correlates our property reference to a portal's own identifier, so a

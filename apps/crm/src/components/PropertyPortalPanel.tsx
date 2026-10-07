@@ -3,6 +3,7 @@ import Link from "next/link";
 import { StatusBadge } from "@/components/StatusBadge";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
+import { PropertyPortalActions, type PortalAccountChoice } from "@/components/PropertyPortalActions";
 
 type Row = {
   code: string;
@@ -18,14 +19,27 @@ type Row = {
   outcome: "READY" | "BLOCKED" | "NOT_SELECTED";
   reasons: string[];
   warnings: string[];
+  hasAdapter: boolean;
+  portalAccountId: string | null;
+  lastAction: string | null;
+  lastActionAt: string | null;
+  lastActionBy: string | null;
+  lastSuccessfulSyncAt: string | null;
+  lastFailedAt: string | null;
+  lastErrorCode: string | null;
+  accounts: PortalAccountChoice[];
 };
+
+const ACTION_LABEL: Record<string, string> = { PUBLISH: "Δημοσίευση", UPDATE: "Ενημέρωση", UNPUBLISH: "Απόσυρση", RETRY: "Επανάληψη", PREVIEW: "Προεπισκόπηση" };
 
 /**
  * Where this property stands on every portal, and why not where it is held
  * back. "Website published" says nothing here: each portal has its own rule.
  */
 export async function PropertyPortalPanel({ propertyId, canManage }: { propertyId: string; canManage: boolean }) {
-  const portals = await apiFetch<{ portals: Row[] }>(`/api/properties/${encodeURIComponent(propertyId)}/portals`);
+  const portals = await apiFetch<{ portals: Row[]; permissions: Record<string, boolean> }>(`/api/properties/${encodeURIComponent(propertyId)}/portals`);
+
+  const perms = portals.ok ? portals.data.permissions : {};
 
   return (
     <div className="panel">
@@ -52,6 +66,7 @@ export async function PropertyPortalPanel({ propertyId, canManage }: { propertyI
                 <th scope="col">Στον επόμενο συγχρονισμό</th>
                 <th scope="col">Τελευταίος συγχρονισμός</th>
                 <th scope="col">Σύνδεσμος</th>
+                <th scope="col">Χειροκίνητη δημοσίευση</th>
               </tr>
             </thead>
             <tbody>
@@ -82,7 +97,25 @@ export async function PropertyPortalPanel({ propertyId, canManage }: { propertyI
                     )}
                   </td>
                   <td>{row.lastSyncedAt ? formatDateTime(row.lastSyncedAt) : "—"}</td>
-                  <td>{row.externalUrl ? <a href={row.externalUrl}>Άνοιγμα</a> : "—"}</td>
+                  <td>
+                    {row.externalUrl ? <a href={row.externalUrl}>Άνοιγμα</a> : "—"}
+                    {row.externalId && <div className="hint mono">ID {row.externalId}</div>}
+                  </td>
+                  <td>
+                    {row.lastAction && (
+                      <div className="hint">
+                        {ACTION_LABEL[row.lastAction] ?? row.lastAction}
+                        {row.lastActionBy ? ` από ${row.lastActionBy}` : ""}
+                        {row.lastActionAt ? ` · ${formatDateTime(row.lastActionAt)}` : ""}
+                      </div>
+                    )}
+                    <PropertyPortalActions
+                      propertyId={propertyId}
+                      row={{ code: row.code, state: row.state, hasAdapter: row.hasAdapter, needsReview: row.needsReview, portalAccountId: row.portalAccountId, accounts: row.accounts, outcome: row.outcome }}
+                      permissions={{ preview: perms.preview === true, publish: perms.publish === true, update: perms.update === true, unpublish: perms.unpublish === true, retry: perms.retry === true }}
+                    />
+                    {perms.view_sync_history === true && <div className="hint"><Link href={`/properties/${propertyId}/portals/${row.code}`}>Ιστορικό</Link></div>}
+                  </td>
                 </tr>
               ))}
             </tbody>

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PORTAL_STATUS_LABELS } from "@home88/domain";
 
+import { PortalAccounts, type AccountPermissions, type AccountRow } from "@/components/settings/PortalAccounts";
 import { PortalForm, type PortalDetail } from "@/components/settings/PortalForm";
 import { PortalMappingsForm, type MappingEntry } from "@/components/settings/PortalMappingsForm";
 import { PortalPreview } from "@/components/settings/PortalPreview";
@@ -38,6 +39,8 @@ export default async function PortalSettingsPage({ params }: { params: Promise<{
   const mappings = hasRole(user.role, "MANAGER")
     ? await apiFetch<{ entries: MappingEntry[]; features: Array<{ code: string; label: string }> }>(`/api/portals/${encodeURIComponent(code)}/mappings`)
     : null;
+  const accountsResult = await apiFetch<{ accounts: AccountRow[]; permissions: AccountPermissions }>("/api/portal-accounts");
+  const accounts = accountsResult.ok ? accountsResult.data.accounts.filter((a) => a.portalCode === portal.code) : [];
   const caps = Object.entries(portal.capabilities).filter(([, on]) => on).map(([key]) => CAPABILITY_LABELS[key] ?? key);
   return (
     <>
@@ -66,6 +69,17 @@ export default async function PortalSettingsPage({ params }: { params: Promise<{
       <div className="panel">
         <PortalForm portal={portal} tags={tags} canManage={canManage} encryptionNote={encryptionMissing} />
       </div>
+      {accountsResult.ok && (
+        <div className="panel">
+          <div className="panel__head">
+            <div>
+              <h2>Λογαριασμοί και περιβάλλοντα</h2>
+              <p className="panel__sub">Κάθε λογαριασμός ανήκει ρητά σε TEST ή PRODUCTION. Τα διαπιστευτήρια αποθηκεύονται κρυπτογραφημένα στον server και εμφανίζονται μόνο μασκαρισμένα. Μέχρι να υπάρξει επίσημος adapter του παρόχου, οι λογαριασμοί TEST χρησιμοποιούν mock και οι PRODUCTION δεν δημοσιεύουν τίποτα.</p>
+            </div>
+          </div>
+          <PortalAccounts code={portal.code} accounts={accounts} can={accountsResult.data.permissions} />
+        </div>
+      )}
       {mappings && (
         <>
           <div className="panel">

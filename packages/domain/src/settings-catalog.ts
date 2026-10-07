@@ -687,6 +687,30 @@ export const DOCUMENT_PERMISSIONS: readonly PermissionDef[] = [
   { code: "contacts.bulk_update", label: "Επαφές: μαζική αλλαγή κατάστασης και συναινέσεων", group: "Επαφές" },
 ] as const;
 
+/**
+ * Portal publishing. Configuring a portal account and managing its credentials
+ * are separate from publishing a property, and "activate_production" is
+ * reserved: only a Super Admin may point an account at a live portal.
+ */
+export const PORTAL_PERMISSIONS: readonly PermissionDef[] = [
+  { code: "portals.view", label: "Portals: προβολή κατάστασης", group: "Portals" },
+  { code: "portals.preview", label: "Portals: προεπισκόπηση δημοσίευσης", group: "Portals" },
+  { code: "portals.publish", label: "Portals: δημοσίευση ακινήτου", group: "Portals" },
+  { code: "portals.update", label: "Portals: ενημέρωση αγγελίας", group: "Portals" },
+  { code: "portals.unpublish", label: "Portals: απόσυρση αγγελίας", group: "Portals" },
+  { code: "portals.retry", label: "Portals: επανάληψη αποτυχημένης αποστολής", group: "Portals" },
+  { code: "portals.view_sync_history", label: "Portals: ιστορικό συγχρονισμών", group: "Portals" },
+  { code: "portals.view_sensitive_errors", label: "Portals: αναλυτικά σφάλματα παρόχου", group: "Portals" },
+  { code: "portals.configure", label: "Portals: λογαριασμοί και ρυθμίσεις", group: "Portals" },
+  { code: "portals.test_connection", label: "Portals: έλεγχος σύνδεσης", group: "Portals" },
+  { code: "portals.manage_credentials", label: "Portals: διαχείριση διαπιστευτηρίων", group: "Portals" },
+  { code: "portals.bulk_publish", label: "Portals: μαζική δημοσίευση (δεν είναι ακόμη ενεργή)", group: "Portals" },
+  { code: "portals.activate_production", label: "Portals: λογαριασμοί παραγωγής (μόνο Super Admin)", group: "Portals" },
+] as const;
+
+/** Held by SUPER_ADMIN only, never grantable (see RESERVED_PERMISSIONS). */
+export const PORTAL_ACTIVATE_PRODUCTION = "portals.activate_production";
+
 export const SETTINGS_PERMISSIONS: readonly PermissionDef[] = [
   ...SETTINGS_SECTIONS.flatMap((s) => [
     { code: settingsPermission(s.key, "view"), label: `Προβολή: ${s.title}`, group: s.navGroup },
@@ -694,6 +718,7 @@ export const SETTINGS_PERMISSIONS: readonly PermissionDef[] = [
   ]),
   { code: SETTINGS_AUDIT_VIEW, label: "Προβολή ιστορικού αλλαγών ρυθμίσεων", group: "Σύστημα" },
   ...DOCUMENT_PERMISSIONS,
+  ...PORTAL_PERMISSIONS,
 ];
 
 /**
@@ -704,6 +729,7 @@ export const RESERVED_PERMISSIONS: ReadonlySet<string> = new Set([
   settingsPermission("permissions", "manage"),
   settingsPermission("security", "manage"),
   settingsPermission("subscription", "manage"),
+  PORTAL_ACTIVATE_PRODUCTION,
 ]);
 
 const grant = (keys: SettingsSectionKey[], action: SettingsAction) => keys.map((k) => settingsPermission(k, action));
@@ -720,7 +746,10 @@ const ADMIN_MANAGE: SettingsSectionKey[] = [
  * granted to no role by default: it also needs the user to be marked a legal
  * approver, which only a Super Admin can do.
  */
+const AGENT_PORTALS = ["portals.view", "portals.preview", "portals.publish", "portals.update", "portals.retry", "portals.view_sync_history"];
+const MANAGER_PORTALS = [...AGENT_PORTALS, "portals.unpublish", "portals.view_sensitive_errors"];
 const AGENT_DOCUMENTS = [
+  ...AGENT_PORTALS,
   "showings.create", "showings.read", "showings.update_draft", "showings.download_pdf",
   "mandates.download_pdf", "templates.read",
   // An agent only ever sees their own records, and must read the identity data they are entering.
@@ -728,12 +757,13 @@ const AGENT_DOCUMENTS = [
 ];
 const MANAGER_DOCUMENTS = [
   ...AGENT_DOCUMENTS,
+  ...MANAGER_PORTALS,
   "showings.issue", "showings.send", "showings.cancel", "showings.replace",
   "mandates.issue", "mandates.send", "mandates.cancel", "mandates.replace", "mandates.extend",
   "mandates.override_conflict",
   "contacts.export", "contacts.bulk_assign", "contacts.bulk_update",
 ];
-const ADMIN_DOCUMENTS = [...MANAGER_DOCUMENTS, "contacts.export_sensitive", "templates.create_draft", "templates.submit_for_legal_review", "templates.activate"];
+const ADMIN_DOCUMENTS = [...MANAGER_DOCUMENTS, "portals.configure", "portals.test_connection", "portals.manage_credentials", "portals.bulk_publish", "contacts.export_sensitive", "templates.create_draft", "templates.submit_for_legal_review", "templates.activate"];
 
 /** Defaults per role; SUPER_ADMIN always holds every permission. Overrides live in role_permissions. */
 export const DEFAULT_SETTINGS_GRANTS: Readonly<Record<string, readonly string[]>> = {
