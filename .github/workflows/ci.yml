@@ -66,6 +66,25 @@ jobs:
               npx prisma migrate deploy --schema packages/database/prisma/schema.prisma
           done
 
+      # The repository's migrations must describe exactly the Prisma schema: no drift.
+      - name: Migration drift check
+        run: |
+          psql -h localhost -U ci -d postgres -c "create database ci_shadow"
+          npx prisma migrate diff \
+            --from-migrations packages/database/prisma/migrations \
+            --to-schema-datamodel packages/database/prisma/schema.prisma \
+            --shadow-database-url "postgresql://ci:ci_only_not_a_secret@localhost:5432/ci_shadow?schema=public" \
+            --exit-code
+
+      # The portal migration is additive: existing portal rows survive untouched, the new tables are
+      # deny-by-default (RLS on, no grants to the Supabase API roles), and history is never cascaded.
+      - name: Portal migration preserves data and denies public roles
+        run: node scripts/check-portal-migration.mjs 20261019000000_portal_accounts
+        env:
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: ci
+
       - name: Typecheck
         run: npm run typecheck
 

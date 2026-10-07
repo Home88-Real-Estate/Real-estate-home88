@@ -101,13 +101,14 @@ export async function portalOperation(_p: OperationState, formData: FormData): P
     json: { accountId: str(formData, "accountId") ?? "", environment },
   });
   revalidatePath(`/properties/${propertyId}`);
-  if (!result.ok) return { ok: false, message: result.error.message };
-  const d = result.data;
-  if (d.status === "BLOCKED") return { ok: false, message: `Δεν δημοσιεύτηκε: ${(d.reasons ?? []).join(" · ") || "το ακίνητο δεν πληροί τους όρους του portal."}` };
-  if (d.status === "FAILED") {
-    const f = d as unknown as { message: string; needsReview: boolean };
-    return { ok: false, message: `Αποτυχία: ${f.message} ${f.needsReview ? "Χρειάζεται έλεγχος πριν ξαναδοκιμάσετε." : "Μπορείτε να πατήσετε «Επανάληψη»."}` };
+  if (!result.ok) {
+    if (result.error.code === "portal_failed") {
+      const parked = result.error.fields?.needsReview?.[0] === "true";
+      return { ok: false, message: `Αποτυχία: ${result.error.message} ${parked ? "Χρειάζεται έλεγχος πριν ξαναδοκιμάσετε." : "Μπορείτε να πατήσετε «Επανάληψη»."}` };
+    }
+    return { ok: false, message: result.error.message };
   }
+  const d = result.data;
   if (d.status === "PREVIEWED") return { ok: true, message: d.mock ? "Προεπισκόπηση (mock)· δεν στάλθηκε τίποτα." : "Προεπισκόπηση· δεν στάλθηκε τίποτα.", preview: d };
   const mockNote = d.mock ? " (mock — δεν έγινε επικοινωνία με πραγματικό portal)" : "";
   return { ok: true, message: `${DONE_TEXT[d.status] ?? "Ολοκληρώθηκε."}${mockNote}` };

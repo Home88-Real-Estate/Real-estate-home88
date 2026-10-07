@@ -7,13 +7,17 @@
  * schedule, on property save or in bulk.
  */
 
+import { createHash } from "node:crypto";
+
 import { can, PERMISSIONS, PORTAL_ACTIVATE_PRODUCTION, portalCatalogEntry } from "@home88/domain";
 import { verifyPortalMediaToken } from "@home88/portals";
 import type { FastifyInstance, FastifyRequest } from "fastify";
+import { RATE_LIMITS } from "@home88/validation";
 import { z } from "zod";
 import { loadConfig } from "../config";
 import { writeAudit } from "../lib/audit";
-import { forbidden, notFound, conflict, HttpError } from "../lib/errors";
+import { forbidden, notFound, conflict, HttpError, tooManyRequests } from "../lib/errors";
+import { consume } from "../lib/rate-limit";
 import { clientIp, parseInput, userAgent } from "../lib/http";
 import { accountView, storeCredentials } from "../lib/portal-accounts";
 import { runPortalOperation, testPortalAccount, type PortalOperation } from "../lib/portal-actions";
@@ -202,11 +206,20 @@ export async function portalAccountRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const result = await runPortalOperation({ propertyId: id, portalCode: code, accountId: body.accountId, environment: body.environment, operation, actorId: actor.id, requestId: request.id });
-      // BLOCKED and FAILED are outcomes of a valid request, reported in the body (the CRM shows
-      // the reasons); the HTTP status stays 200 so they are not mistaken for a server fault.
-      // The portal's own wording is for those allowed to read it.
-      if (result.status === "FAILED" && !(await allow(request, "portals.view_sensitive_errors"))) {
-        return { ...result, message: "Η ενέργεια απέτυχε. Ζητήστε από έναν υπεύθυνο να δει τις λεπτομέρειες." };
+      // A property the portal would not take is a 422; a provider failure is a 502. The details a
+      // person needs (reasons, error code, whether it is parked, the run) travel in `fields`, and the
+      // CRM shows them. The portal's own wording is for those allowed to read it.
+      if (result.status === "BLOCKED") {
+        throw new HttpError(422, "portal_blocked", `Δεν δημοσιεύτηκε: ${result.reasons.join(" · ")}`, { reasons: result.reasons, runId: [result.runId] });
+      }
+      if (result.status === "FAILED") {
+        const message = (await allow(request, "portals.view_sensitive_errors")) ? result.message : "Η ενέργεια απέτυχε. Ζητήστε από έναν υπεύθυνο να δει τις λεπτομέρειες.";
+        throw new HttpError(502, "portal_failed", message, {
+          runId: [result.runId],
+          errorCode: [result.errorCode],
+          needsReview: [String(result.needsReview)],
+          nextRetryAt: result.nextRetryAt ? [result.nextRetryAt] : [],
+        });
       }
       return result;
     });
@@ -258,32 +271,46 @@ export async function portalAccountRoutes(app: FastifyInstance): Promise<void> {
    */
   // A wildcard, not a `:token` parameter: a signed token is longer than Fastify's default parameter limit.
   app.get("/portal-media/*", async (request, reply) => {
+    const ip = clientIp(request);
     const token = ((request.params as { "*": string })["*"] ?? "").replace(/^\/+/, "");
-    if (!token || token.length > 600) throw notFound();
+
+    // Every refusal is the same plain 404, and failed attempts are counted per client, so the
+    // route cannot be used to probe for tokens or to learn why one was refused.
+    const miss = (): never => {
+      const limit = consume(`portal-media-miss:${ip}`, RATE_LIMITS.portalMediaMiss);
+      if (!limit.allowed) throw tooManyRequests();
+      throw notFound();
+    };
+    if (!token || token.length > 600 || token.includes("/")) return miss();
+
     let verified;
     try {
       verified = verifyPortalMediaToken(token, portalMediaKey());
-    } catch {
-      throw notFound();
+    } catch (error) {
+      if (error instanceof HttpError) throw error; // no signing key configured: 503
+      return miss();
     }
-    if (!verified.ok) throw notFound();
+    if (!verified.ok) return miss();
     const { p, m, c } = verified.claims;
+
+    const perToken = consume(`portal-media:${createHash("sha256").update(token).digest("hex").slice(0, 24)}`, RATE_LIMITS.portalMediaToken);
+    if (!perToken.allowed) throw tooManyRequests();
 
     const row = await db().propertyMedia.findFirst({
       where: { id: m, propertyId: p, status: { in: ["approved", "published"] }, kind: { not: "DOCUMENT" } },
       select: { storageKey: true, previewKey: true, mimeType: true, byteSize: true },
     });
     const portal = await db().portal.findUnique({ where: { code: c }, select: { id: true } });
-    if (!row || !portal || !storageConfigured(loadConfig())) throw notFound();
+    if (!row || !portal || !storageConfigured(loadConfig())) return miss();
     // The portal must actually have an operation under way (or done) for this property.
     const listing = await db().portalListing.findUnique({ where: { portalId_propertyId: { portalId: portal.id, propertyId: p } }, select: { id: true } });
-    if (!listing) throw notFound();
+    if (!listing) return miss();
 
     // Vercel caps a response near 4.5 MB: serve the original when it fits, else the preview variant.
     const useOriginal = row.byteSize <= 4_000_000 || !row.previewKey;
     const key = useOriginal ? row.storageKey : row.previewKey!;
     const object = await getObjectBytes(key);
-    if (!object) throw notFound();
+    if (!object) return miss();
     reply
       .header("content-type", useOriginal ? row.mimeType : "image/jpeg")
       .header("cache-control", "private, max-age=300")

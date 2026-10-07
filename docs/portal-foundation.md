@@ -106,3 +106,30 @@ stable projection, so fresh tokens never trigger an update.
 
 Role overrides in Settings → Permissions still apply, except the reserved
 production permission, which cannot be granted.
+
+## Verification
+
+Automated (CI, on every push): migration drift check; `scripts/check-portal-migration.mjs`
+(builds a database from every earlier migration, fills the existing portal tables, applies this
+migration, and proves existing rows are untouched, RLS is on with no policy, the Supabase API
+roles hold no grant, and deleting an account or run never deletes listings or logs);
+`portal-accounts.integration.test.ts` and `portal-security.integration.test.ts` on a real
+Postgres with `fetch` trapped (permission matrix per role, TEST/PRODUCTION isolation in both
+directions, credentials absent from responses, logs, audit, events and snapshots, rotation,
+scoped/expiring/rate-limited photo links). `scripts/check-test-skips.mjs` fails the build if any
+database suite is skipped.
+
+Preview/production smoke test (manual, mock account only, no real portal):
+
+1. Settings → Portals → Χρυσή Ευκαιρία: create a **TEST** account; set a placeholder credential; the
+   page shows «Έχει ρυθμιστεί · ********xxxx», never the value; view page source: no value.
+2. «Έλεγχος σύνδεσης» → «mock … δεν έγινε επικοινωνία»; «Ενεργοποίηση».
+3. Open a property: Προεπισκόπηση → έτοιμο/όχι, photos counted; Δημοσίευση → «(mock)»;
+   Ενημέρωση without a change → «δεν στάλθηκε τίποτα»; change the price → Ενημέρωση;
+   set the account's mock behaviour to «Προσωρινό σφάλμα», Ενημέρωση → failure shown, then
+   «Επανάληψη» after switching back; Απόσυρση (manager); Ιστορικό lists every step with the actor.
+4. Replace the credential → the account becomes inactive and needs a new test.
+5. As an Agent: no credentials or account settings are visible; Απόσυρση is not offered.
+6. Tags: `DO_NOT_PUBLISH` / `WEBSITE_ONLY` → publish refused with the reason; `PORTAL_ONLY` → allowed.
+7. A PRODUCTION account cannot be created or activated by anyone but a Super Admin, and cannot publish
+   (no provider exists).

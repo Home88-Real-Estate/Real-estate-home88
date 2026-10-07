@@ -228,17 +228,19 @@ test("portal foundation: accounts, credentials, permissions, manual lifecycle, m
   await call(adminC, "PATCH", `/portal-accounts/${testId}`, { mockMode: "temporary_failure" });
   await db().property.update({ where: { id: property.id }, data: { price: 156000 } });
   const failed = await op(agentC, "update");
-  assert.equal(failed.status, 200, "a portal failure is an outcome, not a server fault");
-  assert.equal(failed.body.status, "FAILED");
-  assert.equal(failed.body.errorCode, "REMOTE_SERVER_ERROR");
-  assert.equal(failed.body.needsReview, false, "a transient error is retried, not parked");
-  assert.ok(failed.body.nextRetryAt);
+  assert.equal(failed.status, 502, "a provider failure is a 502");
+  assert.equal(failed.body.error.code, "portal_failed");
+  assert.equal(failed.body.error.fields.errorCode[0], "REMOTE_SERVER_ERROR");
+  assert.equal(failed.body.error.fields.needsReview[0], "false", "a transient error is retried, not parked");
+  assert.ok(failed.body.error.fields.nextRetryAt[0]);
+  assert.equal(failed.body.error.message.includes("Η ενέργεια απέτυχε"), true, "an agent does not read the provider's wording");
+  const failedRunId = failed.body.error.fields.runId[0] as string;
   listing = await db().portalListing.findUniqueOrThrow({ where: { id: listing.id } });
   assert.deepEqual([listing.state, listing.retryCount, listing.lastErrorCode, listing.externalId], ["FAILED", 1, "REMOTE_SERVER_ERROR", `mock-${ref}`]);
-  const failedRun = await db().portalSyncRun.findUniqueOrThrow({ where: { id: failed.body.runId } });
+  const failedRun = await db().portalSyncRun.findUniqueOrThrow({ where: { id: failedRunId } });
   assert.deepEqual([failedRun.status, failedRun.failedCount], ["FAILED", 1]);
 
-  assert.equal((await op(agentC, "retry")).body.status, "FAILED", "the mock is still failing: a failed retry stays failed");
+  assert.equal((await op(agentC, "retry")).status, 502, "the mock is still failing: a failed retry stays failed");
   assert.equal((await db().portalListing.findUniqueOrThrow({ where: { id: listing.id } })).retryCount, 2);
   await call(adminC, "PATCH", `/portal-accounts/${testId}`, { mockMode: null });
   const retried = await op(agentC, "retry");
@@ -251,8 +253,9 @@ test("portal foundation: accounts, credentials, permissions, manual lifecycle, m
   await call(adminC, "PATCH", `/portal-accounts/${testId}`, { mockMode: "authentication_failure" });
   await db().property.update({ where: { id: property.id }, data: { price: 157000 } });
   const auth = await op(agentC, "update");
-  assert.equal(auth.body.errorCode, "INVALID_CREDENTIALS");
-  assert.equal(auth.body.needsReview, true, "a permanent error is parked for a person");
+  assert.equal(auth.status, 502);
+  assert.equal(auth.body.error.fields.errorCode[0], "INVALID_CREDENTIALS");
+  assert.equal(auth.body.error.fields.needsReview[0], "true", "a permanent error is parked for a person");
   const errored = await db().portalAccount.findUniqueOrThrow({ where: { id: testId } });
   assert.equal(errored.status, "ERROR", "bad credentials put the account in error");
   assert.equal((await op(agentC, "update")).status, 409, "an account in error does nothing until its connection is tested again");
@@ -283,8 +286,9 @@ test("portal foundation: accounts, credentials, permissions, manual lifecycle, m
   for (const code of ["DO_NOT_PUBLISH", "WEBSITE_ONLY"]) {
     await tags([code]);
     const blocked = await op(agentC, "publish");
-    assert.equal(blocked.body.status, "BLOCKED", code);
-    assert.ok(blocked.body.reasons.some((r: string) => r.includes(code)), `reason names ${code}`);
+    assert.equal(blocked.status, 422, code);
+    assert.equal(blocked.body.error.code, "portal_blocked");
+    assert.ok(blocked.body.error.fields.reasons.some((r: string) => r.includes(code)), `reason names ${code}`);
     assert.equal((await db().portalListing.findUniqueOrThrow({ where: { id: listing.id } })).state, "REMOVED", "a blocked attempt does not touch the listing");
   }
   await tags(["PORTAL_ONLY"]);
