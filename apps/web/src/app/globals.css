@@ -866,6 +866,41 @@ p { margin: 0 0 1em; }
   border-bottom-color: var(--brand-light);
 }
 
+/* Landing page: the categories as image cards (CategoryCards). Two columns
+   from 640px, one below, at the artwork's own 720:456 ratio so it is never
+   stretched or re-cropped. */
+.catcards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  padding-block: 40px 8px;
+}
+@media (min-width: 640px) { .catcards { grid-template-columns: repeat(2, 1fr); gap: 20px; } }
+.catcard {
+  display: block;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--home88-blue-dark);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.25s ease, transform 0.25s ease;
+}
+.catcard img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 720 / 456;
+  object-fit: cover;
+  transition: transform 0.6s ease;
+}
+.catcard:hover { box-shadow: var(--shadow-lg); transform: translateY(-2px); text-decoration: none; }
+.catcard:hover img { transform: scale(1.03); }
+.catcard:focus-visible { outline: 3px solid var(--brand-light); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) {
+  .catcard, .catcard img { transition: none; }
+  .catcard:hover { transform: none; }
+  .catcard:hover img { transform: none; }
+}
+
 /* --- property card --------------------------------------------------------- */
 .card {
   border: 1px solid var(--line);

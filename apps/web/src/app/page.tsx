@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 
 import { PropertyCardGrid } from "@/components/PropertyCard";
-import { CategoryNav } from "@/components/CategoryNav";
+import { CategoryCards } from "@/components/CategoryNav";
 import { listFeaturedProperties, listRecentProperties, countPublicProperties } from "@/lib/property";
 import { listAreas } from "@/lib/areas";
 import { COMPANY } from "@/lib/config";
@@ -245,7 +245,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <CategoryNav />
+      <CategoryCards />
 
       <section className="section">
         <div className="wrap">
