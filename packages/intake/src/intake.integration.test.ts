@@ -325,6 +325,27 @@ describe("PublicLeadIntakeService (real Postgres)", { skip: SKIP }, () => {
     assert.match(rows[0]!.processingNote!, /does not match/);
   });
 
+  it("a real photo under the wrong extension (a JPEG named .png) is accepted and re-encoded", async () => {
+    const { service, storage, prisma, limits } = makeService();
+    const session = await createUploadSession(prisma);
+    const misnamed = await upload(storage, prisma, limits, session.token, { name: "preview (2).png", mime: "image/png", body: await photo() });
+    const out = await service.createAssignmentSubmission({ ...base(), property: DRAFT, uploads: { token: session.token, files: [misnamed] } });
+    assert.deepEqual((out as { uploads: unknown }).uploads, { accepted: 1, quarantined: 0, rejected: 0, skipped: 0 });
+    const row = await prisma.propertyMedia.findFirstOrThrow();
+    assert.equal(row.lifecycle, "AVAILABLE");
+    assert.equal(row.status, "pending_review", "still private until staff approve it");
+    assert.ok(row.thumbnailKey && storage.objects.has(row.thumbnailKey));
+  });
+
+  it("a non-image named .png is still rejected", async () => {
+    const { service, storage, prisma, limits } = makeService();
+    const session = await createUploadSession(prisma);
+    const fake = await upload(storage, prisma, limits, session.token, { name: "x.png", mime: "image/png", body: Buffer.from("%PDF-1.7 not a photo") });
+    const out = await service.createAssignmentSubmission({ ...base(), property: DRAFT, uploads: { token: session.token, files: [fake] } });
+    assert.deepEqual((out as { uploads: unknown }).uploads, { accepted: 0, quarantined: 0, rejected: 1, skipped: 0 });
+    assert.equal(storage.objects.has(fake.storageKey), false);
+  });
+
   it("a real image that is too small is quarantined for staff, not lost", async () => {
     const { service, storage, prisma, limits } = makeService({ limits: { minDimension: 500 } });
     const session = await createUploadSession(prisma);
