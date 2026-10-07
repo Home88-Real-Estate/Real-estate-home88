@@ -81,5 +81,6 @@ export async function savePropertyTags(_previous: ActionState, formData: FormDat
   });
   if (!result.ok) return { ok: false, message: result.error.message, fields: result.error.fields };
   revalidatePath(`/properties/${id}`);
+  revalidatePath("/properties");
   return { ok: true, message: "Οι ετικέτες αποθηκεύτηκαν και τα portals ελέγχθηκαν ξανά." };
 }

@@ -249,6 +249,26 @@ test("media upload: origin guard, auth, authorization, validation, retry, cover,
   const l2 = await call(agentCookie, "GET", `/properties?q=${none.reference}`);
   assert.equal(l2.body.data.find((x: any) => x.id === none.id).coverThumbnailUrl, null, "no image: the CRM shows its placeholder");
 
+  // ---- Property list columns: owner, floor, year, internal tags -------------------------------------------------------
+  const ownerContact = await db().contact.create({ data: { reference: `OW-${run.toUpperCase()}`, firstName: "Ιδιοκτήτρια", lastName: "Δοκιμής" } });
+  await db().property.update({ where: { id: p2.id }, data: { floor: 3, yearBuilt: 1998, ownerId: ownerContact.id } });
+  const tagsGet = await call(agentCookie, "GET", `/properties/${p2.id}/tags`);
+  const labels = tagsGet.body.available.map((t: any) => t.labelEl);
+  for (const wanted of ["Site", "Αντιπαροχή / Δίνεται και Αντιπαροχή", "Αποκλειστική Ανάθεση", "Δεν καλούμε", "Έχει λάθος τηλ", "Κατασκευαστής", "Μόνο site μας", "Να κοιτάξουμε σημειώσεις!!", "Να μην δημοσιευθεί πουθενά", "Πήραμε δεν απάντησε", "Πήραμε τηλ. και είναι διαθέσιμο", "Συνεργασία", "Τηλ Ευθύμης", "Χρυσή Ευκαιρία"]) {
+    assert.ok(labels.includes(wanted), `tag "${wanted}" can be chosen`);
+  }
+  assert.equal((await call(agentCookie, "PUT", `/properties/${p2.id}/tags`, { codes: ["GOLDEN_DEAL"] })).status, 403, "an agent cannot change tags");
+  const put = await call(managerCookie, "PUT", `/properties/${p2.id}/tags`, { codes: ["GOLDEN_DEAL", "SITE", "COOPERATION"] });
+  assert.equal(put.status, 200, JSON.stringify(put.body));
+  const row3 = (await call(agentCookie, "GET", `/properties?q=${p2.reference}`)).body.data.find((x: any) => x.id === p2.id);
+  assert.deepEqual(row3.tags.map((t: any) => t.labelEl).sort(), ["Site", "Συνεργασία", "Χρυσή Ευκαιρία"].sort(), "the list shows the chosen tags");
+  assert.equal(row3.floor, 3);
+  assert.equal(row3.yearBuilt, 1998);
+  assert.deepEqual(row3.owner, { id: ownerContact.id, firstName: "Ιδιοκτήτρια", lastName: "Δοκιμής" });
+  assert.deepEqual(l2.body.data.find((x: any) => x.id === none.id).tags, [], "an untagged property has an empty tag list");
+  const paged = await call(agentCookie, "GET", "/properties?limit=50");
+  assert.equal(paged.body.pagination.limit, 50, "the list can be asked for 50 results");
+
   // ---- Audit -------------------------------------------------------------------------------------------------------------------
   const actions = (await db().auditLog.findMany({ where: { entity: "PROPERTY", entityId: property.id } })).map((a) => a.action);
   for (const a of ["media.upload", "media.update", "media.reorder", "media.approved", "media.delete"]) assert.ok(actions.includes(a), a);

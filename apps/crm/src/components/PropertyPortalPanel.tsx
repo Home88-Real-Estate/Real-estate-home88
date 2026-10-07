@@ -1,7 +1,6 @@
 import Link from "next/link";
 
 import { StatusBadge } from "@/components/StatusBadge";
-import { PropertyTagsForm } from "@/components/PropertyTagsForm";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 
@@ -26,10 +25,7 @@ type Row = {
  * back. "Website published" says nothing here: each portal has its own rule.
  */
 export async function PropertyPortalPanel({ propertyId, canManage }: { propertyId: string; canManage: boolean }) {
-  const [portals, tags] = await Promise.all([
-    apiFetch<{ portals: Row[] }>(`/api/properties/${encodeURIComponent(propertyId)}/portals`),
-    apiFetch<{ codes: string[]; available: Array<{ code: string; labelEl: string }> }>(`/api/properties/${encodeURIComponent(propertyId)}/tags`),
-  ]);
+  const portals = await apiFetch<{ portals: Row[] }>(`/api/properties/${encodeURIComponent(propertyId)}/portals`);
 
   return (
     <div className="panel">
@@ -94,12 +90,6 @@ export async function PropertyPortalPanel({ propertyId, canManage }: { propertyI
         </div>
       )}
 
-      {tags.ok && (
-        <>
-          <h3 style={{ marginTop: 20 }}>Ετικέτες</h3>
-          <PropertyTagsForm propertyId={propertyId} selected={tags.data.codes} available={tags.data.available} canEdit={canManage} />
-        </>
-      )}
     </div>
   );
 }

@@ -1311,6 +1311,14 @@ td.actions .btn { margin: 2px 4px 2px 0; }
 }
 
 /* Property list cover thumbnail */
-.thumb-col { width: 76px; padding-right: 0; }
-.thumb { display: block; width: 64px; height: 48px; object-fit: cover; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line); }
-.thumb--empty { background: repeating-linear-gradient(45deg, var(--surface-2), var(--surface-2) 6px, var(--surface) 6px, var(--surface) 12px); }
+.thumb-col { width: 176px; }
+.thumb-col .thumb { display: block; width: 160px; height: 120px; object-fit: cover; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--line); }
+.thumb-col .thumb--empty { background: repeating-linear-gradient(45deg, var(--surface-2), var(--surface-2) 6px, var(--surface) 6px, var(--surface) 12px); }
+.taglist-inline { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; max-width: 220px; }
+.tagchip { font-family: inherit; font-size: 0.72rem; line-height: 1.3; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink); }
+.tagchip--blue { border-color: #1f6feb; }
+.tagchip--green { border-color: #1a7f37; }
+.tagchip--amber { border-color: #b7791f; }
+.tagchip--red { border-color: #cf222e; }
+.tagchip--violet { border-color: #8250df; }
+.tagchip--slate { border-color: #57606a; }

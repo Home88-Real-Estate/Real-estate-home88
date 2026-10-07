@@ -12,6 +12,7 @@ import { LISTING_TYPE_LABELS, PROPERTY_TYPE_LABELS, label } from "@home88/types"
 
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { PropertyPortalPanel } from "@/components/PropertyPortalPanel";
+import { PropertyTagsPanel } from "@/components/PropertyTagsPanel";
 import { hasRole, requireRole } from "@/lib/session";
 
 type PortalListing = {
@@ -281,6 +282,8 @@ export default async function PropertyDetailPage({
           <div className="notice notice--danger">{historyResult.error.message}</div>
         )}
       </div>
+
+      <PropertyTagsPanel propertyId={id} canManage={hasRole(user.role, "MANAGER")} />
 
       <PropertyPortalPanel propertyId={id} canManage={hasRole(user.role, "MANAGER")} />
     </>

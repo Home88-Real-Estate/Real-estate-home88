@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PROPERTY_CATEGORIES } from "@home88/domain";
-import { PROPERTY_STATUS_LABELS, label, type Paginated } from "@home88/types";
+import { PROPERTY_STATUS_LABELS, PROPERTY_TYPE_LABELS, label, type Paginated } from "@home88/types";
 
 import { EmptyState } from "@/components/EmptyState";
 import { Pagination } from "@/components/Pagination";
 import { StatusBadge } from "@/components/StatusBadge";
 import { apiFetch } from "@/lib/api";
-import { formatArea, formatMoney, personName } from "@/lib/format";
+import { formatArea, formatDate, formatMoney, personName } from "@/lib/format";
 import { CATEGORY_LABEL } from "@/lib/labels";
 import { CRM_BASE_PATH } from "@/lib/paths";
 import { requireRole } from "@/lib/session";
@@ -24,11 +24,20 @@ type PropertyRow = {
   price: unknown;
   area: unknown;
   city: string | null;
+  areaName: string | null;
+  neighborhood: string | null;
+  floor: number | null;
+  yearBuilt: number | null;
+  createdAt: string;
   updatedAt: string;
   agent: { firstName: string; lastName: string } | null;
+  owner: { firstName: string; lastName: string } | null;
   _count: { media: number; leads: number };
   coverThumbnailUrl?: string | null;
+  tags?: Array<{ code: string; labelEl: string; color: string }>;
 };
+
+const PAGE_SIZE = 50;
 
 const STATUS_OPTIONS: Array<[string, string]> = [
   ["", "Όλες οι καταστάσεις"],
@@ -63,7 +72,7 @@ export default async function PropertiesPage({
   const page = Math.max(1, Number(first(sp.page)) || 1);
 
   const result = await apiFetch<Paginated<PropertyRow>>("/api/properties", {
-    query: { q, status, category, statusGroup, mine, page, limit: 25 },
+    query: { q, status, category, statusGroup, mine, page, limit: PAGE_SIZE },
   });
 
   const params: Record<string, string> = {};
@@ -79,9 +88,12 @@ export default async function PropertiesPage({
       <div className="page-head">
         <div>
           <h1>Ακίνητα</h1>
-          <p className="muted">
-            {result.ok ? `${result.data.pagination.total} ακίνητα` : "Χαρτοφυλάκιο ακινήτων"}
-          </p>
+          <p className="muted">Παρακάτω θα βρείτε όλα τα καταχωρημένα ακίνητα.</p>
+          {result.ok && (
+            <p className="muted">
+              Αποτελέσματα <strong>{result.data.pagination.total}</strong>
+            </p>
+          )}
         </div>
         <Link href="/properties/new" className="btn btn--primary">
           + Νέο ακίνητο
@@ -90,7 +102,7 @@ export default async function PropertiesPage({
 
       <form className="filters" method="get" action={`${CRM_BASE_PATH}/properties`}>
         <div className="field">
-          <label htmlFor="q">Αναζήτηση</label>
+          <label htmlFor="q">Αναζήτηση:</label>
           <input id="q" name="q" className="input" defaultValue={q} placeholder="Κωδικός, τίτλος, πόλη" />
         </div>
         <div className="field">
@@ -153,44 +165,57 @@ export default async function PropertiesPage({
             <table className="data">
               <thead>
                 <tr>
-                  <th className="thumb-col"><span className="sr-only">Φωτογραφία</span></th>
                   <th>Κωδικός</th>
-                  <th>Τίτλος</th>
-                  <th>Κατάσταση</th>
-                  <th>Περιοχή</th>
+                  <th className="thumb-col">Εικόνα</th>
+                  <th>Ημερ/νία</th>
                   <th className="num">Τιμή</th>
                   <th className="num">Εμβαδόν</th>
-                  <th className="num">Leads</th>
-                  <th>Σύμβουλος</th>
+                  <th className="num">Όροφος</th>
+                  <th>Περιοχή</th>
+                  <th>Υποκατηγορία</th>
+                  <th className="num">Έτος Κατασκευής</th>
+                  <th>Υπεύθυνος</th>
+                  <th>Κατάσταση</th>
+                  <th>Ιδιοκτήτης</th>
                 </tr>
               </thead>
               <tbody>
                 {result.data.data.map((row) => (
                   <tr key={row.id}>
+                    <td className="mono">
+                      <Link href={`/properties/${row.id}`}>{row.reference}</Link>
+                      {row.tags && row.tags.length > 0 && (
+                        <ul className="taglist-inline" aria-label="Ετικέτες">
+                          {row.tags.map((t) => (
+                            <li key={t.code} className={`tagchip tagchip--${t.color}`}>
+                              {t.labelEl}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </td>
                     <td className="thumb-col">
                       <Link href={`/properties/${row.id}`} tabIndex={-1} aria-hidden="true">
                         {row.coverThumbnailUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element -- signed storage URL, already a small variant
-                          <img src={row.coverThumbnailUrl} alt="" className="thumb" loading="lazy" width={64} height={48} />
+                          <img src={row.coverThumbnailUrl} alt="" className="thumb" loading="lazy" width={160} height={120} />
                         ) : (
                           <span className="thumb thumb--empty" />
                         )}
                       </Link>
                     </td>
-                    <td className="mono">
-                      <Link href={`/properties/${row.id}`}>{row.reference}</Link>
-                    </td>
-                    <td>
-                      <Link href={`/properties/${row.id}`}>{row.titleEl}</Link>
-                    </td>
+                    <td>{formatDate(row.createdAt)}</td>
+                    <td className="num">{formatMoney(row.price)}</td>
+                    <td className="num">{formatArea(row.area)}</td>
+                    <td className="num">{row.floor ?? "-"}</td>
+                    <td>{row.areaName ?? row.neighborhood ?? row.city ?? "-"}</td>
+                    <td>{label(PROPERTY_TYPE_LABELS, row.propertyType, "el")}</td>
+                    <td className="num">{row.yearBuilt ?? "-"}</td>
+                    <td>{row.agent ? personName(row.agent.firstName, row.agent.lastName) : "-"}</td>
                     <td>
                       <StatusBadge value={row.status} kind="property" />
                     </td>
-                    <td>{row.city ?? "-"}</td>
-                    <td className="num">{formatMoney(row.price)}</td>
-                    <td className="num">{formatArea(row.area)}</td>
-                    <td className="num">{row._count?.leads ?? 0}</td>
-                    <td>{row.agent ? personName(row.agent.firstName, row.agent.lastName) : "-"}</td>
+                    <td>{row.owner ? personName(row.owner.firstName, row.owner.lastName) : "-"}</td>
                   </tr>
                 ))}
               </tbody>
