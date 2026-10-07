@@ -32,6 +32,7 @@ import {
   topSources,
 } from "../lib/dashboard";
 import { parseInput } from "../lib/http";
+import { mapLimit, runAll } from "../lib/map-limit";
 import { db } from "../lib/prisma";
 import { mediaUrlFor } from "../lib/storage";
 import { requireRole, roleAtLeast } from "../plugins/auth";
@@ -49,6 +50,9 @@ const PUBLIC = [...PUBLIC_PROPERTY_STATUSES];
 const OPEN_TASK = { in: ["OPEN", "IN_PROGRESS"] as Array<"OPEN" | "IN_PROGRESS"> };
 const WEBSITE_SOURCES = [...CHANNEL_LEAD_SOURCES.WEBSITE] as LeadSource[];
 const PORTAL_SOURCES = [...CHANNEL_LEAD_SOURCES.PORTAL] as LeadSource[];
+
+/** In-flight Prisma queries per dashboard request; the serverless pool is small. */
+const QUERY_CONCURRENCY = 4;
 
 type Scope = { all: boolean; userId: string };
 
@@ -71,25 +75,31 @@ function between(from: Date, to: Date) {
 /** The flow metrics, counted for one window [from, to). */
 async function periodCounts(scope: Scope, from: Date, to: Date) {
   const created = between(from, to);
-  const [newProperties, leads, websiteLeads, portalLeads, viewings, offers, sales, rentals] =
-    await Promise.all([
-      db().property.count({ where: { ...propertyScope(scope), createdAt: created } }),
-      db().lead.count({ where: { ...leadScope(scope), createdAt: created } }),
+  const queries = [
+    () => db().property.count({ where: { ...propertyScope(scope), createdAt: created } }),
+    () => db().lead.count({ where: { ...leadScope(scope), createdAt: created } }),
+    () =>
       db().lead.count({
         where: { ...leadScope(scope), createdAt: created, source: { in: WEBSITE_SOURCES } },
       }),
+    () =>
       db().lead.count({
         where: { ...leadScope(scope), createdAt: created, source: { in: PORTAL_SOURCES } },
       }),
+    () =>
       db().viewing.count({ where: { ...viewingScope(scope), status: "COMPLETED", startsAt: created } }),
-      db().offer.count({ where: { ...offerScope(scope), createdAt: created } }),
+    () => db().offer.count({ where: { ...offerScope(scope), createdAt: created } }),
+    () =>
       db().propertyStatusHistory.count({
         where: { toStatus: "SOLD", createdAt: created, property: propertyScope(scope) },
       }),
+    () =>
       db().propertyStatusHistory.count({
         where: { toStatus: "RENTED", createdAt: created, property: propertyScope(scope) },
       }),
-    ]);
+  ] as const;
+  const [newProperties, leads, websiteLeads, portalLeads, viewings, offers, sales, rentals] =
+    await mapLimit(queries, QUERY_CONCURRENCY, (query) => query());
   return { newProperties, leads, websiteLeads, portalLeads, viewings, offers, sales, rentals };
 }
 
@@ -98,53 +108,57 @@ type PeriodCounts = Awaited<ReturnType<typeof periodCounts>>;
 function withPrevious(current: PeriodCounts, previous: PeriodCounts) {
   const out = {} as Record<keyof PeriodCounts, { value: number; previous: number }>;
   for (const key of Object.keys(current) as Array<keyof PeriodCounts>) {
-    out[key] = { value: current[key], previous: previous[key] };
+    out[key] = { value: current[key] as number, previous: previous[key] as number };
   }
   return out;
 }
 
 async function monthlySeries(scope: Scope, now: Date) {
   const months = lastMonths(now, 12);
-  const series = await Promise.all(
-    months.map(async (month) => {
-      const window = between(month.from, month.to);
-      const [newProperties, leads, viewings, closings] = await Promise.all([
-        db().property.count({ where: { ...propertyScope(scope), createdAt: window } }),
-        db().lead.count({ where: { ...leadScope(scope), createdAt: window } }),
-        db().viewing.count({ where: { ...viewingScope(scope), status: "COMPLETED", startsAt: window } }),
-        db().propertyStatusHistory.count({
-          where: { toStatus: { in: ["SOLD", "RENTED"] }, createdAt: window, property: propertyScope(scope) },
-        }),
-      ]);
-      return { month: month.key, newProperties, leads, viewings, closings };
-    }),
-  );
+  const series = await mapLimit(months, QUERY_CONCURRENCY, async (month) => {
+    const window = between(month.from, month.to);
+    const [newProperties, leads, viewings, closings] = await Promise.all([
+      db().property.count({ where: { ...propertyScope(scope), createdAt: window } }),
+      db().lead.count({ where: { ...leadScope(scope), createdAt: window } }),
+      db().viewing.count({ where: { ...viewingScope(scope), status: "COMPLETED", startsAt: window } }),
+      db().propertyStatusHistory.count({
+        where: { toStatus: { in: ["SOLD", "RENTED"] }, createdAt: window, property: propertyScope(scope) },
+      }),
+    ]);
+    return { month: month.key, newProperties, leads, viewings, closings };
+  });
   return series;
 }
 
 async function agentPerformance(range: DateRange) {
   const created = between(range.from, range.to);
-  const [agents, active, leads, viewings, offers, closings] = await Promise.all([
-    db().user.findMany({
-      where: { status: "ACTIVE", role: { in: ["AGENT", "MANAGER", "ADMIN", "SUPER_ADMIN"] } },
-      select: { id: true, firstName: true, lastName: true },
-      orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
-    }),
-    db().property.groupBy({ by: ["agentId"], where: { status: { in: PUBLIC } }, _count: { _all: true } }),
-    db().lead.groupBy({ by: ["assignedToId"], where: { createdAt: created }, _count: { _all: true } }),
-    db().viewing.groupBy({
-      by: ["agentId"],
-      where: { status: "COMPLETED", startsAt: created },
-      _count: { _all: true },
-    }),
-    db().offer.groupBy({ by: ["agentId"], where: { createdAt: created }, _count: { _all: true } }),
-    // A closing is credited to the property's agent; groupBy cannot follow a
-    // relation, so the (few) closing rows of the period are read and counted.
-    db().propertyStatusHistory.findMany({
-      where: { toStatus: { in: ["SOLD", "RENTED"] }, createdAt: created },
-      select: { property: { select: { agentId: true } } },
-    }),
-  ]);
+  const [agents, active, leads, viewings, offers, closings] = await runAll(
+    [
+      () =>
+        db().user.findMany({
+          where: { status: "ACTIVE", role: { in: ["AGENT", "MANAGER", "ADMIN", "SUPER_ADMIN"] } },
+          select: { id: true, firstName: true, lastName: true },
+          orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
+        }),
+      () => db().property.groupBy({ by: ["agentId"], where: { status: { in: PUBLIC } }, _count: { _all: true } }),
+      () => db().lead.groupBy({ by: ["assignedToId"], where: { createdAt: created }, _count: { _all: true } }),
+      () =>
+        db().viewing.groupBy({
+          by: ["agentId"],
+          where: { status: "COMPLETED", startsAt: created },
+          _count: { _all: true },
+        }),
+      () => db().offer.groupBy({ by: ["agentId"], where: { createdAt: created }, _count: { _all: true } }),
+      // A closing is credited to the property's agent; groupBy cannot follow a
+      // relation, so the (few) closing rows of the period are read and counted.
+      () =>
+        db().propertyStatusHistory.findMany({
+          where: { toStatus: { in: ["SOLD", "RENTED"] }, createdAt: created },
+          select: { property: { select: { agentId: true } } },
+        }),
+    ] as const,
+    QUERY_CONCURRENCY,
+  );
 
   return buildAgentRows(agents, {
     activeProperties: countMap(active.map((r) => ({ key: r.agentId, count: r._count._all }))),
@@ -248,126 +262,144 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       staleDrafts,
       portalFailed,
       mediaPending,
-    ] = await Promise.all([
-      db().property.count({ where: { ...propertyScope(scope), status: { notIn: ["ARCHIVED", "DELETED"] } } }),
-      db().property.count({ where: { ...propertyScope(scope), status: { in: PUBLIC } } }),
-      db().property.count({ where: { ...propertyScope(scope), status: "DRAFT" } }),
-      db().property.count({
-        where: { ...propertyScope(scope), status: { in: PUBLIC }, publishedOnWebsite: true },
-      }),
-      db().property.groupBy({
-        by: ["propertyType"],
-        where: { ...propertyScope(scope), status: { notIn: ["ARCHIVED", "DELETED"] } },
-        _count: { _all: true },
-      }),
-      periodCounts(scope, range.from, range.to),
-      periodCounts(scope, range.previousFrom, range.previousTo),
-      db().viewing.count({ where: { ...viewingScope(scope), status: "SCHEDULED", startsAt: { gte: now } } }),
-      monthlySeries(scope, now),
-      db().lead.groupBy({
-        by: ["source"],
-        where: { ...leadScope(scope), createdAt: rangeWindow },
-        _count: { _all: true },
-      }),
-      db().lead.groupBy({
-        by: ["status"],
-        where: { ...leadScope(scope), createdAt: rangeWindow },
-        _count: { _all: true },
-      }),
-      isManager && scope.all ? agentPerformance(range) : Promise.resolve(null),
-      db().task.findMany({
-        where: { ...myOpenTasks, dueAt: { lt: now } },
-        orderBy: { dueAt: "asc" },
-        take: 5,
-        select: taskSelect,
-      }),
-      db().task.findMany({
-        where: { ...myOpenTasks, dueAt: { gte: now, lt: today.to } },
-        orderBy: { dueAt: "asc" },
-        take: 5,
-        select: taskSelect,
-      }),
-      db().task.findMany({
-        where: { ...myOpenTasks, dueAt: { gte: today.to, lt: weekAhead } },
-        orderBy: { dueAt: "asc" },
-        take: 5,
-        select: taskSelect,
-      }),
-      db().task.count({ where: { ...myOpenTasks, dueAt: { lt: now } } }),
-      db().task.count({ where: { ...myOpenTasks, dueAt: { gte: now, lt: today.to } } }),
-      db().task.count({ where: { ...myOpenTasks, dueAt: { gte: today.to, lt: weekAhead } } }),
-      db().viewing.findMany({
-        where: { ...viewingScope(scope), startsAt: between(today.from, today.to), status: { not: "CANCELLED" } },
-        orderBy: { startsAt: "asc" },
-        take: 8,
-        select: {
-          id: true,
-          startsAt: true,
-          endsAt: true,
-          status: true,
-          clientName: true,
-          property: { select: { id: true, reference: true, titleEl: true, areaName: true, city: true } },
-          agent: { select: { firstName: true, lastName: true } },
-        },
-      }),
-      db().lead.findMany({
-        where: leadScope(scope),
-        orderBy: { createdAt: "desc" },
-        take: 6,
-        select: {
-          id: true,
-          reference: true,
-          firstName: true,
-          lastName: true,
-          source: true,
-          status: true,
-          createdAt: true,
-          property: { select: { id: true, reference: true } },
-        },
-      }),
-      db().property.findMany({
-        where: { ...propertyScope(scope), status: { notIn: ["ARCHIVED", "DELETED"] } },
-        orderBy: { createdAt: "desc" },
-        take: 5,
-        select: PROPERTY_CARD_SELECT,
-      }),
-      db().property.findMany({
-        where: { ...propertyScope(scope), status: { notIn: ["ARCHIVED", "DELETED"] } },
-        orderBy: { updatedAt: "desc" },
-        take: 5,
-        select: PROPERTY_CARD_SELECT,
-      }),
-      db().offer.findMany({
-        where: offerScope(scope),
-        orderBy: { createdAt: "desc" },
-        take: 5,
-        select: {
-          id: true,
-          reference: true,
-          amount: true,
-          status: true,
-          createdAt: true,
-          property: { select: { id: true, reference: true, titleEl: true } },
-          lead: { select: { firstName: true, lastName: true } },
-        },
-      }),
-      db().lead.count({
-        where: { ...leadScope(scope), status: "NEW", createdAt: { lt: new Date(now.getTime() - DAY) } },
-      }),
-      db().property.count({
-        where: {
-          ...propertyScope(scope),
-          status: { in: PUBLIC },
-          media: { none: { kind: "PHOTO", status: { in: ["approved", "published"] } } },
-        },
-      }),
-      db().offer.count({ where: { ...offerScope(scope), status: { in: ["SUBMITTED", "COUNTERED"] } } }),
-      db().property.count({
-        where: { ...propertyScope(scope), status: "DRAFT", updatedAt: { lt: new Date(now.getTime() - 14 * DAY) } },
-      }),
-      isManager ? db().portalListing.count({ where: { state: "FAILED" } }) : Promise.resolve(null),
-      isManager ? db().propertyMedia.count({ where: { status: "pending_review" } }) : Promise.resolve(null),
-    ]);
+    ] = await runAll(
+      [
+        () => db().property.count({ where: { ...propertyScope(scope), status: { notIn: ["ARCHIVED", "DELETED"] } } }),
+        () => db().property.count({ where: { ...propertyScope(scope), status: { in: PUBLIC } } }),
+        () => db().property.count({ where: { ...propertyScope(scope), status: "DRAFT" } }),
+        () =>
+          db().property.count({
+            where: { ...propertyScope(scope), status: { in: PUBLIC }, publishedOnWebsite: true },
+          }),
+        () =>
+          db().property.groupBy({
+            by: ["propertyType"],
+            where: { ...propertyScope(scope), status: { notIn: ["ARCHIVED", "DELETED"] } },
+            _count: { _all: true },
+          }),
+        () => periodCounts(scope, range.from, range.to),
+        () => periodCounts(scope, range.previousFrom, range.previousTo),
+        () => db().viewing.count({ where: { ...viewingScope(scope), status: "SCHEDULED", startsAt: { gte: now } } }),
+        () => monthlySeries(scope, now),
+        () =>
+          db().lead.groupBy({
+            by: ["source"],
+            where: { ...leadScope(scope), createdAt: rangeWindow },
+            _count: { _all: true },
+          }),
+        () =>
+          db().lead.groupBy({
+            by: ["status"],
+            where: { ...leadScope(scope), createdAt: rangeWindow },
+            _count: { _all: true },
+          }),
+        () => (isManager && scope.all ? agentPerformance(range) : Promise.resolve(null)),
+        () =>
+          db().task.findMany({
+            where: { ...myOpenTasks, dueAt: { lt: now } },
+            orderBy: { dueAt: "asc" },
+            take: 5,
+            select: taskSelect,
+          }),
+        () =>
+          db().task.findMany({
+            where: { ...myOpenTasks, dueAt: { gte: now, lt: today.to } },
+            orderBy: { dueAt: "asc" },
+            take: 5,
+            select: taskSelect,
+          }),
+        () =>
+          db().task.findMany({
+            where: { ...myOpenTasks, dueAt: { gte: today.to, lt: weekAhead } },
+            orderBy: { dueAt: "asc" },
+            take: 5,
+            select: taskSelect,
+          }),
+        () => db().task.count({ where: { ...myOpenTasks, dueAt: { lt: now } } }),
+        () => db().task.count({ where: { ...myOpenTasks, dueAt: { gte: now, lt: today.to } } }),
+        () => db().task.count({ where: { ...myOpenTasks, dueAt: { gte: today.to, lt: weekAhead } } }),
+        () =>
+          db().viewing.findMany({
+            where: { ...viewingScope(scope), startsAt: between(today.from, today.to), status: { not: "CANCELLED" } },
+            orderBy: { startsAt: "asc" },
+            take: 8,
+            select: {
+              id: true,
+              startsAt: true,
+              endsAt: true,
+              status: true,
+              clientName: true,
+              property: { select: { id: true, reference: true, titleEl: true, areaName: true, city: true } },
+              agent: { select: { firstName: true, lastName: true } },
+            },
+          }),
+        () =>
+          db().lead.findMany({
+            where: leadScope(scope),
+            orderBy: { createdAt: "desc" },
+            take: 6,
+            select: {
+              id: true,
+              reference: true,
+              firstName: true,
+              lastName: true,
+              source: true,
+              status: true,
+              createdAt: true,
+              property: { select: { id: true, reference: true } },
+            },
+          }),
+        () =>
+          db().property.findMany({
+            where: { ...propertyScope(scope), status: { notIn: ["ARCHIVED", "DELETED"] } },
+            orderBy: { createdAt: "desc" },
+            take: 5,
+            select: PROPERTY_CARD_SELECT,
+          }),
+        () =>
+          db().property.findMany({
+            where: { ...propertyScope(scope), status: { notIn: ["ARCHIVED", "DELETED"] } },
+            orderBy: { updatedAt: "desc" },
+            take: 5,
+            select: PROPERTY_CARD_SELECT,
+          }),
+        () =>
+          db().offer.findMany({
+            where: offerScope(scope),
+            orderBy: { createdAt: "desc" },
+            take: 5,
+            select: {
+              id: true,
+              reference: true,
+              amount: true,
+              status: true,
+              createdAt: true,
+              property: { select: { id: true, reference: true, titleEl: true } },
+              lead: { select: { firstName: true, lastName: true } },
+            },
+          }),
+        () =>
+          db().lead.count({
+            where: { ...leadScope(scope), status: "NEW", createdAt: { lt: new Date(now.getTime() - DAY) } },
+          }),
+        () =>
+          db().property.count({
+            where: {
+              ...propertyScope(scope),
+              status: { in: PUBLIC },
+              media: { none: { kind: "PHOTO", status: { in: ["approved", "published"] } } },
+            },
+          }),
+        () => db().offer.count({ where: { ...offerScope(scope), status: { in: ["SUBMITTED", "COUNTERED"] } } }),
+        () =>
+          db().property.count({
+            where: { ...propertyScope(scope), status: "DRAFT", updatedAt: { lt: new Date(now.getTime() - 14 * DAY) } },
+          }),
+        () => (isManager ? db().portalListing.count({ where: { state: "FAILED" } }) : Promise.resolve(null)),
+        () => (isManager ? db().propertyMedia.count({ where: { status: "pending_review" } }) : Promise.resolve(null)),
+      ] as const,
+      QUERY_CONCURRENCY,
+    );
 
     return {
       generatedAt: now.toISOString(),
