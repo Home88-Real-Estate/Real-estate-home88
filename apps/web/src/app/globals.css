@@ -1175,7 +1175,19 @@ p { margin: 0 0 1em; }
 .detail-facts span { font-size: 0.78rem; color: var(--ink-muted); }
 
 /* --- footer ---------------------------------------------------------------- */
-.site-footer { border-top: 1px solid var(--line); margin-top: 64px; background: var(--home88-blue-dark); color: #cdddec; }
+/* The footer opens with a liquid edge (WaveDivider, first child): the band
+   above the navy is transparent, so the page shows through it, and the navy
+   starts just under the wave's base (2px overlap, so no seam). This band
+   replaces the old 64px gap and the hairline border. */
+.site-footer {
+  --wave-h: 110px;
+  margin-top: 0;
+  color: #cdddec;
+  background: linear-gradient(var(--home88-blue-dark), var(--home88-blue-dark)) 0 calc(var(--wave-h) - 2px) / 100% 100% no-repeat;
+}
+@media (max-width: 1019px) { .site-footer { --wave-h: 84px; } }
+@media (max-width: 639px) { .site-footer { --wave-h: 60px; } }
+.site-footer > .wave-divider { height: var(--wave-h); }
 /* HOME88 fox as a decorative background layer (one shared asset, CSS only).
    The image box (--fox-h tall, at the image's 1819:865 ratio) sits bottom
    right, beside the link columns; two gradient layers of the same box fade
@@ -1226,6 +1238,57 @@ p { margin: 0 0 1em; }
 .site-footer .muted { color: #9db8d2; }
 .site-footer address { color: #9db8d2; }
 .legal-note { border-top: 1px solid rgba(255, 255, 255, 0.14); padding-block: 18px; font-size: 0.8rem; color: #9db8d2; }
+
+/* --- wave divider ---------------------------------------------------------
+   Decorative liquid edge (components/landing/WaveDivider.tsx). Colours are
+   variables so a section can pass its own; the defaults are the HOME88 navy
+   and light blue. Each layer drifts on its own slow, alternating timeline,
+   transform only, never more than a few units, so it reads as "alive", not
+   "animated". */
+.wave-divider {
+  --wave-primary: var(--home88-blue-dark);
+  --wave-secondary: rgba(22, 139, 190, 0.2);
+  --wave-highlight: rgba(255, 255, 255, 0.14);
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 96px;
+  overflow: hidden;
+  pointer-events: none;
+  line-height: 0;
+}
+.wave-divider--subtle { height: 64px; }
+.wave-divider--bottom svg { transform: scaleY(-1); }
+.wave-divider svg { display: block; width: 100%; height: 100%; }
+/* Narrow screens show the middle of a wider wave, so the curves stay long and
+   calm instead of being squeezed (the band clips it; the page never widens). */
+@media (max-width: 1019px) { .wave-divider svg { width: 150%; margin-left: -25%; } }
+@media (max-width: 639px) { .wave-divider svg { width: 220%; margin-left: -60%; } }
+.wave-divider path { will-change: transform; }
+.wave-divider__back { fill: var(--wave-secondary); animation: wave-drift-back 17s ease-in-out -6s infinite alternate; }
+.wave-divider__main { fill: var(--wave-primary); animation: wave-drift-main 11s ease-in-out infinite alternate; }
+.wave-divider__highlight {
+  fill: none;
+  stroke: var(--wave-highlight);
+  stroke-width: 1.25;
+  vector-effect: non-scaling-stroke;
+  animation: wave-drift-highlight 24s ease-in-out -9s infinite alternate;
+}
+@keyframes wave-drift-main {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(-34px, 2px, 0); }
+}
+@keyframes wave-drift-back {
+  from { transform: translate3d(-12px, 0, 0); }
+  to { transform: translate3d(46px, -2px, 0); }
+}
+@keyframes wave-drift-highlight {
+  from { transform: translate3d(8px, 0, 0); }
+  to { transform: translate3d(-40px, 1px, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wave-divider path { animation: none !important; will-change: auto; }
+}
 
 /* --- consent --------------------------------------------------------------- */
 .consent {
