@@ -866,16 +866,40 @@ p { margin: 0 0 1em; }
   border-bottom-color: var(--brand-light);
 }
 
-/* Landing page: the categories as image cards (CategoryCards). Two columns
-   from 640px, one below, at the artwork's own 720:456 ratio so it is never
-   stretched or re-cropped. */
-.catcards {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 16px;
-  padding-block: 40px 8px;
+/* Landing page: the categories as cards (CategoryCarousel). A finite
+   horizontal carousel that keeps the original artwork and its 720:456 ratio,
+   one slide on phones and two from 640px (the original grid's two columns).
+   Slides scroll-snap, the arrows overlay the artwork, autoplay stops at the
+   ends and prefers-reduced-motion disables animation but keeps the arrows,
+   keyboard and swipe. No cloned slides are rendered, so nothing is shown
+   twice for screen readers. */
+.catcarousel {
+  padding-top: 40px;
+  padding-bottom: 8px;
 }
-@media (min-width: 640px) { .catcards { grid-template-columns: repeat(2, 1fr); gap: 20px; } }
+.catcarousel__stage {
+  position: relative;
+}
+.catcards {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  scroll-padding: 4px;
+  padding: 4px 4px 22px;
+  user-select: none;
+}
+.catcards::-webkit-scrollbar { display: none; }
+.card-slide {
+  flex: 0 0 100%;
+  scroll-snap-align: start;
+}
+@media (min-width: 640px) {
+  .catcards { gap: 20px; }
+  .card-slide { flex-basis: calc((100% - 20px) / 2); }
+}
 .catcard {
   display: block;
   border-radius: var(--radius-lg);
@@ -895,10 +919,38 @@ p { margin: 0 0 1em; }
 .catcard:hover { box-shadow: var(--shadow-lg); transform: translateY(-2px); text-decoration: none; }
 .catcard:hover img { transform: scale(1.03); }
 .catcard:focus-visible { outline: 3px solid var(--brand-light); outline-offset: 3px; }
+
+.catcarousel__arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid rgba(5, 55, 85, 0.16);
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--home88-blue-dark);
+  box-shadow: var(--shadow);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+.catcarousel__arrow:hover:not(:disabled) { background: #ffffff; box-shadow: var(--shadow-lg); }
+.catcarousel__arrow:disabled { opacity: 0.35; cursor: default; }
+.catcarousel__arrow:focus-visible { outline: 3px solid var(--brand-light); outline-offset: 3px; }
+.catcarousel__arrow--prev { left: -12px; }
+.catcarousel__arrow--next { right: -12px; }
+
+.catcards:focus-visible { outline: 3px solid var(--brand-light); outline-offset: 2px; }
+
 @media (prefers-reduced-motion: reduce) {
   .catcard, .catcard img { transition: none; }
   .catcard:hover { transform: none; }
   .catcard:hover img { transform: none; }
+  .catcarousel__arrow { transition: none; }
 }
 
 /* --- property card --------------------------------------------------------- */
