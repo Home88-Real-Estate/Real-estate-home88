@@ -12,6 +12,8 @@
 
 import { z } from "zod";
 
+import { parseKeyState } from "./settings/secret-box";
+
 /**
  * `z.coerce.boolean()` treats any non-empty string — including "false" — as
  * true, which would silently turn a force-path-style flag on. Accept only an
@@ -98,6 +100,14 @@ const schema = z.object({
   PII_ENCRYPTION_KEY: z.string().default(""),
   UNSUBSCRIBE_SECRET: z.string().default(""),
 
+  // --- Provider secrets ---------------------------------------------------
+  /**
+   * 32 bytes (base64) or 64 hex characters, used to seal SMTP passwords,
+   * portal credentials and signature keys. A value that cannot be parsed as a
+   * key is a configuration error: read it as such at boot and on `/health/ready`.
+   */
+  SETTINGS_ENCRYPTION_KEY: z.string().default(""),
+
   // --- Scheduled jobs ---------------------------------------------------------
   /** Bearer token the scheduler sends to /api/cron/*. Empty = jobs refuse to run. */
   CRON_SECRET: z.string().default(""),
@@ -157,6 +167,12 @@ export function configProblems(env: NodeJS.ProcessEnv = process.env): ConfigProb
   if (parsed.data.NODE_ENV === "production" && parsed.data.JWT_SECRET.length < 32) {
     problems.push({ variable: "JWT_SECRET", problem: parsed.data.JWT_SECRET ? "too_short" : "missing" });
   }
+  // An unparseable key is never accepted; "missing" is a known degraded state
+  // and is not reported here so a dev or guest deployment without secrets can
+  // still boot.
+  if (parseKeyState(parsed.data.SETTINGS_ENCRYPTION_KEY) === "invalid") {
+    problems.push({ variable: "SETTINGS_ENCRYPTION_KEY", problem: "invalid" });
+  }
   return problems;
 }
 
@@ -185,6 +201,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       // so surface the misconfiguration loudly at boot rather than at first use.
       console.warn(
         "[home88:api] PII_ENCRYPTION_KEY is empty: contact email/phone will not be stored.",
+      );
+    }
+    if (parseKeyState(config.SETTINGS_ENCRYPTION_KEY) === "invalid") {
+      // A malformed key would make every stored secret look rotated and
+      // unrecoverable; refuse to start rather than discover it mid-day.
+      throw new Error(
+        "SETTINGS_ENCRYPTION_KEY must be 32 bytes in base64 or 64 hex characters. " +
+          "Generate one with: node -e \"console.log(require('crypto').randomBytes(32).toString('base64'))\"",
       );
     }
   }
