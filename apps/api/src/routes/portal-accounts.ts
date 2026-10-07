@@ -16,6 +16,7 @@ import { RATE_LIMITS } from "@home88/validation";
 import { z } from "zod";
 import { loadConfig } from "../config";
 import { writeAudit } from "../lib/audit";
+import { assertSafeEndpointUrl } from "../lib/endpoint";
 import { forbidden, notFound, conflict, HttpError, tooManyRequests } from "../lib/errors";
 import { consume } from "../lib/rate-limit";
 import { clientIp, parseInput, userAgent } from "../lib/http";
@@ -77,13 +78,15 @@ function auditCtx(request: FastifyRequest) {
   return { actorId: request.auth!.user.id, ipAddress: clientIp(request), userAgent: userAgent(request) };
 }
 
-/** Endpoint overrides never carry credentials, and never point at a private network. */
-function checkEndpoint(url: string | null | undefined): void {
+/**
+ * Endpoint overrides never carry credentials, and never point at a private
+ * network: https-only, no userinfo, and the host must not be a loopback,
+ * private, link-local, CGNAT, metadata or otherwise-reserved address — as a
+ * literal or after DNS resolution (all resolved addresses are checked).
+ */
+async function checkEndpoint(url: string | null | undefined): Promise<void> {
   if (!url) return;
-  const u = new URL(url);
-  if (u.protocol !== "https:") throw new HttpError(400, "bad_endpoint", "Το endpoint πρέπει να είναι https.");
-  if (u.username || u.password) throw new HttpError(400, "bad_endpoint", "Το endpoint δεν πρέπει να περιέχει στοιχεία σύνδεσης.");
-  if (/^(localhost|127\.|10\.|192\.168\.|169\.254\.|\[?::1)/i.test(u.hostname)) throw new HttpError(400, "bad_endpoint", "Το endpoint δεν μπορεί να δείχνει σε ιδιωτικό δίκτυο.");
+  await assertSafeEndpointUrl(url);
 }
 
 export async function portalAccountRoutes(app: FastifyInstance): Promise<void> {
@@ -102,7 +105,7 @@ export async function portalAccountRoutes(app: FastifyInstance): Promise<void> {
     const { code } = request.params as { code: string };
     const input = parseInput(createSchema, request.body);
     if (input.environment === "PRODUCTION") await require_(request, PORTAL_ACTIVATE_PRODUCTION, "Μόνο ο Super Admin μπορεί να δημιουργήσει λογαριασμό παραγωγής.");
-    checkEndpoint(input.endpointUrl);
+    await checkEndpoint(input.endpointUrl);
 
     // A catalogued portal gets its (disabled) row on first use; an unknown code is not a portal.
     const entry = portalCatalogEntry(code);
@@ -130,7 +133,7 @@ export async function portalAccountRoutes(app: FastifyInstance): Promise<void> {
     const account = await db().portalAccount.findUnique({ where: { id }, include: { portal: { select: { code: true, name: true, transport: true } } } });
     if (!account) throw notFound("Ο λογαριασμός portal δεν βρέθηκε.");
     if (account.environment === "PRODUCTION") await require_(request, PORTAL_ACTIVATE_PRODUCTION, "Οι αλλαγές σε λογαριασμό παραγωγής γίνονται μόνο από Super Admin.");
-    if (input.endpointUrl !== undefined) checkEndpoint(input.endpointUrl);
+    if (input.endpointUrl !== undefined) await checkEndpoint(input.endpointUrl);
     if (input.mockMode && account.environment !== "TEST") throw conflict("Η λειτουργία mock επιτρέπεται μόνο σε λογαριασμό TEST.");
 
     // Switching an account on needs a connection test that succeeded.

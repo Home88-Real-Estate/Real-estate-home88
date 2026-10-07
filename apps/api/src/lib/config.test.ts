@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { configProblems, withPlatformDefaults } from "../config";
+import { configProblems, loadConfig, resetConfig, withPlatformDefaults } from "../config";
 
 const SECRET = "x".repeat(40);
+const KEY = Buffer.alloc(32, 7).toString("base64");
 
 test("a complete production configuration has no problems", () => {
   assert.deepEqual(
@@ -43,4 +44,50 @@ test("on Vercel, CRM_URL defaults to the deployment's production address", () =>
     "https://crm.home88.estate",
   );
   assert.equal(withPlatformDefaults({}).CRM_URL, undefined);
+});
+
+test("a malformed SETTINGS_ENCRYPTION_KEY is flagged by name, never by value", () => {
+  const problems = configProblems({
+    NODE_ENV: "production",
+    DATABASE_URL: "postgresql://h/db",
+    JWT_SECRET: SECRET,
+    SETTINGS_ENCRYPTION_KEY: "not a key",
+  });
+  assert.deepEqual(problems, [{ variable: "SETTINGS_ENCRYPTION_KEY", problem: "invalid" }]);
+  assert.ok(!JSON.stringify(problems).includes("not a key"), "the key value is never echoed");
+});
+
+test("a missing or valid SETTINGS_ENCRYPTION_KEY is not a startup problem", () => {
+  assert.deepEqual(
+    configProblems({ NODE_ENV: "production", DATABASE_URL: "postgresql://h/db", JWT_SECRET: SECRET }),
+    [],
+    "missing is a degraded but supported state",
+  );
+  assert.deepEqual(
+    configProblems({
+      NODE_ENV: "production",
+      DATABASE_URL: "postgresql://h/db",
+      JWT_SECRET: SECRET,
+      SETTINGS_ENCRYPTION_KEY: KEY,
+    }),
+    [],
+    "a 32-byte base64 key is valid",
+  );
+});
+
+test("loadConfig refuses a malformed SETTINGS_ENCRYPTION_KEY in production", () => {
+  resetConfig();
+  try {
+    assert.throws(
+      () => loadConfig({
+        NODE_ENV: "production",
+        DATABASE_URL: "postgresql://h/db",
+        JWT_SECRET: SECRET,
+        SETTINGS_ENCRYPTION_KEY: "nope",
+      }),
+      /SETTINGS_ENCRYPTION_KEY/,
+    );
+  } finally {
+    resetConfig();
+  }
 });

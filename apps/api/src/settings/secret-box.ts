@@ -46,6 +46,20 @@ export function parseKey(raw: string | undefined | null): Buffer | null {
   return candidates.find((k) => k.length === 32) ?? null;
 }
 
+export type KeyState = "missing" | "valid" | "invalid";
+
+/**
+ * What the environment actually holds: absent/blank, a usable 32-byte key, or
+ * a value that looks configured but cannot be parsed as a key. "invalid" is a
+ * misconfiguration worth failing over at startup; "missing" is a legitimate
+ * degraded state (the API refuses to read secrets but boots) and is reported
+ * separately. The value itself is never returned.
+ */
+export function parseKeyState(raw: string | undefined | null): KeyState {
+  if (parseKey(raw)) return "valid";
+  return (raw ?? "").trim() ? "invalid" : "missing";
+}
+
 /** Short, non-reversible id of a key, to notice when the key has been rotated. */
 export function keyIdOf(key: Buffer): string {
   return createHash("sha256").update(key).digest("hex").slice(0, 12);
