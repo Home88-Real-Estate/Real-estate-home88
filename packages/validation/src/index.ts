@@ -821,5 +821,8 @@ export const RATE_LIMITS = {
   resetPassword: { points: 10, durationSeconds: 900 },
   invitationCreate: { points: 30, durationSeconds: 3600 },
   invitationAccept: { points: 10, durationSeconds: 900 },
+  /** Portal photo links: failed attempts per client, and fetches per token. A token is a bearer secret. */
+  portalMediaMiss: { points: 60, durationSeconds: 600 },
+  portalMediaToken: { points: 30, durationSeconds: 60 },
 } as const;
 export * from "./settings";

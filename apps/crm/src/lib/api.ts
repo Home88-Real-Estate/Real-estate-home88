@@ -79,7 +79,8 @@ export async function apiFetch<T>(path: string, init: ApiFetchInit = {}): Promis
   if (!response.ok) {
     const error = (body as { error?: AppError } | null)?.error;
     // Server-side failures never show internal text to staff.
-    if (response.status >= 500) {
+    // Portal outcomes (a provider failure) are 502s whose message is written for staff and already redacted.
+    if (response.status >= 500 && !(error?.code ?? "").startsWith("portal_")) {
       return {
         ok: false,
         status: response.status,

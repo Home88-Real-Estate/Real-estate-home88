@@ -1323,3 +1323,18 @@ td.actions .btn { margin: 2px 4px 2px 0; }
 .tagchip--red { border-color: #cf222e; }
 .tagchip--violet { border-color: #8250df; }
 .tagchip--slate { border-color: #57606a; }
+
+/* Portal accounts and manual portal operations */
+.portalops { display: grid; gap: 8px; min-width: 220px; }
+.portalops__row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.portalops__buttons { display: flex; gap: 6px; flex-wrap: wrap; }
+.portalops__preview { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--surface-2); }
+.portalops__body { max-height: 220px; overflow: auto; font-size: 0.75rem; white-space: pre-wrap; word-break: break-word; margin: 6px 0 0; }
+.portalaccounts { display: grid; gap: 16px; }
+.portalaccount { border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: grid; gap: 12px; }
+.portalaccount__head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.portalaccount__head h3 { margin: 0; font-size: 1rem; }
+.portalaccount__meta { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; font-size: 0.875rem; }
+.portalaccount__meta dt { color: var(--ink-muted); }
+.portalaccount__meta dd { margin: 0; }
+@media (max-width: 640px) { .portalaccount__meta { grid-template-columns: 1fr; } }

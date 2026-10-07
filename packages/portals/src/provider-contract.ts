@@ -20,11 +20,33 @@ import type { PortalProperty } from "./types";
 /** What an operation against a portal returned, already normalised. */
 export type ProviderResult =
   | { ok: true; externalId?: string; externalUrl?: string; /** The portal's own acknowledgement, if it gives one. */ acknowledged: boolean }
-  | { ok: false; code: PortalErrorCode; /** Safe to show staff: never a credential, token or internal URL. */ message: string };
+  | {
+      ok: false;
+      code: PortalErrorCode;
+      /** Safe to show staff: never a credential, token or internal URL. */
+      message: string;
+      /** For DUPLICATE_LISTING: the id the portal already holds, so the listing can be adopted instead of recreated. */
+      externalId?: string;
+    };
+
+/**
+ * What the caller supplies to one provider call besides the property. Secrets
+ * are resolved on the server and handed over here for the duration of the call;
+ * an adapter must never log, return or persist them.
+ */
+export type ProviderCallContext = {
+  environment: ProviderEnvironmentName;
+  /** Stable for the same account, property and payload, so a retry cannot create a second listing. */
+  idempotencyKey: string;
+  agencyExternalId?: string | null;
+  endpointUrl?: string | null;
+  credentials?: Readonly<Record<string, string>>;
+};
 
 export type ProviderListing = { externalId: string; externalUrl?: string; state: "LIVE" | "PENDING" | "REJECTED" | "REMOVED" | "UNKNOWN" };
 
 export type ProviderEnvironment = "PRODUCTION" | "SANDBOX";
+export type ProviderEnvironmentName = "TEST" | "PRODUCTION";
 
 export interface PortalProvider {
   readonly code: string;
@@ -33,12 +55,12 @@ export interface PortalProvider {
   readonly capabilities: PortalCapabilities;
 
   /** Proves credentials work using the provider's own supported test call. */
-  testConnection?(environment: ProviderEnvironment): Promise<ProviderResult>;
+  testConnection?(environment: ProviderEnvironment, ctx?: ProviderCallContext): Promise<ProviderResult>;
   /** Provider-specific checks beyond the generic validation profile. */
   validateProperty?(property: PortalProperty): { errors: string[]; warnings: string[] };
-  publishProperty?(property: PortalProperty): Promise<ProviderResult>;
-  updateProperty?(externalId: string, property: PortalProperty): Promise<ProviderResult>;
-  unpublishProperty?(externalId: string): Promise<ProviderResult>;
+  publishProperty?(property: PortalProperty, ctx?: ProviderCallContext): Promise<ProviderResult>;
+  updateProperty?(externalId: string, property: PortalProperty, ctx?: ProviderCallContext): Promise<ProviderResult>;
+  unpublishProperty?(externalId: string, ctx?: ProviderCallContext): Promise<ProviderResult>;
   deleteProperty?(externalId: string): Promise<ProviderResult>;
   getListing?(externalId: string): Promise<ProviderListing | null>;
   /** Everything the portal currently has, for reconciliation. */
