@@ -226,8 +226,8 @@ SELECT
     CASE
         WHEN p."publishedOnWebsite" IS TRUE
          AND p."status" IN ('ACTIVE', 'UNDER_OFFER', 'RESERVED')
-            THEN 'PUBLISHED'
-        ELSE 'DRAFT'
+            THEN 'PUBLISHED'::"WebsitePublicationStatus"
+        ELSE 'DRAFT'::"WebsitePublicationStatus"
     END,
     p."publishedOnWebsite",
     p."slug",
@@ -235,8 +235,8 @@ SELECT
     CASE
         WHEN p."publishedOnWebsite" IS TRUE
          AND p."status" IN ('ACTIVE', 'UNDER_OFFER', 'RESERVED')
-            THEN 'PUBLIC'
-        ELSE 'NOINDEX'
+            THEN 'PUBLIC'::"PublicationVisibility"
+        ELSE 'NOINDEX'::"PublicationVisibility"
     END,
     p."publishedOnWebsite" IS TRUE
         AND p."status" IN ('ACTIVE', 'UNDER_OFFER', 'RESERVED'),
@@ -268,7 +268,7 @@ SELECT
     wp."id",
     wp."propertyId",
     wp."slug",
-    'ORIGINAL',
+'ORIGINAL'::"SlugHistoryKind",
     NULL,
     NULL,
     NOW()
