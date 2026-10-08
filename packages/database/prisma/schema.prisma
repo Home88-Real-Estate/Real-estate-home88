@@ -295,6 +295,58 @@ enum SyncAction {
   IMPORT_LEADS
 }
 
+/// Lifecycle of a property on the public website. This is the authoritative
+/// website state after the migration; Property.publishedOnWebsite is derived
+/// from it by the publication service, never written independently.
+enum WebsitePublicationStatus {
+  DRAFT
+  READY
+  VALIDATION_FAILED
+  PUBLISHED
+  OUTDATED
+  UPDATE_PENDING
+  UNPUBLISHED
+  SOLD
+  RENTED
+  ARCHIVED
+  FAILED
+  PAUSED
+}
+
+enum PublicationVisibility {
+  PUBLIC
+  PRIVATE
+  NOINDEX
+}
+
+enum SlugHistoryKind {
+  /// The first slug the property was ever published under.
+  ORIGINAL
+  /// A deliberate slug change preserving a 301 from the old value.
+  RENAMED
+  /// Slug removed because the property was unpublished.
+  UNPUBLISHED
+}
+
+enum PublicationChannelType {
+  WEBSITE
+  PORTAL
+}
+
+/// Publication operations, not durable states (e.g. PREVIEW is an operation,
+/// not a status stored on the publication).
+enum ChannelAction {
+  VALIDATE
+  PREVIEW
+  PREPARE
+  PUBLISH
+  UPDATE
+  UNPUBLISH
+  STATUS_CHANGED
+  RETRY_SCHEDULED
+  ERROR
+}
+
 enum ConsentPurpose {
   /// Necessary for the service to operate (contract, enquiry handling).
   NECESSARY
@@ -679,28 +731,31 @@ model Property {
   createdById String?
   createdBy   User?   @relation("PropertyCreator", fields: [createdById], references: [id], onDelete: SetNull)
 
-  media             PropertyMedia[]
-  leads             Lead[]
-  owners            PropertyOwner[]
-  contactLinks      ContactProperty[]
-  showingProperties ShowingProperty[]
-  viewings          Viewing[]
-  offers            Offer[]
-  transactions      Transaction[]
-  sellerLeads       SellerLead[]
-  valuations        Valuation[]
-  comparableIn      ValuationComparable[]
-  mandates          Mandate[]
-  messages          Message[]
-  documents         Document[]
-  portalListings    PortalListing[]
-  tagAssignments    PropertyTagAssignment[]
-  notes             Note[]
-  dmcaNotices       DmcaNotice[]
-  tasks             Task[]
-  statusHistory     PropertyStatusHistory[]
-  priceHistory      PropertyPriceHistory[]
-  submissionsLinked PropertySubmission[]
+  media                    PropertyMedia[]
+  leads                    Lead[]
+  owners                   PropertyOwner[]
+  contactLinks             ContactProperty[]
+  showingProperties        ShowingProperty[]
+  viewings                 Viewing[]
+  offers                   Offer[]
+  transactions             Transaction[]
+  sellerLeads              SellerLead[]
+  valuations               Valuation[]
+  comparableIn             ValuationComparable[]
+  mandates                 Mandate[]
+  messages                 Message[]
+  documents                Document[]
+  portalListings           PortalListing[]
+  websitePublication       WebsitePublication?
+  websiteSlugHistory       WebsiteSlugHistory[]
+  channelPublicationEvents ChannelPublicationEvent[]
+  tagAssignments           PropertyTagAssignment[]
+  notes                    Note[]
+  dmcaNotices              DmcaNotice[]
+  tasks                    Task[]
+  statusHistory            PropertyStatusHistory[]
+  priceHistory             PropertyPriceHistory[]
+  submissionsLinked        PropertySubmission[]
 
   /// Commission is stored as a rate, not a hard-coded percentage.
   commissionRatePct  Decimal? @db.Decimal(5, 2)
@@ -1223,6 +1278,8 @@ model Portal {
   accounts        PortalAccount[]
   syncRuns        PortalSyncRun[]
 
+  channelPublicationEvents ChannelPublicationEvent[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1272,6 +1329,8 @@ model PortalListing {
   updatedAt DateTime @updatedAt
 
   syncLogs PortalSyncLog[]
+
+  channelPublicationEvents ChannelPublicationEvent[]
 
   @@unique([portalId, propertyId])
   @@index([portalAccountId])
@@ -1410,6 +1469,139 @@ model PortalPropertyMapping {
   @@unique([portalId, externalId])
   @@index([propertyId])
   @@map("portal_property_mappings")
+}
+
+// ---------------------------------------------------------------------------
+// Website publication
+//
+// The public website previously derived "is this live?" from
+// Property.publishedOnWebsite + PropertyStatus. That move has a single
+// authoritative owner from here on: WebsitePublication.status, with
+// Property.publishedOnWebsite kept only as a derived compatibility field that
+// the publication service synchronizes. Nothing else writes both.
+//
+// Two invariants are enforced outside Prisma, in the hand-written part of the
+// migration:
+//   1. channel_publication_events is append-only (trigger rejects update/delete).
+//   2. a WEBSITE event targets a website_publication only, a PORTAL event a
+//      portal_listing only (CHECK constraint).
+// ---------------------------------------------------------------------------
+
+/// The single authoritative website publication state.
+model WebsitePublication {
+  id         String   @id @default(cuid())
+  propertyId String   @unique
+  /// Restrict (not Cascade) on purpose: a publication carries public URL
+  /// identity and history, so a property purge must explicitly dispose of it.
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+
+  status          WebsitePublicationStatus @default(DRAFT)
+  enabled         Boolean                  @default(false)
+  slug            String                   @unique
+  canonicalUrl    String?
+  visibility      PublicationVisibility    @default(NOINDEX)
+  /// Server-derived: status=PUBLISHED AND enabled AND visibility=PUBLIC AND
+  /// noIndex=false AND public property status. Never trusted from the UI.
+  sitemapIncluded Boolean                  @default(false)
+  noIndex         Boolean                  @default(true)
+  /// Website merchandising only — deliberately not publication state.
+  featured        Boolean                  @default(false)
+
+  seoTitle       String?
+  seoDescription String?
+
+  lastPublishedAt   DateTime?
+  lastUnpublishedAt DateTime?
+  lastGeneratedAt   DateTime?
+  lastPayloadHash   String?
+  lastFailedAt      DateTime?
+  lastErrorCode     String?
+  lastErrorMessage  String?
+
+  /// Loose FKs (no relation) so the User model stays untouched; actor ids only.
+  createdById String?
+  updatedById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  slugHistory       WebsiteSlugHistory[]
+  publicationEvents ChannelPublicationEvent[]
+
+  @@index([status])
+  @@index([enabled, status])
+  @@index([sitemapIncluded, noIndex])
+  @@map("website_publications")
+}
+
+/// Append-only log of every slug a URL was served under. A RENAMED row keeps
+/// both the old and the new slug in history, so slug is indexed, not unique.
+model WebsiteSlugHistory {
+  id                   String             @id @default(cuid())
+  websitePublicationId String
+  websitePublication   WebsitePublication @relation(fields: [websitePublicationId], references: [id], onDelete: Cascade)
+  propertyId           String
+  property             Property           @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+
+  slug         String
+  kind         SlugHistoryKind @default(ORIGINAL)
+  /// Valid old→new mapping only. Dead slugs are 404/410 under the public-route
+  /// policy, never "redirect to nowhere".
+  redirectedTo String?
+
+  changedById String?
+  createdAt   DateTime @default(now())
+
+  @@index([websitePublicationId, createdAt])
+  @@index([propertyId, createdAt])
+  @@index([slug])
+  @@map("website_slug_history")
+}
+
+/// Unified, append-only audit of website AND portal publication operations.
+/// Per-channel state is NOT re-derived here: a WEBSITE event snapshots
+/// WebsitePublicationStatus, a PORTAL event snapshots the existing
+/// PortalSyncState (no parallel portal-status system).
+model ChannelPublicationEvent {
+  id         String   @id @default(cuid())
+  propertyId String
+  /// Restrict so deleting a property cannot erase its publication history.
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+
+  channelType PublicationChannelType
+
+  websitePublicationId String?
+  websitePublication   WebsitePublication? @relation(fields: [websitePublicationId], references: [id], onDelete: SetNull)
+
+  portalId        String?
+  portal          Portal?        @relation(fields: [portalId], references: [id], onDelete: SetNull)
+  portalListingId String?
+  portalListing   PortalListing? @relation(fields: [portalListingId], references: [id], onDelete: SetNull)
+
+  action ChannelAction
+  ok     Boolean
+
+  /// Exactly one of the two is set, matching channelType (CHECK constraint).
+  websiteState WebsitePublicationStatus?
+  portalState  PortalSyncState?
+
+  detail            String?
+  errorCode         String?
+  needsReview       Boolean @default(false)
+  payloadHash       String?
+  externalListingId String?
+  triggeredById     String?
+  /// Correlates events belonging to one run / partial-success batch.
+  requestId         String?
+
+  createdAt DateTime @default(now())
+
+  @@index([propertyId, createdAt])
+  @@index([channelType, createdAt])
+  @@index([websitePublicationId, createdAt])
+  @@index([portalId, createdAt])
+  @@index([portalListingId, createdAt])
+  @@map("channel_publication_events")
 }
 
 // ---------------------------------------------------------------------------
