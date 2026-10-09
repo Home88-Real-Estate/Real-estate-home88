@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 
 import { rowPropertyAction } from "@/actions/properties";
 import { idleState } from "@/lib/form";
@@ -25,6 +25,9 @@ const CONFIRM: Record<string, string> = {
 /** Delete / restore / permanently delete, one small form per table row. */
 export function PropertyRowActions({ id, canDelete, canRestore, canPermanentlyDelete }: Props) {
   const [state, formAction, pending] = useActionState(rowPropertyAction, idleState);
+  // A server action's FormData does not include the clicked submit button's
+  // name/value, so the row's intent is carried by a hidden field instead.
+  const [op, setOp] = useState("");
 
   if (!canDelete && !canRestore && !canPermanentlyDelete) {
     return null;
@@ -42,18 +45,19 @@ export function PropertyRowActions({ id, canDelete, canRestore, canPermanentlyDe
       }}
     >
       <input type="hidden" name="id" value={id} />
+      <input type="hidden" name="op" value={op} />
       {canRestore && (
-        <button type="submit" name="op" value="restore" disabled={pending} className="btn btn--outline btn--sm">
+        <button type="submit" value="restore" onClick={() => setOp("restore")} disabled={pending} className="btn btn--outline btn--sm">
           Επαναφορά
         </button>
       )}
       {canDelete && (
-        <button type="submit" name="op" value="delete" disabled={pending} className="btn btn--danger btn--sm">
+        <button type="submit" value="delete" onClick={() => setOp("delete")} disabled={pending} className="btn btn--danger btn--sm">
           Διαγραφή
         </button>
       )}
       {canPermanentlyDelete && (
-        <button type="submit" name="op" value="permanent" disabled={pending} className="btn btn--danger btn--sm">
+        <button type="submit" value="permanent" onClick={() => setOp("permanent")} disabled={pending} className="btn btn--danger btn--sm">
           Οριστική διαγραφή
         </button>
       )}
