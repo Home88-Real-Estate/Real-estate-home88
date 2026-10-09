@@ -109,6 +109,55 @@ function nullableString(v: string | null | undefined): string | null {
 }
 
 /** Validated input mapped onto scalar columns (relations and keys are added by the caller). */
+export type CreateMeta = { ipAddress: string | null; userAgent: string | null };
+
+/**
+ * The one way a property is created: reference allocation, slug, audit trail,
+ * status and price history. The CRM form and the voice/text intake assistant
+ * both call this, so neither can bypass the other's rules.
+ */
+export async function createPropertyInTx(
+  tx: Prisma.TransactionClient,
+  actor: { id: string },
+  input: PropertyUpsertInput,
+  meta: CreateMeta,
+) {
+  const reference = input.reference ?? (await allocateReference(tx, "property"));
+  const slug = slugify(input.titleEl, reference);
+  const created = await tx.property.create({
+    data: {
+      ...toScalars(input),
+      reference,
+      slug,
+      agentId: input.agentId ?? null,
+      ownerId: input.ownerId ?? null,
+      createdById: actor.id,
+      publishedAt: input.publishedOnWebsite ? new Date() : null,
+    },
+  });
+  await writeAudit(
+    {
+      entity: "PROPERTY",
+      entityId: created.id,
+      action: "create",
+      actorId: actor.id,
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+      changes: { reference, titleEl: input.titleEl, status: input.status },
+    },
+    tx,
+  );
+  await tx.propertyStatusHistory.create({
+    data: { propertyId: created.id, fromStatus: null, toStatus: input.status, actorId: actor.id },
+  });
+  if (input.price != null || input.monthlyRent != null) {
+    await tx.propertyPriceHistory.create({
+      data: { propertyId: created.id, toPrice: input.price ?? null, toMonthlyRent: input.monthlyRent ?? null, actorId: actor.id },
+    });
+  }
+  return created;
+}
+
 function toScalars(raw: PropertyUpsertInput): Omit<Prisma.PropertyUncheckedCreateInput, "reference" | "slug"> {
   // Store only what applies to this property type and listing type: fields of
   // other types are cleared and details are cleaned (see property-profiles).
@@ -461,50 +510,9 @@ export async function propertyRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    const property = await db().$transaction(
-      async (tx) => {
-        const reference = input.reference ?? (await allocateReference(tx, "property"));
-        const slug = slugify(input.titleEl, reference);
-        const created = await tx.property.create({
-          data: {
-            ...toScalars(input),
-            reference,
-            slug,
-            agentId: input.agentId ?? null,
-            ownerId: input.ownerId ?? null,
-            createdById: actor.id,
-            publishedAt: input.publishedOnWebsite ? new Date() : null,
-          },
-        });
-        await writeAudit(
-          {
-            entity: "PROPERTY",
-            entityId: created.id,
-            action: "create",
-            actorId: actor.id,
-            ipAddress: clientIp(request),
-            userAgent: userAgent(request),
-            changes: { reference, titleEl: input.titleEl, status: input.status },
-          },
-          tx,
-        );
-        await tx.propertyStatusHistory.create({
-          data: { propertyId: created.id, fromStatus: null, toStatus: input.status, actorId: actor.id },
-        });
-        if (input.price != null || input.monthlyRent != null) {
-          await tx.propertyPriceHistory.create({
-            data: {
-              propertyId: created.id,
-              toPrice: input.price ?? null,
-              toMonthlyRent: input.monthlyRent ?? null,
-              actorId: actor.id,
-            },
-          });
-        }
-        return created;
-      },
-      { isolationLevel: "Serializable" },
-    );
+    const property = await db().$transaction((tx) => createPropertyInTx(tx, actor, input, { ipAddress: clientIp(request), userAgent: userAgent(request) }), {
+      isolationLevel: "Serializable",
+    });
 
     reply.code(201);
     return { property };
