@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 
 import { SITE_URL } from "@/lib/config";
-import { listRecentProperties } from "@/lib/property";
+import { listSitemapProperties } from "@/lib/property";
 import { listAreas } from "@/lib/areas";
 
 export const revalidate = 3600;
@@ -38,14 +38,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     areaRoutes = [];
   }
 
-  // Listings. A generous take: the sitemap is what makes new listings findable
-  // immediately, and it is served from a cached render.
+  // Listings. Which properties belong here is derived from their publication state
+  // (live, public, indexable, a public property status, no keep-off tag) by
+  // listSitemapProperties; nothing stored or sent by a screen decides it.
   let listingRoutes: MetadataRoute.Sitemap = [];
   try {
-    const properties = await listRecentProperties("el", 200);
+    const properties = await listSitemapProperties();
     listingRoutes = properties.map((p) => ({
       url: `${SITE_URL}/property/${p.reference}`,
-      lastModified: now,
+      lastModified: p.lastModified,
       changeFrequency: "weekly",
       priority: 0.8,
     }));

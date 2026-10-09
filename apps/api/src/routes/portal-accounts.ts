@@ -21,7 +21,7 @@ import { forbidden, notFound, conflict, HttpError, tooManyRequests } from "../li
 import { consume } from "../lib/rate-limit";
 import { clientIp, parseInput, userAgent } from "../lib/http";
 import { accountView, storeCredentials } from "../lib/portal-accounts";
-import { runPortalOperation, testPortalAccount, type PortalOperation } from "../lib/portal-actions";
+import { PORTAL_OPERATION_PERMISSION as PERMISSION_FOR, runPortalOperation, testPortalAccount, type PortalOperation } from "../lib/portal-actions";
 import { portalMediaKey } from "../lib/portal-media";
 import { db } from "../lib/prisma";
 import { getObjectBytes, storageConfigured } from "../lib/storage";
@@ -65,14 +65,6 @@ const credentialsSchema = z
   .strict();
 
 const operationSchema = z.object({ accountId: z.string().min(1), environment: environmentSchema }).strict();
-
-const PERMISSION_FOR: Record<PortalOperation, string> = {
-  PREVIEW: "portals.preview",
-  PUBLISH: "portals.publish",
-  UPDATE: "portals.update",
-  UNPUBLISH: "portals.unpublish",
-  RETRY: "portals.retry",
-};
 
 function auditCtx(request: FastifyRequest) {
   return { actorId: request.auth!.user.id, ipAddress: clientIp(request), userAgent: userAgent(request) };

@@ -39,6 +39,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       property.description.slice(0, 300) ||
       `${label(LISTING_TYPE_LABELS, property.listingType, "el")} — ${property.title}. ${area ?? ""}`,
     alternates: { canonical: `/property/${property.reference}` },
+    // A NOINDEX publication is reachable by its link only; search engines are told to skip it.
+    ...(property.indexable ? {} : { robots: { index: false, follow: false } }),
     openGraph: {
       type: "website",
       title: property.title,

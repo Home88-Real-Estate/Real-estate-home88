@@ -20,6 +20,8 @@ import {
   type PropertyUpsertInput,
 } from "@home88/validation";
 import { writeAudit, diffFields } from "../lib/audit";
+import { disposeWebsitePublication, ensureWebsitePublication, onPropertyStatusChanged } from "../lib/website-publication";
+import { revalidateWebsite } from "../lib/website-revalidate";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors";
 import { clientIp, parseInput, userAgent } from "../lib/http";
 import { priceChange } from "../lib/price-history";
@@ -44,7 +46,7 @@ async function transitionStatus(
   to: PropertyStatus,
   reason: string | null,
 ) {
-  return db().$transaction(
+  const out = await db().$transaction(
     async (tx) => {
       const existing = await tx.property.findUnique({
         where: { id },
@@ -57,14 +59,7 @@ async function transitionStatus(
         throw check.code === "FORBIDDEN" ? forbidden(check.message) : conflict(check.message);
       }
 
-      const updated = await tx.property.update({
-        where: { id },
-        // An archived or deleted listing is taken off the website as well.
-        data: {
-          status: to,
-          ...(to === "ARCHIVED" || to === "DELETED" ? { publishedOnWebsite: false } : {}),
-        },
-      });
+      const updated = await tx.property.update({ where: { id }, data: { status: to } });
       await tx.propertyStatusHistory.create({
         data: { propertyId: id, fromStatus: existing.status, toStatus: to, reason, actorId: actor.id },
       });
@@ -87,10 +82,16 @@ async function transitionStatus(
         },
         tx,
       );
-      return updated;
+      // What the new status means for the website (sold or archived comes down, a reopened one
+      // returns) is decided by the publication service, in this same transaction.
+      const refresh = await onPropertyStatusChanged(tx, id, { actorId: actor.id, requestId: request.id, ipAddress: clientIp(request), userAgent: userAgent(request) });
+      return { updated, refresh };
     },
     { isolationLevel: "Serializable" },
   );
+  // Outside the transaction, and never fatal: the status change is already saved.
+  if (out.refresh) await revalidateWebsite([out.refresh]);
+  return out.updated;
 }
 
 function num(v: unknown): number | null {
@@ -132,9 +133,11 @@ export async function createPropertyInTx(
       agentId: input.agentId ?? null,
       ownerId: input.ownerId ?? null,
       createdById: actor.id,
-      publishedAt: input.publishedOnWebsite ? new Date() : null,
     },
   });
+  // Every property has a publication from the start (not published). Putting it on the
+  // website is a separate, validated act from the Publication panel.
+  await ensureWebsitePublication(tx, created);
   await writeAudit(
     {
       entity: "PROPERTY",
@@ -210,7 +213,6 @@ function toScalars(raw: PropertyUpsertInput): Omit<Prisma.PropertyUncheckedCreat
     longitude: input.longitude ?? null,
     videoUrl: nullableString(input.videoUrl),
     virtualTourUrl: nullableString(input.virtualTourUrl),
-    publishedOnWebsite: input.publishedOnWebsite,
     featured: input.featured,
     commissionRatePct: input.commissionRatePct ?? null,
     agentCommissionPct: input.agentCommissionPct ?? null,
@@ -270,7 +272,6 @@ function toComparable(e: Record<string, unknown>): Record<string, unknown> {
     longitude: num(e.longitude),
     videoUrl: strOrUndef(e.videoUrl),
     virtualTourUrl: strOrUndef(e.virtualTourUrl),
-    publishedOnWebsite: e.publishedOnWebsite,
     featured: e.featured,
     agentId: e.agentId ?? undefined,
     ownerId: e.ownerId ?? undefined,
@@ -540,7 +541,6 @@ export async function propertyRoutes(app: FastifyInstance): Promise<void> {
     }
     const priced = priceChange(existing, input);
 
-    const now = new Date();
     const property = await db().$transaction(
       async (tx) => {
         const updated = await tx.property.update({
@@ -549,8 +549,6 @@ export async function propertyRoutes(app: FastifyInstance): Promise<void> {
             ...toScalars(input),
             agentId: input.agentId ?? null,
             ownerId: input.ownerId ?? null,
-            publishedAt:
-              input.publishedOnWebsite && existing.publishedAt == null ? now : existing.publishedAt,
           },
         });
         await writeAudit(
@@ -628,6 +626,8 @@ export async function propertyRoutes(app: FastifyInstance): Promise<void> {
           },
           tx,
         );
+        // The publication has to go first; one with recorded history keeps the property (see the service).
+        await disposeWebsitePublication(tx, id);
         await tx.property.delete({ where: { id } });
         return existing;
       },

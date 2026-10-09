@@ -239,6 +239,10 @@ test("property intake: bilingual capture, correction, skip, conflict, review, on
   assert.equal(property.status, "DRAFT");
   assert.equal(property.publishedOnWebsite, false);
   assert.equal(property.publishedAt, null);
+  const publication = await db().websitePublication.findUniqueOrThrow({ where: { propertyId: property.id } });
+  assert.notEqual(publication.status, "PUBLISHED", "the website publication exists but is not published");
+  assert.equal(publication.enabled, false);
+  assert.equal(publication.sitemapIncluded, false);
   assert.equal(property.featured, false);
   assert.equal(property.createdById, agent.id);
   assert.equal(property.agentId, agent.id);

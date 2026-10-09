@@ -263,8 +263,10 @@ describe("owner submission → CRM → public (real Postgres, in-memory storage)
     // 16: publish: activate and show on the website.
     const status = await call(agentA, "POST", `/properties/${propertyId}/status`, { status: "ACTIVE" });
     assert.equal(status.statusCode, 200, status.body);
-    const patch = await call(agentA, "PATCH", `/properties/${propertyId}`, { publishedOnWebsite: true });
-    assert.equal(patch.statusCode, 200, patch.body);
+    // The flag is no longer writable from an edit: publishing is the website publication workflow.
+    const publish = await call(agentA, "POST", `/properties/${propertyId}/publications/publish`, { channels: [{ code: "WEBSITE" }] });
+    assert.equal(publish.statusCode, 200, publish.body);
+    assert.equal(JSON.parse(publish.body).results[0].status, "PUBLISHED", publish.body);
 
     // 17: the public site's own filter now returns the images, cover first, in order.
     const live = await prisma.propertyMedia.findMany({ where: { propertyId, status: { in: ["approved", "published"] }, property: { publishedOnWebsite: true, status: "ACTIVE" } }, orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }] });

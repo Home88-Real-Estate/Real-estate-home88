@@ -86,7 +86,8 @@ function displayOf(spec: FieldSpec, value: Value, lang: Lang): string {
 }
 
 export function buildPayload(state: IntakeState, specs: FieldSpec[]): { payload: Record<string, unknown>; excluded: string[] } {
-  const payload: Record<string, unknown> = { status: "DRAFT", publishedOnWebsite: false, featured: false };
+  // A draft, never featured. Publication is a separate act in the Publication panel: this creates none.
+  const payload: Record<string, unknown> = { status: "DRAFT", featured: false };
   const details: Record<string, unknown> = {};
   const excluded: string[] = [];
   for (const spec of specs) {

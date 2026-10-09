@@ -397,7 +397,7 @@ export function PropertyForm({
           <TextInput name="videoUrl" label="Σύνδεσμος βίντεο" value={values.videoUrl} onChange={set} error={error("videoUrl")} />
           <TextInput name="virtualTourUrl" label="Σύνδεσμος εικονικής περιήγησης" value={values.virtualTourUrl} onChange={set} error={error("virtualTourUrl")} />
         </div>
-        <Check name="publishedOnWebsite" label="Δημοσίευση στον ιστότοπο" value={values.publishedOnWebsite} onChange={set} />
+        <p className="hint">Η δημοσίευση στον ιστότοπο και στα portals γίνεται από το πλαίσιο «Δημοσίευση» της σελίδας του ακινήτου.</p>
         <Check name="featured" label="Προβεβλημένο" value={values.featured} onChange={set} />
       </section>
 

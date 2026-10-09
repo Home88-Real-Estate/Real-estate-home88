@@ -83,3 +83,20 @@ export const DRAFT = {
   city: "Γλυφάδα",
   neighborhood: "Κέντρο",
 };
+
+/**
+ * Puts a property on the website the way the publication service leaves it: a
+ * live, selected, public, indexable publication. Tests that need a page visitors
+ * can see use this (the legacy `publishedOnWebsite` flag alone no longer does).
+ */
+export async function publishFixture(
+  property: { id: string; slug: string },
+  over: Partial<{ status: "PUBLISHED" | "OUTDATED" | "UPDATE_PENDING" | "UNPUBLISHED" | "DRAFT" | "SOLD" | "RENTED" | "ARCHIVED"; enabled: boolean; visibility: "PUBLIC" | "NOINDEX" | "PRIVATE"; noIndex: boolean }> = {},
+) {
+  const prisma = testPrisma();
+  const data = { status: "PUBLISHED" as const, enabled: true, visibility: "PUBLIC" as const, noIndex: false, ...over };
+  await prisma.property.update({ where: { id: property.id }, data: { publishedOnWebsite: data.enabled && ["PUBLISHED", "OUTDATED", "UPDATE_PENDING"].includes(data.status) } });
+  return prisma.websitePublication.create({
+    data: { id: `wp_${property.id}`, propertyId: property.id, slug: property.slug, sitemapIncluded: data.visibility === "PUBLIC" && !data.noIndex, lastPublishedAt: new Date(), ...data },
+  });
+}

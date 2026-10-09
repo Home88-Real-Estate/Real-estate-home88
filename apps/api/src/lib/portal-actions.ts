@@ -43,6 +43,15 @@ import { db } from "./prisma";
 
 export type PortalOperation = "PREVIEW" | "PUBLISH" | "UPDATE" | "UNPUBLISH" | "RETRY";
 
+/** The settings permission each manual portal operation needs (shared by the per-portal and unified routes). */
+export const PORTAL_OPERATION_PERMISSION: Record<PortalOperation, string> = {
+  PREVIEW: "portals.preview",
+  PUBLISH: "portals.publish",
+  UPDATE: "portals.update",
+  UNPUBLISH: "portals.unpublish",
+  RETRY: "portals.retry",
+};
+
 export const NO_ADAPTER_MESSAGE = "Δεν υπάρχει ακόμη adapter για αυτό το portal.";
 
 export type OperationInput = {

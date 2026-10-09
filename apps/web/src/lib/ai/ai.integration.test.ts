@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
 
-import { hasTestDatabase, makeService, resetDatabase, testPrisma, TEST_DATABASE_URL } from "@home88/intake/testing";
+import { hasTestDatabase, makeService, publishFixture, resetDatabase, testPrisma, TEST_DATABASE_URL } from "@home88/intake/testing";
 
 import { executeTool, type ToolContext, type ToolDeps } from "./tools";
 
@@ -35,10 +35,15 @@ describe("assistant tools (real Postgres)", { skip: SKIP }, () => {
     await resetDatabase();
     const prisma = testPrisma();
     const common = { listingType: "SALE" as const, propertyType: "APARTMENT" as const, descriptionEl: "Φωτεινό διαμέρισμα.", price: 450000, area: 105, bedrooms: 3, city: "Αθήνα", areaName: "Γλυφάδα" };
-    await prisma.property.create({ data: { ...common, reference: "H88-000001", slug: "h88-000001", status: "ACTIVE", titleEl: "Δημοσιευμένο στη Γλυφάδα", publishedOnWebsite: true } });
-    await prisma.property.create({ data: { ...common, reference: "H88-000002", slug: "h88-000002", status: "DRAFT", titleEl: "Πρόχειρο στη Γλυφάδα", publishedOnWebsite: false } });
-    await prisma.property.create({ data: { ...common, reference: "H88-000003", slug: "h88-000003", status: "SOLD", titleEl: "Πουλημένο στη Γλυφάδα", publishedOnWebsite: true } });
-    await prisma.property.create({ data: { ...common, reference: "H88-000004", slug: "h88-000004", status: "UNDER_OFFER", titleEl: "Υπό προσφορά στη Γλυφάδα", publishedOnWebsite: true, price: 700000 } });
+    // A visitor-visible page is a live publication; the others are unpublished, or live on a property that is not public.
+    const make = async (reference: string, status: "ACTIVE" | "DRAFT" | "SOLD" | "UNDER_OFFER", titleEl: string, published: boolean, extra: { price?: number } = {}) => {
+      const property = await prisma.property.create({ data: { ...common, ...extra, reference, slug: reference.toLowerCase(), status, titleEl } });
+      if (published) await publishFixture(property);
+    };
+    await make("H88-000001", "ACTIVE", "Δημοσιευμένο στη Γλυφάδα", true);
+    await make("H88-000002", "DRAFT", "Πρόχειρο στη Γλυφάδα", false);
+    await make("H88-000003", "SOLD", "Πουλημένο στη Γλυφάδα", true);
+    await make("H88-000004", "UNDER_OFFER", "Υπό προσφορά στη Γλυφάδα", true, { price: 700000 });
   });
 
   const ctx = (session = "session-aaaaaaaa", over: Partial<ToolContext> = {}): ToolContext => ({
@@ -101,10 +106,19 @@ describe("assistant tools (real Postgres)", { skip: SKIP }, () => {
     assert.equal(c.leads, 2);
   });
 
+  // The age gate reads the real clock, so the boundary dates are computed from today (a fixed
+  // date silently turned a refused minor into an adult the day after it was written).
+  const eighteenYearsAgo = (dayOffset: number) => {
+    const d = new Date();
+    d.setUTCFullYear(d.getUTCFullYear() - 18);
+    d.setUTCDate(d.getUTCDate() + dayOffset);
+    return d.toISOString().slice(0, 10);
+  };
+
   it("under 18, missing or invalid date of birth, or no age confirmation: refused and nothing is written", async () => {
     const attempts: Array<Record<string, unknown>> = [
       { ...adult, dateOfBirth: "2012-01-01" },
-      { ...adult, dateOfBirth: "2008-10-06" },
+      { ...adult, dateOfBirth: eighteenYearsAgo(1) }, // turns 18 tomorrow
       { ...adult, dateOfBirth: "" },
       { ...adult, dateOfBirth: undefined },
       { ...adult, dateOfBirth: "2000-02-31" },
@@ -124,7 +138,7 @@ describe("assistant tools (real Postgres)", { skip: SKIP }, () => {
   });
 
   it("someone exactly 18 today is accepted", async () => {
-    const out = await executeTool("create_property_inquiry", { ...adult, dateOfBirth: "2008-10-05", reference: "H88-000001" }, ctx());
+    const out = await executeTool("create_property_inquiry", { ...adult, dateOfBirth: eighteenYearsAgo(0), reference: "H88-000001" }, ctx());
     assert.equal(out.ok, true, JSON.stringify(out.result));
   });
 

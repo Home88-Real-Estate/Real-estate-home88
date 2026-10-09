@@ -17,6 +17,7 @@
  */
 
 import { Prisma, type PrismaClient } from "@home88/database";
+import { publicWebsiteWhere } from "@home88/domain";
 import { evaluateAgeGate, type AgeGateInput } from "@home88/validation";
 
 import { sanitiseAttribution, type Attribution, type RawAttribution } from "./attribution";
@@ -356,8 +357,17 @@ export class PublicLeadIntakeService {
     );
   }
 
+  /**
+   * An enquiry can only name a property a visitor could have seen: the same rule that
+   * decides what the website shows. A draft, an unpublished, sold, deleted or
+   * do-not-publish property answers exactly like one that does not exist, so the form
+   * cannot be used to probe for internal references or to attach a lead to a private listing.
+   */
   private async requireProperty(tx: Prisma.TransactionClient, reference: string) {
-    const property = await tx.property.findUnique({ where: { reference: reference.trim().toUpperCase() }, select: { id: true, reference: true } });
+    const property = await tx.property.findFirst({
+      where: { reference: reference.trim().toUpperCase(), ...publicWebsiteWhere() },
+      select: { id: true, reference: true },
+    });
     if (!property) throw new IntakeValidationError({ propertyReference: ["Το ακίνητο δεν βρέθηκε."] });
     return property;
   }

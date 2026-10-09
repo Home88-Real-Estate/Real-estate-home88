@@ -8,6 +8,7 @@ import {
   DRAFT,
   hasTestDatabase,
   makeService,
+  publishFixture,
   resetDatabase,
   testPrisma,
 } from "./testing/harness";
@@ -156,22 +157,78 @@ describe("PublicLeadIntakeService (real Postgres)", { skip: SKIP }, () => {
     assert.equal(sub.kind, "VALUATION");
   });
 
-  async function seedProperty(reference = "H88-000042") {
-    return testPrisma().property.create({
-      data: { reference, slug: reference.toLowerCase(), listingType: "SALE", propertyType: "APARTMENT", status: "ACTIVE", titleEl: "Δ", descriptionEl: "Δ", publishedOnWebsite: true },
+  async function seedProperty(reference = "H88-000042", over: { status?: string; publication?: Parameters<typeof publishFixture>[1] | null; tag?: string } = {}) {
+    const property = await testPrisma().property.create({
+      data: { reference, slug: reference.toLowerCase(), listingType: "SALE", propertyType: "APARTMENT", status: (over.status ?? "ACTIVE") as "ACTIVE", titleEl: "Δ", descriptionEl: "Δ" },
     });
+    // A page visitors can see is a live publication; `publication: null` leaves the property unpublished.
+    if (over.publication !== null) await publishFixture(property, over.publication ?? {});
+    if (over.tag) {
+      const tag = await testPrisma().propertyTag.upsert({ where: { code: over.tag }, create: { code: over.tag, labelEl: over.tag }, update: {} });
+      await testPrisma().propertyTagAssignment.create({ data: { propertyId: property.id, tagId: tag.id } });
+    }
+    return property;
   }
 
   it("a property enquiry links contact, lead and property", async () => {
     const { service, prisma } = makeService();
     const property = await seedProperty();
-    await service.createPropertyInquiry({ ...base(), propertyReference: "h88-000042", message: "Είναι διαθέσιμο;" });
+    await service.createPropertyInquiry({ ...base({ meta: { ip: "203.0.113.5", userAgent: "test", attribution: { landingPage: "/property/H88-000042?utm_source=google", referrer: "https://www.google.com/search?q=x", utmSource: "google", utmMedium: "cpc" }, idempotencyKey: null } }), propertyReference: "h88-000042", message: "Είναι διαθέσιμο;" });
     const lead = await prisma.lead.findFirstOrThrow();
     assert.equal(lead.type, "PROPERTY_ENQUIRY");
     assert.equal(lead.source, "PROPERTY_ENQUIRY");
     assert.equal(lead.propertyId, property.id);
     assert.ok(lead.contactId);
+    // Source attribution: the page it came from (no query string), the referring host, the channel.
+    assert.equal(lead.landingPage, "/property/H88-000042");
+    assert.equal(lead.referrerHost, "google.com");
+    assert.equal(lead.sourceChannel, "GOOGLE");
+    // A new public lead is unassigned until routing or a manager decides, is audited and notifies the CRM.
+    assert.equal(lead.assignedToId, null);
+    assert.equal(await prisma.auditLog.count({ where: { entity: "LEAD", entityId: lead.id, action: "INTAKE_PROPERTY_ENQUIRY" } }), 1);
+    assert.equal(await prisma.crmNotification.count({ where: { kind: "new_property_enquiry", entityId: lead.id } }), 1);
     assert.equal(await prisma.consentRecord.count({ where: { purpose: "PROPERTY_ENQUIRY", granted: true } }), 1);
+    // The same person enquiring again reuses their contact instead of creating a second one.
+    await service.createPropertyInquiry({ ...base(), propertyReference: "H88-000042", message: "Και κάτι ακόμη." });
+    assert.equal(await prisma.contact.count(), 1);
+    assert.equal(await prisma.lead.count(), 2);
+  });
+
+  it("an enquiry or viewing request can only name a property a visitor could see: anything else answers like an unknown reference and writes nothing", async () => {
+    const { service } = makeService();
+    const hidden: Array<[string, Parameters<typeof seedProperty>[1]]> = [
+      ["H88-000101", { publication: null }],
+      ["H88-000102", { publication: { status: "UNPUBLISHED", enabled: false, visibility: "NOINDEX", noIndex: true } }],
+      ["H88-000103", { publication: { visibility: "PRIVATE" } }],
+      ["H88-000104", { status: "SOLD", publication: { status: "SOLD" } }],
+      ["H88-000105", { status: "DRAFT" }],
+      ["H88-000106", { status: "DELETED" }],
+      ["H88-000107", { tag: "DO_NOT_PUBLISH" }],
+      ["H88-000108", { tag: "PORTAL_ONLY" }],
+    ];
+    for (const [reference, over] of hidden) await seedProperty(reference, over);
+    const unknown = await service.createPropertyInquiry({ ...base(), propertyReference: "H88-999999" }).catch((e) => e);
+    assert.ok(unknown instanceof IntakeValidationError);
+    for (const [reference] of hidden) {
+      const enquiry = await service.createPropertyInquiry({ ...base(), propertyReference: reference }).catch((e) => e);
+      assert.ok(enquiry instanceof IntakeValidationError, `${reference} must not take an enquiry`);
+      assert.deepEqual(enquiry.fields, unknown.fields, `${reference} must answer exactly like an unknown reference`);
+      const viewing = await service.createViewingRequest({ ...base(), propertyReference: reference, preferredStart: "2026-10-10T16:00:00Z" }).catch((e) => e);
+      assert.ok(viewing instanceof IntakeValidationError, `${reference} must not take a viewing request`);
+    }
+    assert.deepEqual(await counts(), { contacts: 0, leads: 0, submissions: 0, properties: hidden.length, receipts: 0 });
+  });
+
+  it("a live page, even NOINDEX or under offer, takes an enquiry; WEBSITE_ONLY does not stop it", async () => {
+    const { service, prisma } = makeService();
+    await seedProperty("H88-000201", { publication: { visibility: "NOINDEX", noIndex: true } });
+    await seedProperty("H88-000202", { status: "UNDER_OFFER" });
+    await seedProperty("H88-000203", { tag: "WEBSITE_ONLY" });
+    await seedProperty("H88-000204", { publication: { status: "OUTDATED" } });
+    for (const reference of ["H88-000201", "H88-000202", "H88-000203", "H88-000204"]) {
+      await service.createPropertyInquiry({ ...base({ person: { email: `${reference.toLowerCase()}@example.com` } }), propertyReference: reference });
+    }
+    assert.equal(await prisma.lead.count({ where: { propertyId: { not: null } } }), 4);
   });
 
   it("an unknown property reference is a validation error and writes nothing", async () => {
