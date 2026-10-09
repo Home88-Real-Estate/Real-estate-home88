@@ -17,6 +17,8 @@ import { consume } from "../lib/rate-limit";
 import { IntakeAiError, intakeAi, intakeAiAvailable } from "../lib/property-intake/ai";
 import { sniffAudio } from "../lib/property-intake/audio";
 import { intakeAiConfig } from "../lib/property-intake/config";
+import { MAX_LABEL_IMAGE_BYTES, MAX_LABEL_IMAGES, parseLabels, sniffImage } from "../lib/property-intake/photo-labels";
+import { imageDimensions } from "../lib/image-size";
 import {
   abandonSession, applyEdit, createProperty, getSession, lastAssistantText, listResumable, normalizeAudioType,
   startSession, suggestTexts, takeTurn, transcribe,
@@ -37,9 +39,13 @@ const editSchema = z.object({
     z.object({ type: z.literal("resolve"), key: z.string().max(60), accept: z.boolean() }),
     z.object({ type: z.literal("skip"), key: z.string().max(60) }),
     z.object({ type: z.literal("undo") }),
+    z.object({ type: z.literal("owner"), contactId: z.string().min(1).max(40).nullable() }),
     z.object({ type: z.literal("settings"), muted: z.boolean().optional(), photosLater: z.boolean().optional(), language: language.optional(), stage: z.enum(["collect", "review"]).optional() }),
   ]),
   revision,
+});
+const labelSchema = z.object({
+  images: z.array(z.object({ id: z.string().min(1).max(120), mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]), data: z.string().min(100).max(600_000) })).min(1).max(MAX_LABEL_IMAGES),
 });
 const revisionOnly = z.object({ revision }).default({});
 
@@ -66,7 +72,7 @@ function requireAi() {
 export async function propertyIntakeRoutes(app: FastifyInstance): Promise<void> {
   const agent = { preHandler: requireRole("AGENT") };
   const meta = (request: Parameters<typeof clientIp>[0]) => ({ ipAddress: clientIp(request), userAgent: userAgent(request) });
-  const limit = (userId: string, kind: "turn" | "transcribe" | "speak") => {
+  const limit = (userId: string, kind: "turn" | "transcribe" | "speak" | "photos") => {
     const rule = intakeAiConfig().rate[kind];
     if (!consume(`intake:${kind}:${userId}`, rule).allowed) throw tooManyRequests("Πάρα πολλά αιτήματα. Περιμένετε λίγο και δοκιμάστε ξανά.");
   };
@@ -139,6 +145,33 @@ export async function propertyIntakeRoutes(app: FastifyInstance): Promise<void> 
       return { session: await suggestTexts(db(), intakeAi(), user.id, id) };
     } catch (error) {
       return aiHttpError(error, (o, m) => request.log.warn(o, m), "suggest");
+    }
+  });
+
+  /**
+   * Suggests a room label for each small preview the browser sends. Previews are held in memory for this
+   * request only. The suggestions change nothing: the agent accepts or edits them, and they become the
+   * photos' alternative text only when saved with the property.
+   */
+  app.post("/property-intake/sessions/:id/label-photos", { ...agent, bodyLimit: 8 * 1024 * 1024 }, async (request) => {
+    const user = request.auth!.user;
+    const { id } = request.params as { id: string };
+    await getSession(db(), user.id, id);
+    limit(user.id, "photos");
+    const input = parseInput(labelSchema, request.body);
+    const ids = input.images.map((i) => i.id);
+    if (new Set(ids).size !== ids.length) throw new HttpError(422, "duplicate_photo", "Υπάρχουν διπλές φωτογραφίες στο αίτημα.");
+    const images = input.images.map((i) => {
+      const data = Buffer.from(i.data, "base64");
+      if (data.length === 0 || data.length > MAX_LABEL_IMAGE_BYTES || sniffImage(data) !== i.mimeType || !imageDimensions(data)) throw new HttpError(415, "photo_type", "Μία από τις φωτογραφίες δεν είναι έγκυρη εικόνα ή είναι πολύ μεγάλη.");
+      return { id: i.id, mimeType: i.mimeType, data };
+    });
+    const ai = requireAi();
+    try {
+      const raw = await ai.labelPhotos({ images }, AbortSignal.timeout(intakeAiConfig().timeoutMs));
+      return { labels: parseLabels(raw, ids) };
+    } catch (error) {
+      return aiHttpError(error, (o, m) => request.log.warn(o, m), "label-photos");
     }
   });
 

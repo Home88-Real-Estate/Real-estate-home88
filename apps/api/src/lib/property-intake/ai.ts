@@ -11,6 +11,7 @@ import { GoogleGenAI } from "@google/genai";
 
 import { intakeAiConfig, type IntakeAiConfig } from "./config";
 import { SUGGEST_SYSTEM } from "./extraction";
+import { LABEL_SYSTEM, labelJsonSchema } from "./photo-labels";
 import type { Lang } from "./state";
 
 export type IntakeFailure = "not_configured" | "timeout" | "provider" | "empty" | "invalid";
@@ -35,6 +36,8 @@ export interface IntakeAiPort {
   extract(input: { system: string; user: string; schema: Record<string, unknown> }, signal: AbortSignal): Promise<unknown>;
   /** Greek and English title/description drafted from confirmed facts only. */
   suggestTexts(input: { facts: Array<{ label: string; value: string }> }, signal: AbortSignal): Promise<SuggestedTexts>;
+  /** Looks at small previews and returns the model's raw JSON of room labels (validated by the caller). */
+  labelPhotos(input: { images: Array<{ id: string; mimeType: string; data: Buffer }> }, signal: AbortSignal): Promise<unknown>;
   /** Text to speech: a playable WAV. */
   speak(input: { text: string; lang: Lang }, signal: AbortSignal): Promise<{ wav: Buffer; sampleRate: number }>;
 }
@@ -161,6 +164,12 @@ export function createGeminiIntakeAi(config: Pick<IntakeAiConfig, "apiKey" | "tr
       const p = jsonOf(raw) as Record<string, unknown>;
       const pick = (k: string, max: number) => (typeof p[k] === "string" && p[k]!.toString().trim() ? p[k]!.toString().trim().slice(0, max) : undefined);
       return { titleEl: pick("titleEl", 200), titleEn: pick("titleEn", 200), descriptionEl: pick("descriptionEl", 5000), descriptionEn: pick("descriptionEn", 5000) };
+    },
+
+    async labelPhotos({ images }, signal) {
+      const parts = images.flatMap((img) => [{ text: `Image id: ${img.id}` }, { inlineData: { mimeType: img.mimeType, data: img.data.toString("base64") } }]);
+      parts.push({ text: "Label each image. Reply as JSON." });
+      return jsonOf(await text(config.extractModel, signal, [{ role: "user", parts }], LABEL_SYSTEM, labelJsonSchema(), 1500));
     },
 
     async speak({ text: spoken }, signal) {

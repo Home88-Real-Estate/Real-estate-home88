@@ -14,6 +14,7 @@ import { propertyUpsertSchema } from "@home88/validation";
 
 import { createPropertyInTx, type CreateMeta } from "../../routes/properties";
 import { writeAudit } from "../audit";
+import { touchContact } from "../contacts";
 import { HttpError, notFound } from "../errors";
 import { intakeAiConfig } from "./config";
 import { extractionJsonSchema, extractionSystemPrompt, extractionUserPrompt, parseExtraction } from "./extraction";
@@ -45,6 +46,8 @@ export type SessionDto = {
   stage: IntakeState["stage"];
   muted: boolean;
   photosLater: boolean;
+  /** The existing contact that will be linked as owner when the draft is saved; chosen by touch only. */
+  owner: { contactId: string; reference: string; label: string } | null;
   lang: Lang;
   turns: Turn[];
   pending: Array<{ key: string; label: string; proposed: string; current: string | null; reason: "conflict" | "unverified" }>;
@@ -139,6 +142,7 @@ export function buildReview(state: IntakeState, lang: Lang): Review {
     const spec = specByKey(specs, key);
     if (spec && key !== "titleEl" && key !== "descriptionEl") warnings.push(el ? `Δεν θα αποθηκευτεί μέχρι να επιβεβαιωθεί: ${label(spec, lang)}.` : `Not saved until confirmed: ${label(spec, lang)}.`);
   }
+  if (!state.owner) warnings.push(el ? "Δεν έχει οριστεί ιδιοκτήτης. Μπορείτε να τον συνδέσετε τώρα ή αργότερα από το ακίνητο." : "No owner is set. You can link one now or later from the property.");
   const missing = completeness({ ...normalized, titleEl: payload.titleEl, descriptionEl: payload.descriptionEl }).missing;
   return { rows, blockers: [...new Set(blockers)], warnings, missing, ignored, ready: blockers.length === 0 && Boolean(state.fields.listingType && state.fields.propertyType) };
 }
@@ -167,6 +171,7 @@ export function toDto(row: Row): SessionDto {
     stage: state.stage,
     muted: state.muted,
     photosLater: state.photosLater,
+    owner: state.owner,
     lang,
     turns: turnsOf(row.turns),
     pending: state.pending.map((p) => {
@@ -420,6 +425,7 @@ export type Edit =
   | { type: "resolve"; key: string; accept: boolean }
   | { type: "skip"; key: string }
   | { type: "undo" }
+  | { type: "owner"; contactId: string | null }
   | { type: "settings"; muted?: boolean; photosLater?: boolean; language?: LanguagePreference; stage?: "collect" | "review" };
 
 export async function applyEdit(db: Db, userId: string, id: string, edit: Edit, revision?: number): Promise<SessionDto> {
@@ -440,6 +446,17 @@ export async function applyEdit(db: Db, userId: string, id: string, edit: Edit, 
     case "resolve": state = resolvePending(state, edit.key, edit.accept); break;
     case "skip": state = skipField(state, edit.key); break;
     case "undo": state = undoLast(state).state; break;
+    case "owner": {
+      if (edit.contactId === null) {
+        state = { ...state, owner: null };
+        break;
+      }
+      const contact = await db.contact.findUnique({ where: { id: edit.contactId }, select: { id: true, reference: true, firstName: true, lastName: true, company: true } });
+      if (!contact) throw notFound("Η επαφή δεν βρέθηκε.");
+      const label = `${contact.firstName} ${contact.lastName}`.trim() || contact.company || contact.reference;
+      state = { ...state, owner: { contactId: contact.id, reference: contact.reference, label } };
+      break;
+    }
     case "settings":
       if (edit.muted !== undefined) state = { ...state, muted: edit.muted };
       if (edit.photosLater !== undefined) state = { ...state, photosLater: edit.photosLater };
@@ -500,7 +517,9 @@ export async function suggestTexts(db: Db, ai: IntakeAiPort | null, userId: stri
 
 // --- Creation -----------------------------------------------------------------
 
-export type CreatedProperty = { session: SessionDto; property: { id: string; reference: string }; alreadyCreated: boolean };
+/** `linked` when the chosen contact is now the owner; `skipped` when the contact no longer existed or was already linked; `none` when no owner was chosen. */
+export type OwnerOutcome = "linked" | "skipped" | "none";
+export type CreatedProperty = { session: SessionDto; property: { id: string; reference: string }; alreadyCreated: boolean; owner: OwnerOutcome };
 
 /**
  * Creates the property once. A retry (double tap, lost response, second
@@ -511,7 +530,7 @@ export async function createProperty(db: Db, userId: string, id: string, meta: C
   const existing = await loadOwn(db, userId, id);
   if (existing.propertyId) {
     const p = await db.property.findUniqueOrThrow({ where: { id: existing.propertyId }, select: { id: true, reference: true } });
-    return { session: toDto(existing), property: p, alreadyCreated: true };
+    return { session: toDto(existing), property: p, alreadyCreated: true, owner: await ownerOutcome(db, existing.propertyId, readState(existing.state)) };
   }
   if (existing.status !== "ACTIVE") throw new HttpError(409, "intake_closed", "Η συνεδρία έχει ολοκληρωθεί.");
   if (revision !== undefined && revision !== existing.revision) throw new HttpError(409, "intake_conflict", "Η συνεδρία άλλαξε σε άλλη συσκευή. Ανανεώστε και δοκιμάστε ξανά.");
@@ -529,6 +548,15 @@ export async function createProperty(db: Db, userId: string, id: string, meta: C
         const claim = await tx.propertyIntakeSession.updateMany({ where: { id, userId, status: "ACTIVE", propertyId: null }, data: { status: "CREATED", revision: { increment: 1 } } });
         if (claim.count !== 1) throw new HttpError(409, "intake_conflict", "Η συνεδρία ολοκληρώθηκε ήδη.");
         const property = await createPropertyInTx(tx, { id: userId }, parsed, meta);
+        if (state.owner) {
+          // Same table and shape as linking an owner from the contact page: one source of truth for ownership.
+          const contact = await tx.contact.findUnique({ where: { id: state.owner.contactId }, select: { id: true } });
+          if (contact) {
+            await tx.propertyOwner.create({ data: { propertyId: property.id, contactId: contact.id, capacity: "OWNER", isPrimaryContact: true } });
+            await touchContact(contact.id, tx);
+            await writeAudit({ entity: "CONTACT", entityId: contact.id, action: "link_property", actorId: userId, ipAddress: meta.ipAddress, userAgent: meta.userAgent, changes: { propertyId: property.id, relation: "OWNER", via: "property_intake" } }, tx);
+          }
+        }
         await tx.propertyIntakeSession.update({ where: { id }, data: { propertyId: property.id } });
         const origins = Object.values(state.fields).reduce<Record<string, number>>((acc, e) => ({ ...acc, [e.origin]: (acc[e.origin] ?? 0) + 1 }), {});
         await writeAudit({ entity: "PROPERTY_INTAKE", entityId: id, action: "property_create", actorId: userId, ipAddress: meta.ipAddress, userAgent: meta.userAgent, changes: { propertyId: property.id, reference: property.reference, fields: Object.keys(state.fields).length, origins } }, tx);
@@ -537,16 +565,22 @@ export async function createProperty(db: Db, userId: string, id: string, meta: C
       { isolationLevel: "Serializable" },
     );
     const row = await db.propertyIntakeSession.findUniqueOrThrow({ where: { id } });
-    return { session: toDto(row), property: { id: created.id, reference: created.reference }, alreadyCreated: false };
+    return { session: toDto(row), property: { id: created.id, reference: created.reference }, alreadyCreated: false, owner: await ownerOutcome(db, created.id, state) };
   } catch (error) {
     // A concurrent retry won the race: hand back what it created.
     const again = await db.propertyIntakeSession.findFirst({ where: { id, userId } });
     if (again?.propertyId) {
       const p = await db.property.findUniqueOrThrow({ where: { id: again.propertyId }, select: { id: true, reference: true } });
-      return { session: toDto(again), property: p, alreadyCreated: true };
+      return { session: toDto(again), property: p, alreadyCreated: true, owner: await ownerOutcome(db, again.propertyId, readState(again.state)) };
     }
     throw error;
   }
+}
+
+async function ownerOutcome(db: Db, propertyId: string, state: IntakeState): Promise<OwnerOutcome> {
+  if (!state.owner) return "none";
+  const link = await db.propertyOwner.findFirst({ where: { propertyId, contactId: state.owner.contactId }, select: { id: true } });
+  return link ? "linked" : "skipped";
 }
 
 /** The last assistant message, which is the only text the speech endpoint will speak. */

@@ -9,6 +9,7 @@ import { intakeAiConfig } from "./config";
 import { extractionJsonSchema, parseExtraction } from "./extraction";
 import { allowedFields, coerceValue, specByKey } from "./fields";
 import { questionOrder } from "./flow";
+import { parseLabels, PHOTO_LABEL_CODES, sniffImage } from "./photo-labels";
 import { acknowledge, confirmQuestion, pickLanguage, questionFor } from "./replies";
 import {
   applyProposals, clearField, emptyState, evidenceWasSaid, nextStep, readState, resolvePending, setDerived, setManual, skipField, undoLast,
@@ -278,3 +279,47 @@ describe("audio and configuration", () => {
   });
 });
 
+
+describe("photo labels", () => {
+  it("keeps one suggestion per requested photo, from the fixed list, and trusts nothing else the model says", () => {
+    const out = parseLabels(
+      { labels: [
+        { id: "a", label: "KITCHEN", confidence: "high" },
+        { id: "b", label: "SOMETHING_INVENTED", confidence: "high" },
+        { id: "zzz", label: "BEDROOM", confidence: "high" },
+        { id: "a", label: "BATHROOM", confidence: "high" },
+        { id: "d", label: "VIEW", confidence: "certain" },
+      ] },
+      ["a", "b", "c", "d"],
+    );
+    assert.deepEqual(out.map((o) => [o.id, o.label, o.confidence]), [["a", "KITCHEN", "high"], ["b", "OTHER", "low"], ["c", "OTHER", "low"], ["d", "VIEW", "low"]]);
+    assert.equal(out[0]!.labelEl, "Κουζίνα");
+    assert.equal(out[0]!.labelEn, "Kitchen");
+    assert.ok(out.every((o) => PHOTO_LABEL_CODES.includes(o.label)));
+  });
+
+  it("copes with garbage from the model", () => {
+    for (const raw of [null, undefined, "x", 4, {}, { labels: "no" }, { labels: [null, 1, "a"] }]) {
+      assert.deepEqual(parseLabels(raw, ["a"]).map((o) => o.label), ["OTHER"]);
+    }
+  });
+
+  it("recognises an image by its first bytes", () => {
+    assert.equal(sniffImage(Uint8Array.from([0xff, 0xd8, 0xff, 0xe0])), "image/jpeg");
+    assert.equal(sniffImage(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), "image/png");
+    assert.equal(sniffImage(Buffer.from("RIFF\0\0\0\0WEBPVP8 ")), "image/webp");
+    assert.equal(sniffImage(Buffer.from("GIF89a......")), null);
+    assert.equal(sniffImage(Buffer.from("<html>")), null);
+  });
+});
+
+describe("owner on the session", () => {
+  it("starts empty, survives a read, and an unreadable value becomes empty", () => {
+    assert.equal(emptyState().owner, null);
+    const kept = readState({ owner: { contactId: "c1", reference: "C-000001", label: "Μαρία Παπαδοπούλου" } });
+    assert.deepEqual(kept.owner, { contactId: "c1", reference: "C-000001", label: "Μαρία Παπαδοπούλου" });
+    for (const bad of [null, "x", 3, {}, { contactId: 5, label: "x" }, { contactId: "", label: "x" }, { contactId: "c", label: 1 }]) {
+      assert.equal(readState({ owner: bad }).owner, null);
+    }
+  });
+});

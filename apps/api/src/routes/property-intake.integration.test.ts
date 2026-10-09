@@ -48,6 +48,9 @@ test("property intake: bilingual capture, correction, skip, conflict, review, on
       seen.suggestFacts.push(facts);
       return suggestion;
     },
+    async labelPhotos() {
+      return { labels: [] };
+    },
     async speak({ text }) {
       if (failSpeak) throw failSpeak;
       seen.spoken.push(text);
