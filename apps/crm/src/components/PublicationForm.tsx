@@ -10,7 +10,7 @@ const STATUS: Record<string, string> = {
   DRAFT: "Πρόχειρο", READY: "Έτοιμο", VALIDATION_FAILED: "Δεν περνά τον έλεγχο", PUBLISHED: "Δημοσιευμένο", OUTDATED: "Δημοσιευμένο · χρειάζεται ενημέρωση",
   UPDATE_PENDING: "Δημοσιευμένο · ενημέρωση σε εξέλιξη", UNPUBLISHED: "Μη δημοσιευμένο", SOLD: "Πωλήθηκε", RENTED: "Ενοικιάστηκε", ARCHIVED: "Αρχειοθετημένο",
   NOT_PUBLISHED: "Δεν έχει δημοσιευτεί", FAILED: "Αποτυχία", IN_FEED: "Στο feed", REMOVED: "Αποσύρθηκε", NOT_CONFIGURED: "Δεν έχει ρυθμιστεί",
-  BLOCKED: "Μπλοκαρισμένο", PREVIEWED: "Προεπισκόπηση", UPDATED: "Ενημερώθηκε", UNCHANGED: "Καμία αλλαγή", REJECTED: "Απορρίφθηκε",
+  BLOCKED: "Μπλοκαρισμένο", VALIDATED: "Ο έλεγχος πέρασε", PREVIEWED: "Προεπισκόπηση", UPDATED: "Ενημερώθηκε", UNCHANGED: "Καμία αλλαγή", REJECTED: "Απορρίφθηκε",
 };
 const label = (s: string) => STATUS[s] ?? s;
 
@@ -39,35 +39,24 @@ export function PublicationForm({ propertyId, data }: { propertyId: string; data
   return (
     <form action={action} className="pubpanel">
       <input type="hidden" name="propertyId" value={propertyId} />
-      <div className="table-wrap">
-        <table className="data pubtable">
-          <thead>
-            <tr>
-              <th scope="col">Κανάλι</th>
-              <th scope="col">Κατάσταση</th>
-              <th scope="col">Λεπτομέρειες</th>
-            </tr>
-          </thead>
-          <tbody>
+      <ul className="pubchannels">
             {channels.map((c) => {
               const acct = c.accounts.find((a) => a.id === accounts[c.code]);
               const r = results.get(c.code);
               const selectable = c.operational;
               return (
-                <tr key={c.code}>
-                  <th scope="row">
-                    <label className="pubtable__pick">
+                <li key={c.code} className="pubchan">
+                  <div className="pubchan__head">
+                    <label className="pubchan__pick">
                       <input type="checkbox" name="channel" value={c.code} disabled={!selectable} checked={!!picked[c.code]} onChange={(e) => setPicked({ ...picked, [c.code]: e.target.checked })} />
                       <span>{c.name}</span>
                     </label>
                     {c.kind === "PORTAL" && c.mock && <span className="badge badge--muted">mock</span>}
-                  </th>
-                  <td>
                     <span className="badge">{label(c.status)}</span>
                     {c.readiness === "BLOCKED" && <span className="badge badge--danger">Μπλοκαρισμένο</span>}
                     {c.readiness === "NOT_CONFIGURED" && <span className="badge badge--muted">Δεν έχει ρυθμιστεί</span>}
-                  </td>
-                  <td>
+                  </div>
+                  <div className="pubchan__body">
                     {c.kind === "PORTAL" && usable(c.accounts).length > 0 && (
                       <>
                         <label className="sr-only" htmlFor={`acct-${c.code}`}>Λογαριασμός {c.name}</label>
@@ -77,7 +66,7 @@ export function PublicationForm({ propertyId, data }: { propertyId: string; data
                         <input type="hidden" name={`environment.${c.code}`} value={acct?.environment ?? "TEST"} />
                       </>
                     )}
-                    {c.blockers.length > 0 && <ul className="pubtable__blockers">{c.blockers.map((b) => <li key={b}>{b}</li>)}</ul>}
+                    {c.blockers.length > 0 && <ul className="pubchan__blockers">{c.blockers.map((b) => <li key={b}>{b}</li>)}</ul>}
                     {c.warnings.length > 0 && <p className="hint">{c.warnings.join(" · ")}</p>}
                     {c.note && <p className="hint">{c.note}</p>}
                     {c.mock && <p className="hint">Mock πάροχος: δεν γίνεται επικοινωνία με πραγματικό portal.</p>}
@@ -93,13 +82,11 @@ export function PublicationForm({ propertyId, data }: { propertyId: string; data
                         {r.blockers.length > 0 && <ul>{r.blockers.map((b) => <li key={b}>{b}</li>)}</ul>}
                       </div>
                     )}
-                  </td>
-                </tr>
+                  </div>
+                </li>
               );
             })}
-          </tbody>
-        </table>
-      </div>
+      </ul>
       <div className="pubpanel__buttons">
         {OPS.map((o) => (
           <button key={o.op} type="submit" name="op" value={o.op} className={o.primary ? "btn btn--primary btn--sm" : "btn btn--outline btn--sm"} disabled={pending || !anyPicked || !pickedViews.every((v) => o.allowed(v))}>
