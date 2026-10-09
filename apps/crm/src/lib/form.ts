@@ -80,7 +80,6 @@ const PROPERTY_BOOL_FIELDS = [
   "petsAllowed",
   "seaView",
   "newConstruction",
-  "publishedOnWebsite",
   "featured",
 ] as const;
 
