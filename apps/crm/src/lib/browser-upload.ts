@@ -1,7 +1,9 @@
 "use client";
 
 import { CRM_BASE_PATH } from "@/lib/paths";
+import { fitWithin } from "@/lib/photo-labels";
 import { PermanentUploadError, type SignedPut, type UploadIO } from "@/lib/upload-queue";
+import { toBase64 } from "@/lib/wav";
 
 /** Long edge of the browser-made web version and thumbnail of a photo. */
 const PREVIEW_EDGE = 2048;
@@ -114,4 +116,45 @@ export async function persistOrder(propertyId: string, mediaIds: string[]): Prom
     body: JSON.stringify({ isPrimary: true }),
   });
   if (!response.ok) throw new Error(`Σφάλμα ${response.status}`);
+}
+
+/** A small JPEG of a photo for the assistant to look at (long edge 640 px, under the server's 400 KB limit). */
+export async function makeLabelPreview(file: File): Promise<{ mimeType: "image/jpeg"; data: string } | null> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const { width, height } = fitWithin(bitmap.width, bitmap.height, 640);
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) return null;
+    context.drawImage(bitmap, 0, 0, width, height);
+    bitmap.close?.();
+    for (const quality of [0.7, 0.55, 0.4]) {
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+      if (blob && blob.size <= 380_000) return { mimeType: "image/jpeg", data: toBase64(new Uint8Array(await blob.arrayBuffer())) };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Saves accepted labels as the photos' alternative text. One photo failing does not stop the others. */
+export async function saveAltText(propertyId: string, updates: Array<{ mediaId: string; altEl: string; altEn: string }>): Promise<number> {
+  let failed = 0;
+  for (const u of updates) {
+    try {
+      const response = await fetch(`${CRM_BASE_PATH}/api/properties/${encodeURIComponent(propertyId)}/media/${encodeURIComponent(u.mediaId)}`, {
+        method: "PATCH",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ altEl: u.altEl, altEn: u.altEn }),
+      });
+      if (!response.ok) failed += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+  return failed;
 }

@@ -30,6 +30,7 @@ export type IntakeAiConfig = {
     turn: { points: number; durationSeconds: number };
     transcribe: { points: number; durationSeconds: number };
     speak: { points: number; durationSeconds: number };
+    photos: { points: number; durationSeconds: number };
   };
 };
 
@@ -56,6 +57,7 @@ export function intakeAiConfig(env: Record<string, string | undefined> = process
       turn: { points: int(env.INTAKE_RATE_TURNS, 60, 1, 1000), durationSeconds: 600 },
       transcribe: { points: int(env.INTAKE_RATE_TRANSCRIBE, 40, 1, 1000), durationSeconds: 600 },
       speak: { points: int(env.INTAKE_RATE_SPEAK, 60, 1, 1000), durationSeconds: 600 },
+      photos: { points: int(env.INTAKE_RATE_PHOTOS, 15, 1, 1000), durationSeconds: 600 },
     },
   };
 }

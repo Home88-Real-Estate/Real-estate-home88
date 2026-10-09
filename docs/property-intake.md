@@ -52,7 +52,7 @@ returns the same property.
 | `GEMINI_INTAKE_TEXT_MODEL` | Extraction and text suggestions. Default `gemini-3.5-flash-lite` (also reads `GEMINI_MODEL`). |
 | `GEMINI_INTAKE_TRANSCRIBE_MODEL` | Transcription. Defaults to the text model: transcription is an audio prompt to a Flash model. A dedicated transcription model id was **not** found in the installed SDK; set this only after confirming one exists for your project. |
 | `GEMINI_INTAKE_TTS_MODEL` / `GEMINI_INTAKE_TTS_VOICE` | Speech. Default `gemini-3.8-flash-tts` (listed by the installed SDK) and voice `Kore`. |
-| `INTAKE_MAX_AUDIO_BYTES`, `INTAKE_MAX_UTTERANCE_CHARS`, `INTAKE_AI_TIMEOUT_MS`, `INTAKE_RATE_TURNS/TRANSCRIBE/SPEAK` | Limits (per signed-in user per 10 minutes). |
+| `INTAKE_MAX_AUDIO_BYTES`, `INTAKE_MAX_UTTERANCE_CHARS`, `INTAKE_AI_TIMEOUT_MS`, `INTAKE_RATE_TURNS/TRANSCRIBE/SPEAK/PHOTOS` | Limits (per signed-in user per 10 minutes). |
 
 Without a key the screen still works by touch (fields, review, save); voice, text understanding and spoken replies report
 themselves unavailable.
@@ -63,8 +63,34 @@ themselves unavailable.
 sentence, transcribes those clips, and extracts fields from the transcript. It prints PASS/FAIL per step with the model id, and writes
 the WAV files so you can listen. Run it before enabling the feature for agents.
 
+## Release 2
+
+**Owner.** The "Ιδιοκτήτης" panel picks an *existing* contact by touch: search by name, company, contact reference, phone or email (the last
+two are matched by hash, so typing them finds the contact). Results show only a name, reference, city, roles and the last four digits of
+a phone. The session keeps the contact id and display name, nothing else, and the assistant is never given a phone or email: do not
+dictate them. A new contact is created from the normal contact form ("Νέα επαφή"). When the draft is saved, the contact is linked as
+primary `OWNER` (the same `PropertyOwner` record the contact page uses) in the same transaction as the property, once. If the contact was
+deleted in between, the draft is still saved and the screen says the owner was not linked. Choosing an owner never publishes anything.
+
+**Photo labels.** "Πρόταση ετικετών από AI" (only when pressed) sends small previews (long edge 640 px, up to 12 per request) to Gemini,
+which picks one room or view per photo from a fixed list. Previews are checked server-side (a real JPEG/PNG/WebP whose bytes match its
+declared type), held in memory for the request, never stored or logged, and the model is told not to identify people or read text.
+Suggestions are unaccepted until the agent accepts or changes them. Accepted labels become the photo's Greek and English alternative
+text after upload; "Other" sets none. Rate limit: `INTAKE_RATE_PHOTOS` (default 15 requests per 10 minutes per user).
+
+**Photos survive a closed tab.** Picked photos are kept in this device's IndexedDB (never sent anywhere) until each is uploaded, then
+removed; stale ones are purged after a week. Reopening the draft restores them in order. If the draft was already saved but the tab
+closed mid-upload, a notice offers to upload the remainder. If the browser blocks or fills storage, the screen says so and the earlier
+"do not close the page" warning still applies. Labels are kept in `localStorage` per draft.
+
+**Hands-free.** The 🎧 toggle listens for speech from the microphone level (on the device; nothing is sent until speech is heard),
+stops after a pause, transcribes, shows the text with a 3-second "send now / cancel" countdown, sends, speaks the reply, and listens
+again. The microphone is never open while the assistant speaks. It switches itself off after three silent rounds, when the page is
+hidden, when the draft is saved, or on any provider error. The screen is kept awake where the browser allows it.
+
 ## Not in this release
 
-Owner/contact linking from the assistant (use the property page after saving), photo labelling, hands-free continuous voice,
-geocoding or GPS. Photos selected before saving upload right after the draft is saved; if the page is closed before that they are
-lost (a warning is shown), and photos can always be added later from the property page.
+Voice-driven owner details (deliberately, see above), room-aware photo ordering, geocoding or GPS, creating a contact from the assistant.
+
+Tested here with a simulated microphone (a looping audio file fed to a real Chromium) and a scripted AI; a real phone, a real
+microphone in a noisy room, Bluetooth headsets and iOS Safari behaviour have not been tested.

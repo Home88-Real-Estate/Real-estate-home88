@@ -46,10 +46,18 @@ export type IntakeState = {
   photosLater: boolean;
   stage: "collect" | "review";
   undo: UndoStep[];
+  /**
+   * The existing contact chosen as the owner, by touch only. A contact's phone and
+   * email are never spoken through the assistant or kept here: this holds the id
+   * and a display name, and the link is made when the draft is saved.
+   */
+  owner: OwnerRef | null;
 };
 
+export type OwnerRef = { contactId: string; reference: string; label: string };
+
 export function emptyState(): IntakeState {
-  return { fields: {}, skipped: [], pending: [], asked: null, lang: "el", muted: false, photosLater: false, stage: "collect", undo: [] };
+  return { fields: {}, skipped: [], pending: [], asked: null, lang: "el", muted: false, photosLater: false, stage: "collect", undo: [], owner: null };
 }
 
 /** Defensive read of the stored JSON: unknown shapes become an empty conversation, never an error. */
@@ -67,7 +75,14 @@ export function readState(raw: unknown): IntakeState {
     photosLater: r.photosLater === true,
     stage: r.stage === "review" ? "review" : "collect",
     undo: Array.isArray(r.undo) ? r.undo.slice(-20) : [],
+    owner: readOwner(r.owner),
   };
+}
+
+function readOwner(raw: unknown): OwnerRef | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Partial<OwnerRef>;
+  return typeof o.contactId === "string" && o.contactId && typeof o.label === "string" ? { contactId: o.contactId, reference: typeof o.reference === "string" ? o.reference : "", label: o.label.slice(0, 200) } : null;
 }
 
 export type Proposal = {
