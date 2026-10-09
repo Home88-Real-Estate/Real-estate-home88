@@ -22,8 +22,23 @@ const ORIGIN_LABEL: Record<IntakeOrigin, { text: string; className: string }> = 
   AI_SUGGESTED: { text: "Πρόταση AI — επιβεβαιώστε", className: "badge badge--warn" },
 };
 
-/** One tiny silent clip, played on the first tap so iOS lets later replies play without another tap. */
-const SILENCE = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+/**
+ * A tiny silent clip, played on the first tap so iOS lets later replies play
+ * without another tap. Built as a blob: URL because the CRM's CSP allows blob:
+ * media but not data: media.
+ */
+function silentClipUrl(): string {
+  const samples = 800; // 0.1 s at 8 kHz
+  const bytes = new Uint8Array(44 + samples);
+  const view = new DataView(bytes.buffer);
+  const tag = (o: number, t: string) => [...t].forEach((c, i) => view.setUint8(o + i, c.charCodeAt(0)));
+  tag(0, "RIFF"); view.setUint32(4, 36 + samples, true); tag(8, "WAVE"); tag(12, "fmt ");
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, 8000, true); view.setUint32(28, 8000, true); view.setUint16(32, 1, true); view.setUint16(34, 8, true);
+  tag(36, "data"); view.setUint32(40, samples, true);
+  bytes.fill(128, 44); // 8-bit PCM silence
+  return URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
+}
 
 function draftKey(id: string) {
   return `h88.intake.draft.${id}`;
@@ -180,7 +195,7 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
     const el = audioRef.current;
     if (el.dataset.unlocked) return;
     el.dataset.unlocked = "1";
-    el.src = SILENCE;
+    el.src = silentClipUrl();
     void el.play().catch(() => undefined);
   }
 

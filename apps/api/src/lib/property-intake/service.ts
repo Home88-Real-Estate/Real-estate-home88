@@ -155,6 +155,7 @@ export function toDto(row: Row): SessionDto {
   const pref = row.language === "el" || row.language === "en" ? row.language : "auto";
   const lang = pref === "auto" ? state.lang : pref;
   const specs = specsFor(state);
+  const ui: Lang = "el"; // the CRM screen is Greek; only the assistant's replies follow the conversation language
   const asked = state.asked ? (specByKey(specs, state.asked) ?? ALL_SPECS.find((s) => s.key === state.asked)) : undefined;
   return {
     id: row.id,
@@ -171,20 +172,20 @@ export function toDto(row: Row): SessionDto {
       const spec = ALL_SPECS.find((s) => s.key === p.key);
       return {
         key: p.key,
-        label: spec ? label(spec, lang) : p.key,
-        proposed: spec ? valueText(spec, p.proposed, lang) : String(p.proposed),
-        current: p.current === undefined ? null : spec ? valueText(spec, p.current, lang) : String(p.current),
+        label: spec ? label(spec, ui) : p.key,
+        proposed: spec ? valueText(spec, p.proposed, ui) : String(p.proposed),
+        current: p.current === undefined ? null : spec ? valueText(spec, p.current, ui) : String(p.current),
         reason: p.reason,
       };
     }),
     asked: asked
-      ? { key: asked.key, label: label(asked, lang), kind: asked.kind, options: asked.options?.map((o) => ({ value: o.value, label: lang === "en" ? o.labelEn ?? o.labelEl : o.labelEl })) }
+      ? { key: asked.key, label: label(asked, ui), kind: asked.kind, options: asked.options?.map((o) => ({ value: o.value, label: o.labelEl })) }
       : null,
-    review: buildReview(state, lang),
+    review: buildReview(state, ui),
     fields: Object.fromEntries(Object.entries(state.fields).map(([k, e]) => [k, { value: e.value, origin: e.origin, confirmed: e.confirmed }])),
     catalog: specs.map((s) => ({
-      key: s.key, label: label(s, lang), kind: s.kind, unit: s.unit,
-      options: s.options?.map((o) => ({ value: o.value, label: lang === "en" ? o.labelEn ?? o.labelEl : o.labelEl })),
+      key: s.key, label: label(s, ui), kind: s.kind, unit: s.unit,
+      options: s.options?.map((o) => ({ value: o.value, label: o.labelEl })),
     })),
   };
 }
