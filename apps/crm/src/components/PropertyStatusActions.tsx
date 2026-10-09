@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { PROPERTY_STATUS_LABELS, label } from "@home88/types";
 
 import { changePropertyStatus } from "@/actions/properties";
@@ -21,6 +21,9 @@ const CONFIRM: Record<string, string> = {
  */
 export function PropertyStatusActions({ id, allowed }: { id: string; allowed: string[] }) {
   const [state, formAction, pending] = useActionState(changePropertyStatus, idleState);
+  // A server action's FormData does not include the clicked submit button's
+  // name/value, so the target status is carried by a hidden field instead.
+  const [status, setStatus] = useState("");
 
   if (allowed.length === 0) {
     return <p className="muted">Δεν υπάρχουν διαθέσιμες αλλαγές κατάστασης για εσάς.</p>;
@@ -37,25 +40,26 @@ export function PropertyStatusActions({ id, allowed }: { id: string; allowed: st
       }}
     >
       <input type="hidden" name="id" value={id} />
+      <input type="hidden" name="status" value={status} />
       <div className="field">
         <label htmlFor="status-reason">Αιτιολογία (προαιρετικά)</label>
         <input id="status-reason" name="reason" className="input" maxLength={500} />
       </div>
       <div className="row" style={{ flexWrap: "wrap" }}>
-        {allowed.map((status) => (
+        {allowed.map((next) => (
           <button
-            key={status}
+            key={next}
             type="submit"
-            name="status"
-            value={status}
+            value={next}
+            onClick={() => setStatus(next)}
             disabled={pending}
             className={
-              status === "ARCHIVED" || status === "DELETED"
+              next === "ARCHIVED" || next === "DELETED"
                 ? "btn btn--danger btn--sm"
                 : "btn btn--outline btn--sm"
             }
           >
-            → {label(PROPERTY_STATUS_LABELS, status, "el")}
+            → {label(PROPERTY_STATUS_LABELS, next, "el")}
           </button>
         ))}
       </div>
