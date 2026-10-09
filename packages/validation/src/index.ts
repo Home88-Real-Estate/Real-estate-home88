@@ -396,7 +396,6 @@ const propertyUpsertBaseSchema = z.object({
     videoUrl: z.string().trim().url("Δώστε έγκυρο σύνδεσμο (https://…).").max(500).optional().or(z.literal("")),
     virtualTourUrl: z.string().trim().url("Δώστε έγκυρο σύνδεσμο (https://…).").max(500).optional().or(z.literal("")),
 
-    publishedOnWebsite: z.boolean().optional().default(false),
     featured: z.boolean().optional().default(false),
 
     agentId: z.string().cuid().optional().nullable(),

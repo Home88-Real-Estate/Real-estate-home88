@@ -20,7 +20,7 @@ import {
 import { LISTING_TYPE_LABELS, PROPERTY_TYPE_LABELS, label } from "@home88/types";
 
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
-import { PropertyPortalPanel } from "@/components/PropertyPortalPanel";
+import { PropertyPublicationPanel } from "@/components/PropertyPublicationPanel";
 import { PropertyTagsPanel } from "@/components/PropertyTagsPanel";
 import { hasRole, requireRole } from "@/lib/session";
 
@@ -305,7 +305,7 @@ export default async function PropertyDetailPage({
 
       <PropertyTagsPanel propertyId={id} canManage={hasRole(user.role, "MANAGER")} />
 
-      <PropertyPortalPanel propertyId={id} canManage={hasRole(user.role, "MANAGER")} />
+      <PropertyPublicationPanel propertyId={id} />
     </>
   );
 }

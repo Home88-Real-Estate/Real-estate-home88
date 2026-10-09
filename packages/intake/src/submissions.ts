@@ -12,6 +12,7 @@
 
 import { randomUUID } from "node:crypto";
 import { Prisma, type PrismaClient } from "@home88/database";
+import { isWebsiteLive } from "@home88/domain";
 
 import { variantStorageKey } from "./imaging";
 import type { StoragePort } from "./ports";
@@ -72,12 +73,13 @@ export async function setSubmissionStatus(
   prisma: PrismaClient,
   input: { submissionId: string; to: SubmissionStatusValue; actorId: string; note?: string | null; assignedToId?: string | null },
 ) {
-  const current = await prisma.propertySubmission.findUnique({ where: { id: input.submissionId }, include: { property: { select: { status: true, publishedOnWebsite: true } } } });
+  const current = await prisma.propertySubmission.findUnique({ where: { id: input.submissionId }, include: { property: { select: { status: true, websitePublication: { select: { status: true, enabled: true } } } } } });
   if (!current) throw new SubmissionError("NOT_FOUND", "Η υποβολή δεν βρέθηκε.");
   if (current.status !== input.to) {
     if (input.to === "PROPERTY_CREATED") throw new SubmissionError("BAD_TRANSITION", "Το ακίνητο δημιουργείται μέσω μετατροπής της υποβολής.");
     if (!canTransition(current.status, input.to)) throw new SubmissionError("BAD_TRANSITION", `Δεν επιτρέπεται η μετάβαση ${current.status} → ${input.to}.`);
-    if (input.to === "PUBLISHED" && !(current.property?.publishedOnWebsite && current.property.status === "ACTIVE")) {
+    const publication = current.property?.websitePublication;
+    if (input.to === "PUBLISHED" && !(publication && isWebsiteLive(publication.status, publication.enabled) && current.property?.status === "ACTIVE")) {
       throw new SubmissionError("NOT_PUBLIC", "Το ακίνητο δεν είναι δημοσιευμένο στον ιστότοπο.");
     }
   }
@@ -156,7 +158,6 @@ export async function convertSubmission(deps: { prisma: PrismaClient; storage: S
           bedrooms: o.bedrooms !== undefined ? o.bedrooms : submission.bedrooms,
           city: o.city !== undefined ? o.city : submission.city,
           neighborhood: o.neighborhood !== undefined ? o.neighborhood : submission.neighborhood,
-          publishedOnWebsite: false,
           ownerId: submission.contactId,
           agentId: input.mode.agentId ?? input.actorId,
           createdById: input.actorId,

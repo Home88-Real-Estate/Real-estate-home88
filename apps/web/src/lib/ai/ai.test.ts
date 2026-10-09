@@ -22,7 +22,7 @@ const summary = (over: Partial<PublicPropertySummary> = {}): PublicPropertySumma
 });
 
 const detail = (over: Partial<PublicPropertyDetail> = {}): PublicPropertyDetail => ({
-  ...summary(), titleSecondary: null, description: "Φωτεινό διαμέρισμα.", descriptionSecondary: null, condition: "GOOD", heating: "AUTONOMOUS",
+  ...summary(), indexable: true, titleSecondary: null, description: "Φωτεινό διαμέρισμα.", descriptionSecondary: null, condition: "GOOD", heating: "AUTONOMOUS",
   floor: 3, totalFloors: 5, yearBuilt: 2005, yearRenovated: null, balcony: true, garden: false, pool: false, furnished: false,
   petsAllowed: false, seaView: true, hasSolar: false, plotArea: null, latitude: 37.9, longitude: 23.7, videoUrl: null,
   virtualTourUrl: null, images: [], agent: { name: "Μαρία Κ.", phone: "6900000000", email: "agent@home88.test" }, ...over,

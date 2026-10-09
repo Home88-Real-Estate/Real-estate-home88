@@ -1338,3 +1338,12 @@ td.actions .btn { margin: 2px 4px 2px 0; }
 .portalaccount__meta dt { color: var(--ink-muted); }
 .portalaccount__meta dd { margin: 0; }
 @media (max-width: 640px) { .portalaccount__meta { grid-template-columns: 1fr; } }
+
+/* Publication panel: one card per channel, readable at any width. */
+.pubchannels { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.pubchan { border: 1px solid var(--border, #d8dee6); border-radius: 10px; padding: 12px 14px; }
+.pubchan__head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.pubchan__pick { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
+.pubchan__body { margin-top: 8px; display: grid; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.pubchan__blockers { margin: 0; padding-left: 18px; color: var(--danger, #b42318); }
+.pubpanel__buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
