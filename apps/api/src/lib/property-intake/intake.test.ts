@@ -8,9 +8,10 @@ import { sniffAudio } from "./audio";
 import { intakeAiConfig } from "./config";
 import { extractionJsonSchema, parseExtraction } from "./extraction";
 import { allowedFields, coerceValue, specByKey } from "./fields";
-import { questionOrder } from "./flow";
+import { MAX_DETAIL_QUESTIONS, questionOrder } from "./flow";
 import { parseLabels, PHOTO_LABEL_CODES, sniffImage } from "./photo-labels";
-import { phoneHint } from "./service";
+import { phoneHint, refreshTexts } from "./service";
+import { detectLanguage, intakeVocabulary, LANGUAGE_CODES, routeFor, transcriptionPrompt } from "./transcription";
 import { acknowledge, confirmQuestion, pickLanguage, questionFor } from "./replies";
 import {
   applyProposals, clearField, emptyState, evidenceWasSaid, nextStep, readState, resolvePending, setDerived, setManual, skipField, undoLast,
@@ -39,12 +40,14 @@ describe("allowlist", () => {
     }
   });
 
-  it("drives the questions: roots first, then price, size, place, then the type's required and recommended fields", () => {
+  it("drives the questions: type first, then price, place and size, then only a few details of that type", () => {
     assert.deepEqual(questionOrder(undefined, undefined), ["listingType", "propertyType"]);
     const order = questionOrder("SALE", "APARTMENT");
-    assert.deepEqual(order.slice(0, 6), ["listingType", "propertyType", "price", "area", "city", "areaName"]);
-    assert.ok(order.includes("bedrooms") && order.includes("yearBuilt") && order.includes("energyClass"));
+    assert.deepEqual(order.slice(0, 5), ["listingType", "propertyType", "price", "areaName", "area"]);
+    assert.ok(order.includes("bedrooms"), "an apartment is asked about bedrooms");
+    assert.ok(order.length <= 5 + MAX_DETAIL_QUESTIONS, "the agent is not interrogated about every optional field");
     assert.equal(new Set(order).size, order.length);
+    assert.equal(questionOrder("RENT", "APARTMENT")[2], "monthlyRent");
     assert.ok(!questionOrder("SALE", "PLOT").includes("bedrooms"));
   });
 });
@@ -132,7 +135,8 @@ describe("applying the model's proposals", () => {
     const out = applyProposals(s1, [prop("price", "400000", "400.000 ευρώ", { isCorrection: true })], "Άλλαξε την τιμή στις 400.000 ευρώ", apartmentSale);
     assert.equal(out.state.fields.price?.value, 400000);
     assert.equal(out.applied[0]?.previous, 420000);
-    assert.equal(acknowledge(out.applied, apartmentSale, "en")?.includes("was"), true);
+    assert.match(acknowledge(out.applied, apartmentSale, "en")!, /^Corrected: price €400,000 \(instead of €420,000\)\.$/);
+    assert.match(acknowledge(out.applied, apartmentSale, "el")!, /^Το διόρθωσα: τιμή €400\.000 \(αντί για €420\.000\)\.$/);
   });
 
   it("treats two different values for one field in a single utterance as ambiguity", () => {
@@ -332,5 +336,189 @@ describe("choosing an owner", () => {
     assert.equal(phoneHint("123"), null);
     assert.equal(phoneHint(null), null);
     assert.ok(!phoneHint("+30 697 123 4567")!.includes("697"));
+  });
+});
+
+describe("speech recognition settings", () => {
+  it("passes the language the agent chose as BCP-47 codes", () => {
+    assert.deepEqual(LANGUAGE_CODES.el, ["el-GR"]);
+    assert.deepEqual(LANGUAGE_CODES.en, ["en-US"]);
+    assert.deepEqual(LANGUAGE_CODES.auto, ["el-GR", "en-US"], "automatic still hints both languages");
+  });
+
+  it("biases recognition with HOME88's own terms, kept short", () => {
+    const v = intakeVocabulary();
+    for (const word of ["Διαμέρισμα", "Μεζονέτα", "Οικόπεδο", "συντελεστής δόμησης", "ενεργειακή κλάση", "τιμή κατόπιν επικοινωνίας"]) {
+      assert.ok(v.some((x) => x.toLowerCase() === word.toLowerCase()), word);
+    }
+    assert.ok(v.length <= 120);
+    assert.equal(new Set(v.map((x) => x.toLowerCase())).size, v.length, "no duplicates");
+  });
+
+  it("asks for digits, keeps self-corrections, and names the language", () => {
+    const el = transcriptionPrompt("el", ["Μεζονέτα"]);
+    assert.match(el, /el-GR/);
+    assert.match(el, /350\.000 ευρώ/);
+    assert.match(el, /όχι, 380\.000/);
+    assert.match(el, /Μεζονέτα/);
+    assert.match(transcriptionPrompt("auto", []), /el-GR.*en-US/s);
+  });
+
+  it("tells Greek from English text by its letters", () => {
+    assert.equal(detectLanguage("Διαμέρισμα στη Γλυφάδα, 95 τ.μ."), "el");
+    assert.equal(detectLanguage("Apartment in Glyfada"), "en");
+    assert.equal(detectLanguage("Διαμέρισμα open plan με parking"), "el");
+    assert.equal(detectLanguage("95 350"), null);
+  });
+
+  it("uses the dedicated recogniser only for a transcription model, unless told otherwise", () => {
+    assert.equal(routeFor(undefined, "gemini-3.5-flash"), "prompt");
+    assert.equal(routeFor(undefined, "gemini-3.5-transcribe"), "asr");
+    assert.equal(routeFor("asr", "gemini-3.5-flash"), "asr");
+    assert.equal(routeFor("prompt", "gemini-3.5-transcribe"), "prompt");
+    assert.equal(routeFor("nonsense", "gemini-3.5-flash"), "prompt");
+  });
+});
+
+describe("listing texts follow the facts", () => {
+  const sale = () => setManual(emptyState(), "listingType", "SALE", apartmentSale).state;
+  const facts = () => {
+    let s = sale();
+    for (const [k, v] of [["propertyType", "APARTMENT"], ["areaName", "Γλυφάδα"], ["area", 95], ["bedrooms", 2], ["price", 350000]] as const) {
+      s = setManual(s, k, v, apartmentSale).state;
+    }
+    return s;
+  };
+  const fakeAi = (out: { descriptionEl?: string; descriptionEn?: string }) => {
+    let calls = 0;
+    return {
+      port: { suggestTexts: async () => { calls += 1; return out; } } as never,
+      calls: () => calls,
+    };
+  };
+
+  it("fills all four suggestions, unconfirmed, from confirmed facts", async () => {
+    const ai = fakeAi({ descriptionEl: "Διαμέρισμα 95 τ.μ. με 2 υπνοδωμάτια στη Γλυφάδα.", descriptionEn: "A 95 sqm apartment with 2 bedrooms in Glyfada." });
+    const out = await refreshTexts(facts(), ai.port, { force: false });
+    assert.match(String(out.fields.titleEl?.value), /^Διαμέρισμα, 95 τ\.μ\., Γλυφάδα προς πώληση$/);
+    assert.equal(out.fields.titleEn?.value, "Apartment 95 sqm in Γλυφάδα for sale");
+    assert.ok(out.fields.descriptionEl && out.fields.descriptionEn);
+    for (const k of ["titleEl", "titleEn", "descriptionEl", "descriptionEn"]) assert.equal(out.fields[k]?.confirmed, false, `${k} awaits approval`);
+    assert.equal(ai.calls(), 1);
+    const again = await refreshTexts(out, ai.port, { force: false });
+    assert.equal(ai.calls(), 1, "nothing changed: the model is not asked again");
+    await refreshTexts(out, ai.port, { force: true });
+    assert.equal(ai.calls(), 2, "regenerate always asks");
+    void again;
+  });
+
+  it("never replaces text the agent wrote or approved", async () => {
+    let s = facts();
+    s = setManual(s, "descriptionEl", "Το δικό μου κείμενο.", apartmentSale).state;
+    s = setManual(s, "area", 100, apartmentSale).state; // facts changed
+    const out = await refreshTexts(s, fakeAi({ descriptionEl: "Άλλο κείμενο 100 τ.μ.", descriptionEn: "Other text 100 sqm." }).port, { force: false });
+    assert.equal(out.fields.descriptionEl?.value, "Το δικό μου κείμενο.");
+    assert.equal(out.fields.descriptionEl?.origin, "AGENT_MANUAL");
+  });
+
+  it("throws away a description with a number the agent never gave", async () => {
+    const out = await refreshTexts(facts(), fakeAi({ descriptionEl: "Διαμέρισμα 95 τ.μ., χτισμένο το 2010.", descriptionEn: "A 95 sqm apartment." }).port, { force: false });
+    assert.equal(out.fields.descriptionEl, undefined, "2010 is not a fact");
+    assert.ok(out.fields.descriptionEn);
+  });
+
+  it("waits for enough facts, and works without the AI", async () => {
+    let s = sale();
+    s = setManual(s, "propertyType", "APARTMENT", apartmentSale).state;
+    assert.equal((await refreshTexts(s, null, { force: false })).fields.titleEl, undefined, "type alone is not enough");
+    const noAi = await refreshTexts(facts(), null, { force: false });
+    assert.ok(noAi.fields.titleEl && noAi.fields.titleEn, "titles need no AI");
+    assert.equal(noAi.fields.descriptionEl, undefined);
+  });
+});
+
+describe("what the assistant says", () => {
+  it("summarises what it understood in natural Greek and English", () => {
+    const applied = [
+      { key: "propertyType", value: "APARTMENT" }, { key: "listingType", value: "SALE" }, { key: "areaName", value: "Γλυφάδα" },
+      { key: "area", value: 95 }, { key: "floor", value: 3 }, { key: "bedrooms", value: 2 }, { key: "price", value: 350000 },
+    ];
+    assert.equal(acknowledge(applied, apartmentSale, "el"), "Ωραία, κατέγραψα: διαμέρισμα, προς πώληση, περιοχή Γλυφάδα, 95 τ.μ., 3ος όροφος, 2 υπνοδωμάτια, τιμή €350.000.");
+    assert.match(acknowledge(applied, apartmentSale, "en")!, /^Great, I've noted: apartment, for sale, in Γλυφάδα, 95 sqm, floor 3, 2 bedrooms, price €350,000\.$/);
+  });
+});
+
+/**
+ * Greek utterances an agent actually says, with the answer the model is expected to give (scripted here:
+ * these test how HOME88 checks and merges that answer, NOT how well Gemini hears Greek - that needs the
+ * manual smoke test with a real recording).
+ */
+describe("Greek utterance fixtures (scripted model output)", () => {
+  const run = (utterance: string, proposals: Proposal[], listing: string, type: string) => {
+    const specs = allowedFields(listing, type);
+    return applyProposals(emptyState(), proposals, utterance, specs);
+  };
+
+  it("A: apartment, area, floor, bedrooms - numbers spoken as words", () => {
+    const u = "Διαμέρισμα ενενήντα πέντε τετραγωνικά στη Γλυφάδα, τρίτος όροφος, δύο υπνοδωμάτια.";
+    const out = run(u, [prop("propertyType", "APARTMENT", "Διαμέρισμα"), prop("area", "95", "ενενήντα πέντε τετραγωνικά"), prop("areaName", "Γλυφάδα", "στη Γλυφάδα"), prop("floor", "3", "τρίτος όροφος"), prop("bedrooms", "2", "δύο υπνοδωμάτια")], "SALE", "APARTMENT");
+    assert.deepEqual(Object.fromEntries(Object.entries(out.state.fields).map(([k, e]) => [k, e.value])), { propertyType: "APARTMENT", area: 95, areaName: "Γλυφάδα", floor: 3, bedrooms: 2 });
+    assert.equal(out.pending.length, 0);
+  });
+
+  it("B: house for sale with features and a price in thousands", () => {
+    const u = "Πωλείται μονοκατοικία διακόσια τετραγωνικά με κήπο και τζάκι στις Αχαρνές, τετρακόσιες είκοσι χιλιάδες ευρώ.";
+    const out = run(u, [prop("listingType", "SALE", "Πωλείται"), prop("propertyType", "HOUSE", "μονοκατοικία"), prop("area", "200", "διακόσια τετραγωνικά"), prop("garden", "true", "με κήπο"), prop("fireplace", "true", "τζάκι"), prop("areaName", "Αχαρνές", "στις Αχαρνές"), prop("price", "420000", "τετρακόσιες είκοσι χιλιάδες ευρώ")], "SALE", "HOUSE");
+    assert.equal(out.state.fields.price?.value, 420000);
+    assert.equal(out.state.fields.garden?.value, true);
+    assert.equal(out.state.fields.areaName?.value, "Αχαρνές");
+    assert.ok(out.rejected.every((r) => r.key === "fireplace") , "a feature the house profile does not list is refused, not invented");
+  });
+
+  it("C: a rental with a monthly rent; 'near the metro' is not a field", () => {
+    const u = "Διαμέρισμα προς ενοικίαση, χίλια διακόσια ευρώ τον μήνα, δύο υπνοδωμάτια, κοντά στο μετρό.";
+    const out = run(u, [prop("listingType", "RENT", "προς ενοικίαση"), prop("propertyType", "APARTMENT", "Διαμέρισμα"), prop("monthlyRent", "1200", "χίλια διακόσια ευρώ τον μήνα"), prop("bedrooms", "2", "δύο υπνοδωμάτια"), prop("price", "1200", "χίλια διακόσια ευρώ")], "RENT", "APARTMENT");
+    assert.equal(out.state.fields.monthlyRent?.value, 1200);
+    assert.equal(out.state.fields.price, undefined, "a rental has no sale price");
+  });
+
+  it("D: a plot with a building coefficient spoken as 'zero point eight'", () => {
+    const u = "Οικόπεδο οκτακόσια τετραγωνικά, συντελεστής δόμησης μηδέν κόμμα οκτώ, πρόσοψη είκοσι μέτρα.";
+    const specs = allowedFields("SALE", "PLOT");
+    const sd = specs.find((x) => /συντελεστ/i.test(x.labelEl));
+    const front = specs.find((x) => /πρόσοψη/i.test(x.labelEl));
+    const proposals = [prop("propertyType", "PLOT", "Οικόπεδο"), prop("area", "800", "οκτακόσια τετραγωνικά")];
+    if (sd) proposals.push(prop(sd.key, "0.8", "συντελεστής δόμησης μηδέν κόμμα οκτώ"));
+    if (front) proposals.push(prop(front.key, "20", "πρόσοψη είκοσι μέτρα"));
+    const out = applyProposals(emptyState(), proposals, u, specs);
+    assert.equal(out.state.fields.area?.value, 800);
+    if (sd) assert.equal(out.state.fields[sd.key]?.value, 0.8);
+    if (front) assert.equal(out.state.fields[front.key]?.value, 20);
+    assert.ok(sd && front, "the plot profile has building coefficient and frontage fields");
+  });
+
+  it("E: a self-correction keeps only the final price, and says so", () => {
+    const u = "Τετρακόσιες χιλιάδες… όχι, τριακόσιες ογδόντα χιλιάδες ευρώ.";
+    const out = run(u, [prop("price", "380000", "τριακόσιες ογδόντα χιλιάδες ευρώ", { isCorrection: true })], "SALE", "APARTMENT");
+    assert.equal(out.state.fields.price?.value, 380000);
+    // and if the model hands back both numbers, nothing is guessed: the agent is asked
+    const both = run(u, [prop("price", "400000", "Τετρακόσιες χιλιάδες"), prop("price", "380000", "τριακόσιες ογδόντα χιλιάδες ευρώ")], "SALE", "APARTMENT");
+    assert.equal(both.state.fields.price, undefined);
+    assert.equal(both.pending[0]?.proposed, 380000, "the latest value is the one proposed");
+  });
+
+  it("F: Greek with English terms keeps the Greek facts", () => {
+    const u = "Διαμέρισμα open plan με parking στο Κολωνάκι, 70 τετραγωνικά.";
+    const out = run(u, [prop("propertyType", "APARTMENT", "Διαμέρισμα"), prop("parking", "true", "με parking"), prop("areaName", "Κολωνάκι", "στο Κολωνάκι"), prop("area", "70", "70 τετραγωνικά")], "SALE", "APARTMENT");
+    assert.equal(out.state.fields.parking?.value, true);
+    assert.equal(out.state.fields.areaName?.value, "Κολωνάκι");
+    assert.equal(out.state.fields.area?.value, 70);
+    assert.equal(detectLanguage(u), "el");
+  });
+
+  it("an invented fact (not in the agent's words) is never applied", () => {
+    const out = run("Διαμέρισμα στη Γλυφάδα", [prop("seaView", "true", "με θέα θάλασσα")], "SALE", "APARTMENT");
+    assert.equal(out.state.fields.seaView, undefined);
+    assert.equal(out.pending[0]?.reason, "unverified");
   });
 });

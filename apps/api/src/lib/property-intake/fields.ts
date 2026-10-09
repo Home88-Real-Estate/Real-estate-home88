@@ -209,3 +209,10 @@ export function coerceValue(spec: FieldSpec, raw: unknown): CoerceResult {
 export function specByKey(specs: FieldSpec[], key: string): FieldSpec | undefined {
   return specs.find((s) => s.key === key);
 }
+
+/** Greek names of every field the assistant knows, for the transcription vocabulary. */
+export const ALL_LABELS_EL: string[] = (() => {
+  const out = new Set<string>();
+  for (const [listing] of LISTING_TYPES) for (const [type] of PROPERTY_TYPES) for (const spec of allowedFields(listing, type)) out.add(spec.labelEl);
+  return [...out];
+})();

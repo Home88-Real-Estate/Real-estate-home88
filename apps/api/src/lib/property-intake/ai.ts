@@ -7,11 +7,12 @@
  * messages never carry provider text.
  */
 
-import { GoogleGenAI } from "@google/genai";
+import { AudioTranscriptionConfigMode, GoogleGenAI } from "@google/genai";
 
 import { intakeAiConfig, type IntakeAiConfig } from "./config";
 import { SUGGEST_SYSTEM } from "./extraction";
 import { LABEL_SYSTEM, labelJsonSchema } from "./photo-labels";
+import { detectLanguage, intakeVocabulary, LANGUAGE_CODES, routeFor, transcriptionPrompt } from "./transcription";
 import type { Lang } from "./state";
 
 export type IntakeFailure = "not_configured" | "timeout" | "provider" | "empty" | "invalid";
@@ -105,7 +106,14 @@ function jsonOf(text: string): unknown {
   }
 }
 
-export function createGeminiIntakeAi(config: Pick<IntakeAiConfig, "apiKey" | "transcribeModel" | "extractModel" | "ttsModel" | "ttsVoice">): IntakeAiPort {
+/** A refusal that a different model may not share: unknown model id, or an option this model does not support. */
+function isModelRefusal(error: unknown): boolean {
+  if (!(error instanceof IntakeAiError) || error.category !== "provider") return false;
+  const status = statusOf(error.cause);
+  return status === 400 || status === 404;
+}
+
+export function createGeminiIntakeAi(config: Pick<IntakeAiConfig, "apiKey" | "transcribeModel" | "transcribeMode" | "fallbackModel" | "extractModel" | "ttsModel" | "ttsVoice">): IntakeAiPort {
   if (!config.apiKey) throw new IntakeAiError("not_configured");
   const client = new GoogleGenAI({ apiKey: config.apiKey });
 
@@ -129,19 +137,56 @@ export function createGeminiIntakeAi(config: Pick<IntakeAiConfig, "apiKey" | "tr
 
   return {
     async transcribe({ audio, mimeType, preference }, signal) {
-      const hint = preference === "el" ? "The speaker is most likely speaking Greek." : preference === "en" ? "The speaker is most likely speaking English." : "The speaker may speak Greek, English, or both in the same recording.";
-      const raw = await text(
-        config.transcribeModel,
-        signal,
-        [{ role: "user", parts: [{ inlineData: { mimeType, data: audio.toString("base64") } }, { text: `Transcribe the speech in this audio exactly as spoken, in the language spoken, using Greek letters for Greek. ${hint} Do not translate, summarise or add anything. If there is no intelligible speech, return an empty text. Reply as JSON: {"text": string, "language": "el" | "en"}.` }] }],
-        undefined,
-        { type: "object", properties: { text: { type: "string" }, language: { type: "string", enum: ["el", "en"] } }, required: ["text", "language"] },
-        1500,
-      );
-      const parsed = jsonOf(raw) as { text?: unknown; language?: unknown };
-      const spoken = typeof parsed.text === "string" ? parsed.text.trim() : "";
-      if (!spoken) throw new IntakeAiError("empty");
-      return { text: spoken, language: parsed.language === "el" || parsed.language === "en" ? parsed.language : null };
+      const vocabulary = intakeVocabulary();
+      const audioPart = { inlineData: { mimeType, data: audio.toString("base64") } };
+
+      /** Dedicated recogniser: the SDK's audioTranscriptionConfig with BCP-47 codes and the vocabulary. Plain text out. */
+      const viaAsr = async (model: string) =>
+        withRetry(signal, async () => {
+          let response;
+          try {
+            response = await client.models.generateContent({
+              model,
+              contents: [{ role: "user", parts: [audioPart] }],
+              config: {
+                audioTranscriptionConfig: { languageCodes: LANGUAGE_CODES[preference], customVocabulary: vocabulary, mode: AudioTranscriptionConfigMode.VERBATIM },
+                temperature: 0,
+                abortSignal: signal,
+              },
+            });
+          } catch (error) {
+            return fail(signal, error);
+          }
+          const spoken = (response.candidates?.[0]?.content?.parts ?? []).flatMap((p) => (typeof p.text === "string" && !p.thought ? [p.text] : [])).join(" ").trim();
+          if (!spoken) throw new IntakeAiError("empty");
+          return { text: spoken, language: detectLanguage(spoken) };
+        });
+
+      /** General model with an audio prompt: works on any Flash model. */
+      const viaPrompt = async (model: string) => {
+        const raw = await text(
+          model,
+          signal,
+          [{ role: "user", parts: [audioPart, { text: transcriptionPrompt(preference, vocabulary) }] }],
+          undefined,
+          { type: "object", properties: { text: { type: "string" }, language: { type: "string", enum: ["el", "en"] } }, required: ["text", "language"] },
+          2000,
+        );
+        const parsed = jsonOf(raw) as { text?: unknown; language?: unknown };
+        const spoken = typeof parsed.text === "string" ? parsed.text.trim() : "";
+        if (!spoken) throw new IntakeAiError("empty");
+        return { text: spoken, language: parsed.language === "el" || parsed.language === "en" ? parsed.language : detectLanguage(spoken) };
+      };
+
+      const primary = routeFor(config.transcribeMode, config.transcribeModel) === "asr" ? () => viaAsr(config.transcribeModel) : () => viaPrompt(config.transcribeModel);
+      try {
+        return await primary();
+      } catch (error) {
+        // An unknown model id or an unsupported option is a configuration problem, not the agent's: use the
+        // text model the rest of the assistant already runs on, rather than failing the recording.
+        if (isModelRefusal(error) && config.fallbackModel !== config.transcribeModel) return viaPrompt(config.fallbackModel);
+        throw error;
+      }
     },
 
     async extract({ system, user, schema }, signal) {
@@ -209,7 +254,7 @@ export function intakeAi(): IntakeAiPort | null {
   if (override) return override;
   const config = intakeAiConfig();
   if (!config.apiKey) return null;
-  const signature = [config.apiKey.length, config.transcribeModel, config.extractModel, config.ttsModel, config.ttsVoice].join("|");
+  const signature = [config.apiKey.length, config.transcribeModel, config.transcribeMode, config.fallbackModel, config.extractModel, config.ttsModel, config.ttsVoice].join("|");
   if (!cached || cached.key !== signature) cached = { key: signature, port: createGeminiIntakeAi(config) };
   return cached.port;
 }
