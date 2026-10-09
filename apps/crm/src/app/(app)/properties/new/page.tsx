@@ -22,6 +22,17 @@ export default async function NewPropertyPage() {
         </Link>
       </div>
 
+      <div className="notice" style={{ marginBottom: 18 }}>
+        <div className="between">
+          <span>
+            <strong>AI Voice Assistant</strong> — περιγράψτε το ακίνητο με φωνή ή κείμενο (ελληνικά ή αγγλικά), τραβήξτε φωτογραφίες και ο βοηθός συμπληρώνει το πρόχειρο.
+          </span>
+          <Link href="/properties/new/assistant" className="btn btn--primary btn--sm">
+            🎤 Φωνητική καταχώριση
+          </Link>
+        </div>
+      </div>
+
       <PropertyForm action={saveProperty} submitLabel="Αποθήκευση ακινήτου" withPhotos maxUploadBytes={maxUploadBytes()} />
     </>
   );

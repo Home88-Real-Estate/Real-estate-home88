@@ -48,6 +48,7 @@ export function PendingMedia({
   progress,
   disabled,
   maxBytes,
+  camera,
 }: {
   files: PendingFile[];
   onChange: (files: PendingFile[]) => void;
@@ -56,8 +57,11 @@ export function PendingMedia({
   /** Per-file upload state once saving has started. */
   progress?: Record<string, UploadUpdate>;
   disabled?: boolean;
+  /** Adds a "take photo" button that opens the phone camera directly (the gallery stays one tap away). */
+  camera?: boolean;
 }) {
   const input = useRef<HTMLInputElement>(null);
+  const cameraInput = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
   const [notes, setNotes] = useState<string[]>([]);
 
@@ -124,8 +128,17 @@ export function PendingMedia({
         }}
       >
         <p>Σύρετε φωτογραφίες εδώ ή</p>
+        {camera && (
+          <>
+            <button type="button" className="btn btn--primary btn--sm" disabled={disabled} onClick={() => cameraInput.current?.click()}>
+              Λήψη φωτογραφίας
+            </button>
+            {/* `capture` opens the rear camera on phones; desktop browsers fall back to the file picker. */}
+            <input ref={cameraInput} type="file" accept="image/*" capture="environment" hidden disabled={disabled} onChange={(e) => { if (e.target.files) add(e.target.files); e.target.value = ""; }} aria-label="Λήψη φωτογραφίας" />
+          </>
+        )}
         <button type="button" className="btn btn--outline btn--sm" disabled={disabled} onClick={() => input.current?.click()}>
-          Επιλογή αρχείων
+          {camera ? "Επιλογή από τη συλλογή" : "Επιλογή αρχείων"}
         </button>
         <input ref={input} type="file" multiple accept={ACCEPT} hidden disabled={disabled} onChange={(e) => e.target.files && add(e.target.files)} aria-label="Επιλογή φωτογραφιών" />
         <p className="hint">

@@ -51,6 +51,8 @@ export type SessionDto = {
   asked: { key: string; label: string; kind: string; options?: Array<{ value: string; label: string }> } | null;
   review: Review;
   fields: Record<string, { value: Value; origin: Origin; confirmed: boolean }>;
+  /** Every field that applies right now, with how to edit it by touch. */
+  catalog: Array<{ key: string; label: string; kind: string; unit?: string; options?: Array<{ value: string; label: string }> }>;
 };
 
 // --- Field sets ---------------------------------------------------------------
@@ -180,6 +182,10 @@ export function toDto(row: Row): SessionDto {
       : null,
     review: buildReview(state, lang),
     fields: Object.fromEntries(Object.entries(state.fields).map(([k, e]) => [k, { value: e.value, origin: e.origin, confirmed: e.confirmed }])),
+    catalog: specs.map((s) => ({
+      key: s.key, label: label(s, lang), kind: s.kind, unit: s.unit,
+      options: s.options?.map((o) => ({ value: o.value, label: lang === "en" ? o.labelEn ?? o.labelEl : o.labelEl })),
+    })),
   };
 }
 

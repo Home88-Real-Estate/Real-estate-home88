@@ -2,7 +2,7 @@
 CREATE TYPE "PropertyIntakeStatus" AS ENUM ('ACTIVE', 'CREATED', 'ABANDONED');
 
 -- AlterEnum
-ALTER TYPE "AuditEntity" ADD VALUE 'PROPERTY_INTAKE';
+ALTER TYPE "AuditEntity" ADD VALUE IF NOT EXISTS 'PROPERTY_INTAKE';
 
 -- CreateTable
 CREATE TABLE "property_intake_sessions" (

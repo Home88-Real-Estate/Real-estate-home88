@@ -23,13 +23,14 @@ test("property intake: bilingual capture, correction, skip, conflict, review, on
   const { resetRateLimits } = await import("../lib/rate-limit");
   const { IntakeAiError, setIntakeAi } = await import("../lib/property-intake/ai");
   type Port = import("../lib/property-intake/ai").IntakeAiPort;
+  type AiError = InstanceType<typeof IntakeAiError>;
 
   // --- A scripted stand-in for Gemini ---------------------------------------
   const extractions = new Map<string, unknown>();
   const seen = { extractUsers: [] as string[], extractSystems: [] as string[], spoken: [] as string[], suggestFacts: [] as Array<Array<{ label: string; value: string }>> };
-  let failExtract: IntakeAiError | null = null;
-  let failSpeak: IntakeAiError | null = null;
-  let transcript: { text: string; language: "el" | "en" | null } | IntakeAiError = { text: "Διαμέρισμα στη Γλυφάδα", language: "el" };
+  let failExtract: AiError | null = null;
+  let failSpeak: AiError | null = null;
+  let transcript: { text: string; language: "el" | "en" | null } | AiError = { text: "Διαμέρισμα στη Γλυφάδα", language: "el" };
   let suggestion: { descriptionEl?: string; descriptionEn?: string } = {};
   const ai: Port = {
     async transcribe() {
