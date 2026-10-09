@@ -92,3 +92,14 @@ export function can(actor: Actor, permission: Permission, property?: PropertySco
   if (!SCOPED.has(permission) || !property) return true;
   return hasPermission(actor, P.PROPERTY_UPDATE_ANY) || ownsProperty(actor, property);
 }
+
+/**
+ * Putting a property on the website, updating it there or taking it down.
+ * Needs the publish permission; an agent may do it for their own listings, a
+ * manager for any, and Marketing (which publishes but does not edit) for the
+ * whole office. Looking at readiness or a preview only needs to read the property.
+ */
+export function canPublishWebsite(actor: Actor, property: PropertyScope): boolean {
+  if (!hasPermission(actor, P.PROPERTY_PUBLISH)) return false;
+  return actor.role === "MARKETING" || hasPermission(actor, P.PROPERTY_UPDATE_ANY) || ownsProperty(actor, property);
+}

@@ -6,13 +6,11 @@
  * we never publish an empty "SEO" page for a place we do not actually cover.
  */
 
-import { PUBLIC_PROPERTY_STATUSES } from "@home88/domain";
+import { publicWebsiteWhere } from "@home88/domain";
 import type { Prisma } from "@home88/database";
 
 import { safeQuery } from "./db";
 
-/** Only these statuses are ever visible on the public site (owned by @home88/domain). */
-const PUBLIC_STATUSES = PUBLIC_PROPERTY_STATUSES;
 
 export interface AreaSummary {
   slug: string;
@@ -38,11 +36,7 @@ export async function listAreas(): Promise<AreaSummary[]> {
     async (db) => {
       const rows = await db.property.groupBy({
         by: ["city", "areaName"],
-        where: {
-          publishedOnWebsite: true,
-          status: { in: [...PUBLIC_STATUSES] },
-          areaName: { not: null },
-        } as Prisma.PropertyWhereInput,
+        where: { ...publicWebsiteWhere({ listed: true }), areaName: { not: null } } as Prisma.PropertyWhereInput,
         _count: true,
       });
 

@@ -6,7 +6,7 @@
  * adding a column to the schema does not leak it to the internet.
  */
 
-import { PUBLIC_PROPERTY_STATUSES } from "@home88/domain";
+import { isPublicMedia, publicWebsiteWhere, websiteSitemapEligible } from "@home88/domain";
 import type { Prisma, PrismaClient } from "@home88/database";
 import type {
   Locale,
@@ -15,9 +15,6 @@ import type {
 } from "@home88/types";
 import { MEDIA_BASE_URL } from "./config";
 import { prisma, safeQuery } from "./db";
-
-/** Only these statuses are ever visible on the public site (owned by @home88/domain). */
-const PUBLIC_STATUSES = PUBLIC_PROPERTY_STATUSES;
 
 type MediaRow = {
   storageKey: string;
@@ -29,6 +26,7 @@ type MediaRow = {
   sortOrder: number;
   isPrimary: boolean;
   status: string;
+  lifecycle: string;
 };
 
 /**
@@ -69,7 +67,8 @@ function toSummary(p: {
   featured: boolean;
   media: MediaRow[];
 }, locale: Locale): PublicPropertySummary {
-  const publicMedia = p.media.filter((m) => m.status === "approved" || m.status === "published");
+  // The one definition of "approved media" (approved, usable, not a document), shared with the CRM preview.
+  const publicMedia = p.media.filter(isPublicMedia);
   const primary = publicMedia.find((m) => m.isPrimary) ?? publicMedia[0];
 
   const num = (v: unknown): number | null => {
@@ -112,9 +111,10 @@ const mediaSelect = {
   sortOrder: true,
   isPrimary: true,
   status: true,
+  lifecycle: true,
 } satisfies Prisma.PropertyMediaSelect;
 
-const summarySelect = {
+export const summarySelect = {
   reference: true,
   slug: true,
   listingType: true,
@@ -138,7 +138,7 @@ const summarySelect = {
   media: { select: mediaSelect, orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }] },
 } satisfies Prisma.PropertySelect;
 
-const detailSelect = {
+export const detailSelect = {
   ...summarySelect,
   descriptionEl: true,
   descriptionEn: true,
@@ -163,6 +163,7 @@ const detailSelect = {
   videoUrl: true,
   virtualTourUrl: true,
   agent: { select: { firstName: true, lastName: true } },
+  websitePublication: { select: { visibility: true, noIndex: true } },
 } satisfies Prisma.PropertySelect;
 
 export async function listFeaturedProperties(locale: Locale, take = 6): Promise<PublicPropertySummary[]> {
@@ -170,7 +171,7 @@ export async function listFeaturedProperties(locale: Locale, take = 6): Promise<
     "listFeaturedProperties",
     async (db: PrismaClient) => {
       const rows = await db.property.findMany({
-        where: { publishedOnWebsite: true, status: { in: [...PUBLIC_STATUSES] }, featured: true },
+        where: { ...publicWebsiteWhere({ listed: true }), featured: true },
         orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
         take,
         select: summarySelect,
@@ -186,7 +187,7 @@ export async function listRecentProperties(locale: Locale, take = 9): Promise<Pu
     "listRecentProperties",
     async (db: PrismaClient) => {
       const rows = await db.property.findMany({
-        where: { publishedOnWebsite: true, status: { in: [...PUBLIC_STATUSES] } },
+        where: publicWebsiteWhere({ listed: true }),
         orderBy: { publishedAt: "desc" },
         take,
         select: summarySelect,
@@ -232,10 +233,7 @@ export async function searchProperties(
   return safeQuery(
     "searchProperties",
     async (db: PrismaClient) => {
-      const where: Record<string, unknown> = {
-        publishedOnWebsite: true,
-        status: { in: [...PUBLIC_STATUSES] },
-      };
+      const where: Record<string, unknown> = { ...publicWebsiteWhere({ listed: true }) };
 
       if (params.listingType) where.listingType = params.listingType;
       if (params.propertyType) where.propertyType = params.propertyType;
@@ -314,22 +312,20 @@ export async function getPropertyByReference(
     "getPropertyByReference",
     async (db: PrismaClient) => {
       const p = await db.property.findFirst({
-        where: {
-          reference: reference.toUpperCase(),
-          publishedOnWebsite: true,
-          status: { in: [...PUBLIC_STATUSES] },
-        },
+        // The same rule as the listings, but a NOINDEX page is still served to anyone with its link.
+        where: { reference: reference.toUpperCase(), ...publicWebsiteWhere() },
         select: detailSelect,
       });
       if (!p) return null;
 
       const summary = toSummary(p, locale);
       const publicMedia = p.media
-        .filter((m) => m.status === "approved" || m.status === "published")
+        .filter(isPublicMedia)
         .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || a.sortOrder - b.sortOrder);
 
       return {
         ...summary,
+        indexable: p.websitePublication?.visibility === "PUBLIC" && p.websitePublication?.noIndex === false ? true : false,
         titleSecondary: p.titleEn && p.titleEn !== summary.title ? p.titleEn : null,
         description: (locale === "el" ? p.descriptionEl : p.descriptionEn) ?? p.descriptionEl,
         descriptionSecondary:
@@ -375,7 +371,48 @@ export async function countPublicProperties(): Promise<number> {
   return safeQuery(
     "countPublicProperties",
     async (db: PrismaClient) =>
-      db.property.count({ where: { publishedOnWebsite: true, status: { in: [...PUBLIC_STATUSES] } } }),
+      db.property.count({ where: publicWebsiteWhere({ listed: true }) }),
     0,
+  );
+}
+
+/**
+ * The properties that belong in the sitemap. Eligibility is derived from the
+ * publication's own state (live, PUBLIC, indexable), the property's status and its
+ * tags, by the same function the CRM uses; the stored `sitemapIncluded` column is
+ * never consulted, so no flag in any UI or stale row can put a page in the sitemap.
+ */
+export async function listSitemapProperties(take = 2000): Promise<Array<{ reference: string; lastModified: Date }>> {
+  return safeQuery(
+    "listSitemapProperties",
+    async (db: PrismaClient) => {
+      const rows = await db.websitePublication.findMany({
+        where: { property: publicWebsiteWhere({ listed: true }) as Prisma.PropertyWhereInput, noIndex: false },
+        orderBy: { updatedAt: "desc" },
+        take,
+        select: {
+          status: true,
+          enabled: true,
+          visibility: true,
+          noIndex: true,
+          lastGeneratedAt: true,
+          updatedAt: true,
+          property: { select: { reference: true, status: true, tagAssignments: { select: { tag: { select: { code: true } } } } } },
+        },
+      });
+      return rows
+        .filter((r) =>
+          websiteSitemapEligible({
+            status: r.status,
+            enabled: r.enabled,
+            visibility: r.visibility,
+            noIndex: r.noIndex,
+            propertyStatus: r.property.status,
+            tagCodes: r.property.tagAssignments.map((t) => t.tag.code),
+          }),
+        )
+        .map((r) => ({ reference: r.property.reference, lastModified: r.lastGeneratedAt ?? r.updatedAt }));
+    },
+    [],
   );
 }

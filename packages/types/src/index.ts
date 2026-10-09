@@ -150,6 +150,8 @@ export type PublicPropertySummary = {
 };
 
 export type PublicPropertyDetail = PublicPropertySummary & {
+  /** False for a NOINDEX publication: reachable by its link, but search engines are told to skip it. */
+  indexable: boolean;
   titleSecondary: string | null;
   description: string;
   descriptionSecondary: string | null;

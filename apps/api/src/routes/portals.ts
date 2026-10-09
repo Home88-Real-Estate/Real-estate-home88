@@ -8,7 +8,6 @@
  * full book.
  */
 
-import { PORTAL_CATALOG, SYSTEM_PROPERTY_TAGS } from "@home88/domain";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import {
@@ -22,8 +21,10 @@ import {
 } from "@home88/portals";
 import { loadConfig } from "../config";
 import { writeAudit } from "../lib/audit";
+import { onTagsChanged } from "../lib/website-publication";
+import { revalidateWebsite } from "../lib/website-revalidate";
 import { conflict, forbidden, HttpError, notFound } from "../lib/errors";
-import { parseInput } from "../lib/http";
+import { clientIp, parseInput, userAgent } from "../lib/http";
 import { db } from "../lib/prisma";
 import {
   FEED_SCHEMA_VERSION,
@@ -33,9 +34,8 @@ import {
   loadTagCodes,
   previewPortal,
 } from "../lib/portal-distribution";
-import { mediaBase, toPortalProperty } from "../lib/portal-map";
+import { loadPortalOverview } from "../lib/portal-overview";
 import { buildContext, syncPropertyPortals } from "../lib/portal-sync";
-import { resolvePortalProvider } from "../lib/portal-accounts";
 import { settings } from "../settings";
 import type { Portal } from "@home88/database";
 import { requireRole } from "../plugins/auth";
@@ -368,6 +368,16 @@ export async function portalRoutes(app: FastifyInstance): Promise<void> {
     });
     await writeAudit({ entity: "PROPERTY", entityId: id, action: "tags_changed", actorId: actor.id, changes: { before, after: wanted } });
 
+    // A tag that keeps the property off the website (DO_NOT_PUBLISH, PORTAL_ONLY) takes a live page
+    // down at once. Like the portal re-judging below, a failure here never undoes the tag change.
+    let websiteRefresh: string | null = null;
+    try {
+      websiteRefresh = await onTagsChanged(id, { actorId: actor.id, requestId: request.id, ipAddress: clientIp(request), userAgent: userAgent(request) });
+    } catch (error) {
+      console.error("[home88:publications] website not re-judged after a tag change:", error instanceof Error ? error.message : "unknown");
+    }
+    if (websiteRefresh) await revalidateWebsite([websiteRefresh]);
+
     // Tags decide portal eligibility, so listings must be re-judged now. A
     // failure here must not undo the tag change the manager just made.
     let outcomes: Awaited<ReturnType<typeof syncPropertyPortals>> = [];
@@ -381,70 +391,11 @@ export async function portalRoutes(app: FastifyInstance): Promise<void> {
 
   /**
    * Per-property distribution: for every portal that exists in the database,
-   * where the listing stands and, when it is not going out, why not.
+   * where the listing stands and, when it is not going out, why not. (The
+   * implementation is shared with the unified publications endpoint.)
    */
   app.get("/properties/:id/portals", { preHandler: requireRole("AGENT") }, async (request) => {
     const { id } = request.params as { id: string };
-    const property = await db().property.findUnique({ where: { id }, include: { media: true } });
-    if (!property) throw notFound("Το ακίνητο δεν βρέθηκε.");
-
-    const base = mediaBase(loadConfig());
-    const view = toPortalProperty(property, base);
-    const tagCodes = (await loadTagCodes([id])).get(id) ?? [];
-    const role = request.auth!.user.role;
-    const [portals, mayView, showErrors, perms] = await Promise.all([
-      db().portal.findMany({ orderBy: { name: "asc" }, include: { listings: { where: { propertyId: id } }, accounts: { orderBy: [{ environment: "asc" }, { accountName: "asc" }] } } }),
-      settings().can(request.auth!.user.role, "portals.view"),
-      settings().can(request.auth!.user.role, "portals.view_sensitive_errors"),
-      Promise.all(["preview", "publish", "update", "unpublish", "retry", "view_sync_history", "configure"].map(async (p) => [p, await settings().can(role, `portals.${p}`)] as const)),
-    ]);
-    const actorIds = [...new Set(portals.map((p) => p.listings[0]?.lastActionById).filter((v): v is string => Boolean(v)))];
-    const actors = actorIds.length ? await db().user.findMany({ where: { id: { in: actorIds } }, select: { id: true, firstName: true, lastName: true } }) : [];
-
-    const rows = [];
-    for (const portal of portals) {
-      const listing = portal.listings[0] ?? null;
-      const verdict = evaluateCandidate({ property: view, tagCodes }, await loadCandidateContext(portal));
-      const actor = actors.find((a) => a.id === listing?.lastActionById);
-      const hasAdapter = Boolean(getAdapter(portal.code));
-      rows.push({
-        portalId: portal.id,
-        code: portal.code,
-        name: portal.name,
-        enabled: portal.enabled,
-        state: listing?.state ?? "NOT_PUBLISHED",
-        externalId: listing?.externalId ?? null,
-        externalUrl: listing?.externalUrl ?? null,
-        lastSyncedAt: listing?.lastSyncedAt?.toISOString() ?? null,
-        lastError: listing?.lastError ? (showErrors ? listing.lastError : "Η τελευταία ενέργεια απέτυχε.") : null,
-        lastErrorCode: listing?.lastErrorCode ?? null,
-        needsReview: listing?.needsReview ?? false,
-        nextRetryAt: listing?.nextRetryAt?.toISOString() ?? null,
-        // What would happen on the next sync, and the reasons when it is not READY.
-        outcome: verdict.outcome,
-        reasons: verdict.reasons,
-        warnings: verdict.warnings.map((w) => w.message),
-        // Manual operations
-        hasAdapter,
-        portalAccountId: listing?.portalAccountId ?? null,
-        lastAction: listing?.lastAction ?? null,
-        lastActionAt: listing?.lastActionAt?.toISOString() ?? null,
-        lastActionBy: actor ? `${actor.firstName} ${actor.lastName}`.trim() : null,
-        lastSuccessfulSyncAt: listing?.lastSuccessfulSyncAt?.toISOString() ?? null,
-        lastFailedAt: listing?.lastFailedAt?.toISOString() ?? null,
-        accounts: mayView
-          ? portal.accounts.map((a) => ({
-              id: a.id,
-              accountName: a.accountName,
-              environment: a.environment,
-              status: a.status,
-              enabled: a.enabled,
-              // Only the in-process mock exists today; PRODUCTION never has a provider.
-              providerKind: resolvePortalProvider(portal, a) ? (resolvePortalProvider(portal, a)!.mock ? "mock" : "real") : "none",
-            }))
-          : [],
-      });
-    }
-    return { portals: rows, permissions: Object.fromEntries(perms), catalogSize: PORTAL_CATALOG.length, flags: SYSTEM_PROPERTY_TAGS.map((t) => t.code) };
+    return loadPortalOverview(id, request.auth!.user.role);
   });
 }

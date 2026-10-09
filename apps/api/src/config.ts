@@ -111,6 +111,15 @@ const schema = z.object({
   // --- Scheduled jobs ---------------------------------------------------------
   /** Bearer token the scheduler sends to /api/cron/*. Empty = jobs refuse to run. */
   CRON_SECRET: z.string().default(""),
+  /**
+   * Shared secret for the website's on-demand revalidation endpoint
+   * (`${SITE_URL}/api/revalidate`). The website caches property pages for a few
+   * minutes; with this set, publishing, updating or taking a listing down also
+   * refreshes the cached page immediately. Empty = not configured: the change is
+   * still correct in the database and the page converges when its cache expires.
+   * Must be the same value as the website's WEBSITE_REVALIDATE_SECRET.
+   */
+  WEBSITE_REVALIDATE_SECRET: z.string().default(""),
 
   // --- Legal / company -----------------------------------------------------
   POLICY_VERSION: z.string().default("2026-10-01"),
