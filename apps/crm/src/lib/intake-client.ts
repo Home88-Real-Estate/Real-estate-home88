@@ -15,6 +15,7 @@ export type IntakeSession = {
   stage: "collect" | "review";
   muted: boolean;
   photosLater: boolean;
+  owner: { contactId: string; reference: string; label: string } | null;
   lang: "el" | "en";
   turns: IntakeTurn[];
   pending: Array<{ key: string; label: string; proposed: string; current: string | null; reason: "conflict" | "unverified" }>;
@@ -31,7 +32,11 @@ export type IntakeEdit =
   | { type: "resolve"; key: string; accept: boolean }
   | { type: "skip"; key: string }
   | { type: "undo" }
+  | { type: "owner"; contactId: string | null }
   | { type: "settings"; muted?: boolean; photosLater?: boolean; language?: "auto" | "el" | "en"; stage?: "collect" | "review" };
+
+export type OwnerCandidate = { id: string; reference: string; name: string; city: string | null; roles: string[]; phoneHint: string | null };
+export type PhotoLabelSuggestion = { id: string; label: string; labelEl: string; labelEn: string; confidence: "high" | "medium" | "low" };
 
 /** A failure the screen can show: a calm message, plus whether trying again can help. */
 export class IntakeRequestError extends Error {
@@ -77,6 +82,9 @@ export const intakeApi = {
   suggest: (id: string) => request<{ session: IntakeSession }>(`/sessions/${id}/suggest`, { body: {} }),
   speak: (id: string) => request<{ audio: string | null; mimeType?: string; muted: boolean }>(`/sessions/${id}/speak`, { body: {} }),
   create: (id: string, revision?: number) =>
-    request<{ session: IntakeSession; property: { id: string; reference: string }; alreadyCreated: boolean }>(`/sessions/${id}/create`, { body: { revision } }),
+    request<{ session: IntakeSession; property: { id: string; reference: string }; alreadyCreated: boolean; owner: "linked" | "skipped" | "none" }>(`/sessions/${id}/create`, { body: { revision } }),
+  searchContacts: (q: string) => request<{ contacts: OwnerCandidate[] }>(`/contacts?q=${encodeURIComponent(q)}`),
+  labelPhotos: (id: string, images: Array<{ id: string; mimeType: "image/jpeg"; data: string }>) =>
+    request<{ labels: PhotoLabelSuggestion[] }>(`/sessions/${id}/label-photos`, { body: { images } }),
   abandon: (id: string) => request<{ session: IntakeSession }>(`/sessions/${id}/abandon`, { body: {} }),
 };

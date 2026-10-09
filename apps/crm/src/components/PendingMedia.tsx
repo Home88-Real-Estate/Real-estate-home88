@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { fileFingerprint, type UploadUpdate } from "@/lib/upload-queue";
 
@@ -31,9 +31,15 @@ function photoType(file: File): string | null {
 }
 
 function Thumb({ file }: { file: File }) {
-  const url = useMemo(() => URL.createObjectURL(file), [file]);
-  useEffect(() => () => URL.revokeObjectURL(url), [url]);
-  return <img src={url} alt="" width={72} height={72} className="pending-media__thumb" />;
+  // The URL is made and released inside the effect: made during render and released in cleanup, React's
+  // development double-mount would hand the image an already-revoked address.
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    const made = URL.createObjectURL(file);
+    setUrl(made);
+    return () => URL.revokeObjectURL(made);
+  }, [file]);
+  return url ? <img src={url} alt="" width={72} height={72} className="pending-media__thumb" /> : <span className="pending-media__thumb" aria-hidden="true" />;
 }
 
 /**
@@ -49,6 +55,7 @@ export function PendingMedia({
   disabled,
   maxBytes,
   camera,
+  renderExtra,
 }: {
   files: PendingFile[];
   onChange: (files: PendingFile[]) => void;
@@ -59,6 +66,8 @@ export function PendingMedia({
   disabled?: boolean;
   /** Adds a "take photo" button that opens the phone camera directly (the gallery stays one tap away). */
   camera?: boolean;
+  /** Extra controls under a photo's details (the assistant uses this for room labels). */
+  renderExtra?: (item: PendingFile) => ReactNode;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const cameraInput = useRef<HTMLInputElement>(null);
@@ -184,6 +193,7 @@ export function PendingMedia({
                       {update?.state === "failed" && update.message ? `: ${update.message}` : ""}
                     </span>
                   )}
+                  {renderExtra?.(item)}
                 </div>
                 {!progress && (
                   <div className="pending-media__actions">

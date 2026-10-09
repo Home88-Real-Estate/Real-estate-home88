@@ -14,7 +14,8 @@ import { propertyUpsertSchema } from "@home88/validation";
 
 import { createPropertyInTx, type CreateMeta } from "../../routes/properties";
 import { writeAudit } from "../audit";
-import { touchContact } from "../contacts";
+import { contactWhere, touchContact } from "../contacts";
+import { decryptField } from "../pii";
 import { HttpError, notFound } from "../errors";
 import { intakeAiConfig } from "./config";
 import { extractionJsonSchema, extractionSystemPrompt, extractionUserPrompt, parseExtraction } from "./extraction";
@@ -414,6 +415,40 @@ export async function takeTurn(db: Db, ai: IntakeAiPort, userId: string, id: str
   turns.push({ role: "assistant", text: message, at: now.toISOString(), lang });
   const saved = await save(db, row, { state, turns, language: newPref !== pref ? newPref : undefined });
   return { session: toDto(saved), reply: message, changed };
+}
+
+// --- Choosing an owner -------------------------------------------------------
+
+export type OwnerCandidate = { id: string; reference: string; name: string; city: string | null; roles: string[]; phoneHint: string | null };
+
+/** "+30 697 123 4567" -> "···· 4567": enough to tell two people with the same name apart, never the number. */
+export function phoneHint(phone: string | null | undefined): string | null {
+  const digits = (phone ?? "").replace(/\D/g, "");
+  return digits.length >= 4 ? `···· ${digits.slice(-4)}` : null;
+}
+
+/**
+ * Finds existing contacts to pick as the owner. Typing a phone or an email finds a
+ * contact too (those are matched by hash), but results carry only a name, reference,
+ * city, roles and the last four digits of a phone: the picker is not a way to read contact details.
+ */
+export async function searchOwnerCandidates(db: Db, query: string): Promise<OwnerCandidate[]> {
+  const q = query.trim().slice(0, 120);
+  if (q.length < 2) return [];
+  const rows = await db.contact.findMany({
+    where: contactWhere({ q }),
+    select: { id: true, reference: true, firstName: true, lastName: true, company: true, city: true, roles: true, mobileEncrypted: true, phoneEncrypted: true },
+    orderBy: [{ lastName: "asc" }, { id: "asc" }],
+    take: 8,
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    reference: r.reference,
+    name: `${r.firstName} ${r.lastName}`.trim() || r.company || r.reference,
+    city: r.city ?? null,
+    roles: r.roles.map(String),
+    phoneHint: phoneHint(decryptField(r.mobileEncrypted) ?? decryptField(r.phoneEncrypted)),
+  }));
 }
 
 // --- Touch edits --------------------------------------------------------------

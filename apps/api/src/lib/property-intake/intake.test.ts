@@ -10,6 +10,7 @@ import { extractionJsonSchema, parseExtraction } from "./extraction";
 import { allowedFields, coerceValue, specByKey } from "./fields";
 import { questionOrder } from "./flow";
 import { parseLabels, PHOTO_LABEL_CODES, sniffImage } from "./photo-labels";
+import { phoneHint } from "./service";
 import { acknowledge, confirmQuestion, pickLanguage, questionFor } from "./replies";
 import {
   applyProposals, clearField, emptyState, evidenceWasSaid, nextStep, readState, resolvePending, setDerived, setManual, skipField, undoLast,
@@ -321,5 +322,15 @@ describe("owner on the session", () => {
     for (const bad of [null, "x", 3, {}, { contactId: 5, label: "x" }, { contactId: "", label: "x" }, { contactId: "c", label: 1 }]) {
       assert.equal(readState({ owner: bad }).owner, null);
     }
+  });
+});
+
+describe("choosing an owner", () => {
+  it("shows only the last four digits of a phone", () => {
+    assert.equal(phoneHint("+30 697 123 4567"), "···· 4567");
+    assert.equal(phoneHint("2109876543"), "···· 6543");
+    assert.equal(phoneHint("123"), null);
+    assert.equal(phoneHint(null), null);
+    assert.ok(!phoneHint("+30 697 123 4567")!.includes("697"));
   });
 });

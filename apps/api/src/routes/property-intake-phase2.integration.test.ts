@@ -164,6 +164,27 @@ test("property intake release 2: owner link and photo labels", { skip: !url && "
   const created3 = await call(agentC, "POST", `/property-intake/sessions/${s3.id}/create`, {});
   assert.equal(created3.body.owner, "none");
 
+  // --- Finding an existing contact -------------------------------------------
+  const { encryptField, hashPhone, hashEmail } = await import("../lib/pii");
+  // Unique per run, so earlier runs against the same database cannot match.
+  const email = `nikos-${run}@example.test`;
+  const phone = `+30 69${String(parseInt(run, 16) % 100000).padStart(5, "0")} 4567`;
+  const ownerC = await db().contact.create({ data: { reference: `C-TC-${run}`, firstName: "Νίκος", lastName: `Ιωάννου${run}`, roles: ["SELLER"] as never, status: "ACTIVE" as never, city: "Βούλα", emailEncrypted: encryptField(email), emailHash: hashEmail(email), mobileEncrypted: encryptField(phone), phoneHash: hashPhone(phone) } });
+  assert.equal((await call(null, "GET", "/property-intake/contacts?q=Ιωάννου")).status, 401);
+  assert.equal((await call(viewerC, "GET", "/property-intake/contacts?q=Ιωάννου")).status, 403);
+  assert.deepEqual((await call(agentC, "GET", "/property-intake/contacts?q=Ι")).body.contacts, [], "one character searches nothing");
+  r = await call(agentC, "GET", `/property-intake/contacts?q=${encodeURIComponent(`Νίκος Ιωάννου${run}`)}`);
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.contacts.map((c: any) => c.id), [ownerC.id], "found by first and last name");
+  assert.deepEqual(r.body.contacts[0], { id: ownerC.id, reference: ownerC.reference, name: `Νίκος Ιωάννου${run}`, city: "Βούλα", roles: ["SELLER"], phoneHint: "···· 4567" });
+  for (const q of [email, phone]) {
+    const byDetail = await call(agentC, "GET", `/property-intake/contacts?q=${encodeURIComponent(q)}`);
+    assert.deepEqual(byDetail.body.contacts.map((c: any) => c.id), [ownerC.id], `found by what was typed: ${q.includes("@") ? "email" : "phone"}`);
+    const text = JSON.stringify(byDetail.body);
+    assert.ok(!text.includes(email) && !text.includes(phone) && !text.includes(phone.replace(/\D/g, "")), "the email and the number are never returned");
+  }
+  assert.deepEqual((await call(agentC, "GET", "/property-intake/contacts?q=zzzz-nobody")).body.contacts, []);
+
   // === Photo labels ==========================================================
   resetRateLimits();
   const s4 = await start();

@@ -21,7 +21,7 @@ import { MAX_LABEL_IMAGE_BYTES, MAX_LABEL_IMAGES, parseLabels, sniffImage } from
 import { imageDimensions } from "../lib/image-size";
 import {
   abandonSession, applyEdit, createProperty, getSession, lastAssistantText, listResumable, normalizeAudioType,
-  startSession, suggestTexts, takeTurn, transcribe,
+  searchOwnerCandidates, startSession, suggestTexts, takeTurn, transcribe,
 } from "../lib/property-intake/service";
 import { requireRole } from "../plugins/auth";
 
@@ -80,6 +80,12 @@ export async function propertyIntakeRoutes(app: FastifyInstance): Promise<void> 
   app.get("/property-intake/status", agent, async () => {
     const cfg = intakeAiConfig();
     return { available: intakeAiAvailable(), maxAudioBytes: cfg.maxAudioBytes, maxUtteranceChars: cfg.maxUtteranceChars };
+  });
+
+  /** Existing contacts matching a name, company, reference, phone or email the agent types. Names and the last four digits only. */
+  app.get("/property-intake/contacts", agent, async (request) => {
+    const { q } = parseInput(z.object({ q: z.string().max(120).default("") }), request.query);
+    return { contacts: await searchOwnerCandidates(db(), q) };
   });
 
   app.get("/property-intake/sessions", agent, async (request) => ({ sessions: await listResumable(db(), request.auth!.user.id) }));

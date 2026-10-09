@@ -4,10 +4,13 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { PendingMedia, type PendingFile } from "@/components/PendingMedia";
-import { browserIO, persistOrder } from "@/lib/browser-upload";
+import { browserIO, makeLabelPreview, persistOrder, saveAltText } from "@/lib/browser-upload";
+import { listenForSpeech, type Listener } from "@/lib/hands-free";
 import {
-  intakeApi, IntakeRequestError, type IntakeEdit, type IntakeOrigin, type IntakeSession,
+  intakeApi, IntakeRequestError, type IntakeEdit, type IntakeOrigin, type IntakeSession, type OwnerCandidate,
 } from "@/lib/intake-client";
+import { photoStore } from "@/lib/pending-photos";
+import { altUpdates, isLabelCode, PHOTO_LABELS, type PhotoLabel } from "@/lib/photo-labels";
 import { uploadAll, type UploadUpdate } from "@/lib/upload-queue";
 import { MAX_RECORDING_SECONDS, recordingToWav, toBase64 } from "@/lib/wav";
 
@@ -59,6 +62,31 @@ function writeDraft(id: string, value: string) {
   }
 }
 
+function labelsKey(id: string) {
+  return `h88.intake.labels.${id}`;
+}
+function readLabels(id: string): Record<string, PhotoLabel> {
+  try {
+    const raw = JSON.parse(window.localStorage.getItem(labelsKey(id)) ?? "{}") as Record<string, PhotoLabel>;
+    return Object.fromEntries(Object.entries(raw).filter(([, v]) => v && isLabelCode(v.code)));
+  } catch {
+    return {};
+  }
+}
+function writeLabels(id: string, labels: Record<string, PhotoLabel>) {
+  try {
+    if (Object.keys(labels).length) window.localStorage.setItem(labelsKey(id), JSON.stringify(labels));
+    else window.localStorage.removeItem(labelsKey(id));
+  } catch {
+    /* labels are a convenience; the photos themselves are what matter */
+  }
+}
+
+/** The seconds the agent has to stop a hands-free message before it is sent. */
+const AUTO_SEND_SECONDS = 3;
+/** After this many silent rounds in a row, hands-free mode switches itself off. */
+const MAX_EMPTY_ROUNDS = 3;
+
 function ValueInput({ spec, value, onChange, id }: { spec: Catalog; value: string; onChange: (v: string) => void; id: string }) {
   if (spec.kind === "bool") {
     return (
@@ -107,12 +135,32 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
   const [created, setCreated] = useState<{ id: string; reference: string } | null>(null);
   const [editing, setEditing] = useState<{ key: string; value: string } | null>(null);
   const [adding, setAdding] = useState("");
+  const [labels, setLabels] = useState<Record<string, PhotoLabel>>({});
+  const [labelling, setLabelling] = useState(false);
+  const [restored, setRestored] = useState(0);
+  const [storageNote, setStorageNote] = useState<string | null>(null);
+  const [ownerQuery, setOwnerQuery] = useState("");
+  const [ownerResults, setOwnerResults] = useState<OwnerCandidate[] | null>(null);
+  const [ownerOutcome, setOwnerOutcome] = useState<"linked" | "skipped" | "none" | null>(null);
+  const [handsFree, setHandsFree] = useState(false);
+  const [autoSend, setAutoSend] = useState<{ text: string; left: number } | null>(null);
+  const [photosReady, setPhotosReady] = useState(false);
 
   const progressRef = useRef<Record<string, UploadUpdate>>({});
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const stopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
+  // Hands-free mode runs from timers and audio callbacks, which must always see the latest state.
+  const handsFreeRef = useRef(false);
+  const listenerRef = useRef<Listener | null>(null);
+  const heardSpeechRef = useRef(false);
+  const discardRef = useRef(false);
+  const emptyRounds = useRef(0);
+  const autoSendTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const wakeLock = useRef<{ release(): Promise<void> } | null>(null);
+  const sendRef = useRef<(text?: string) => Promise<void>>(async () => undefined);
+  const resumeRef = useRef<() => void>(() => undefined);
 
   const fail = useCallback((e: unknown) => setError(e instanceof IntakeRequestError ? e.message : "Κάτι πήγε στραβά. Δοκιμάστε ξανά."), []);
 
@@ -146,7 +194,21 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
     setSession(next);
     setInput(readDraft(next.id));
     setCreated(next.propertyId ? { id: next.propertyId, reference: "" } : null);
+    setLabels(readLabels(next.id));
     setPhase("session");
+    void restorePhotos(next);
+  }
+
+  /** Photos picked before the tab was closed come back from this device's own storage. */
+  async function restorePhotos(next: IntakeSession) {
+    setPhotosReady(false);
+    void photoStore.purgeStale();
+    const stored = await photoStore.load(next.id);
+    if (stored.length > 0) {
+      setPhotos(stored);
+      setRestored(stored.length);
+    }
+    setPhotosReady(true);
   }
 
   async function begin(language: Language = "auto") {
@@ -189,6 +251,23 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
     return () => window.removeEventListener("beforeunload", warn);
   }, [photos.length, created]);
 
+  // The picked photos are kept on this device until they are uploaded, so closing the tab does not lose them.
+  useEffect(() => {
+    if (!session || !photosReady || session.status !== "ACTIVE" || created) return;
+    const timer = setTimeout(async () => {
+      const result = await photoStore.save(session.id, photos);
+      setStorageNote(
+        result === "saved" ? null : result === "full"
+          ? "Ο χώρος του browser γέμισε: οι φωτογραφίες δεν θα σωθούν αν κλείσετε τη σελίδα."
+          : "Ο browser δεν επιτρέπει αποθήκευση εδώ: μην κλείσετε τη σελίδα πριν αποθηκεύσετε το πρόχειρο.",
+      );
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [photos, photosReady, session, created]);
+  useEffect(() => {
+    if (session) writeLabels(session.id, labels);
+  }, [labels, session]);
+
   // --- Sound ---------------------------------------------------------------------
   function unlockAudio() {
     if (!audioRef.current) audioRef.current = new Audio();
@@ -199,7 +278,8 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
     void el.play().catch(() => undefined);
   }
 
-  async function speak(id: string) {
+  /** Speaks the assistant's latest reply. Resolves when it has finished playing (or could not play), so hands-free mode knows when to listen again. */
+  async function speak(id: string): Promise<void> {
     setVoiceNote(null);
     try {
       const out = await intakeApi.speak(id);
@@ -208,10 +288,21 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
       const url = URL.createObjectURL(new Blob([bytes], { type: out.mimeType ?? "audio/wav" }));
       const el = (audioRef.current ??= new Audio());
       el.src = url;
-      el.onended = () => URL.revokeObjectURL(url);
+      const finished = new Promise<void>((resolve) => {
+        const end = () => {
+          URL.revokeObjectURL(url);
+          el.onended = null;
+          el.onerror = null;
+          resolve();
+        };
+        el.onended = end;
+        el.onerror = end;
+        setTimeout(end, 90_000); // never wait forever
+      });
       try {
         await el.play();
         setNeedsTap(false);
+        await finished;
       } catch {
         setNeedsTap(true); // the browser wants a tap before it plays sound
       }
@@ -221,13 +312,19 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
   }
 
   // --- Recording -----------------------------------------------------------------
-  async function startRecording() {
+  /**
+   * Starts listening. By default the agent presses the button again to stop. In hands-free mode the
+   * recording stops by itself after a pause, a recording is only transcribed if speech was heard, and
+   * the microphone is never open while the assistant is speaking.
+   */
+  async function startRecording(options: { handsFree?: boolean } = {}) {
     if (!session) return;
     unlockAudio();
     setError(null);
     setVoiceNote(null);
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       setVoiceNote("Ο browser δεν υποστηρίζει ηχογράφηση. Γράψτε το μήνυμά σας.");
+      if (options.handsFree) stopHandsFree();
       return;
     }
     let stream: MediaStream;
@@ -236,20 +333,48 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
     } catch (e) {
       const denied = e instanceof DOMException && (e.name === "NotAllowedError" || e.name === "SecurityError");
       setVoiceNote(denied ? "Δεν δόθηκε άδεια για το μικρόφωνο. Επιτρέψτε την από τις ρυθμίσεις του browser ή γράψτε." : "Δεν βρέθηκε μικρόφωνο. Γράψτε το μήνυμά σας.");
+      if (options.handsFree) stopHandsFree();
+      return;
+    }
+    if (options.handsFree && !handsFreeRef.current) {
+      stream.getTracks().forEach((t) => t.stop()); // switched off while the permission prompt was open
       return;
     }
     const chunks: Blob[] = [];
     const recorder = new MediaRecorder(stream);
     recorderRef.current = recorder;
+    heardSpeechRef.current = false;
+    discardRef.current = false;
     recorder.ondataavailable = (e) => e.data.size > 0 && chunks.push(e.data);
     recorder.onstop = () => {
+      listenerRef.current?.stop();
+      listenerRef.current = null;
       stream.getTracks().forEach((t) => t.stop());
       if (stopTimer.current) clearTimeout(stopTimer.current);
-      void transcribeClip(new Blob(chunks, { type: recorder.mimeType || "audio/webm" }));
+      if (discardRef.current || (options.handsFree && !heardSpeechRef.current)) {
+        setRecording("idle");
+        if (options.handsFree && !discardRef.current) noteEmptyRound();
+        return;
+      }
+      emptyRounds.current = 0;
+      void transcribeClip(new Blob(chunks, { type: recorder.mimeType || "audio/webm" }), options.handsFree === true);
     };
     recorder.start();
     setRecording("recording");
     stopTimer.current = setTimeout(() => recorder.state === "recording" && recorder.stop(), MAX_RECORDING_SECONDS * 1000);
+    if (options.handsFree) {
+      try {
+        listenerRef.current = listenForSpeech(stream, (event) => {
+          if (event === "speech_start") heardSpeechRef.current = true;
+          else if (recorder.state === "recording") recorder.stop(); // speech_end, too_long, or nobody spoke
+        });
+      } catch {
+        setVoiceNote("Ο browser δεν υποστηρίζει συνομιλία χωρίς χέρια. Χρησιμοποιήστε το κουμπί του μικροφώνου.");
+        discardRef.current = true;
+        recorder.stop();
+        stopHandsFree();
+      }
+    }
   }
 
   function stopRecording() {
@@ -257,31 +382,132 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
     if (r && r.state === "recording") r.stop();
   }
 
-  async function transcribeClip(blob: Blob) {
+  async function transcribeClip(blob: Blob, auto: boolean) {
     if (!session) return;
     if (blob.size < 1500) {
       setRecording("idle");
-      setVoiceNote("Η ηχογράφηση ήταν πολύ σύντομη. Πατήστε το μικρόφωνο και μιλήστε.");
+      if (auto) noteEmptyRound();
+      else setVoiceNote("Η ηχογράφηση ήταν πολύ σύντομη. Πατήστε το μικρόφωνο και μιλήστε.");
       return;
     }
     setRecording("transcribing");
     try {
       const wav = await recordingToWav(blob);
       const out = await intakeApi.transcribe(session.id, toBase64(wav), "audio/wav", session.language);
-      // The transcript lands in the editable box: nothing is applied until the agent sends it.
-      setInput((cur) => (cur ? `${cur} ${out.text}` : out.text));
+      // The transcript lands in the editable box. By hand nothing is applied until the agent sends it;
+      // in hands-free mode it is sent after a short, visible countdown that any tap or edit cancels.
+      setInput((cur) => (cur && !auto ? `${cur} ${out.text}` : out.text));
+      if (auto && handsFreeRef.current) beginAutoSend(out.text);
     } catch (e) {
       if (e instanceof IntakeRequestError) setVoiceNote(e.message);
       else setVoiceNote("Δεν μπόρεσα να διαβάσω την ηχογράφηση. Δοκιμάστε ξανά ή γράψτε.");
+      if (auto) {
+        // A refusal (no key, rate limit) will not fix itself: stop instead of retrying in a loop.
+        if (e instanceof IntakeRequestError && e.code !== "no_speech") stopHandsFree();
+        else noteEmptyRound();
+      }
     } finally {
       setRecording("idle");
     }
   }
 
+  // --- Hands-free ------------------------------------------------------------------
+  function clearAutoSend() {
+    if (autoSendTimer.current) clearInterval(autoSendTimer.current);
+    autoSendTimer.current = null;
+    setAutoSend(null);
+  }
+
+  function beginAutoSend(text: string) {
+    clearAutoSend();
+    let left = AUTO_SEND_SECONDS;
+    setAutoSend({ text, left });
+    autoSendTimer.current = setInterval(() => {
+      left -= 1;
+      if (left > 0) {
+        setAutoSend({ text, left });
+        return;
+      }
+      clearAutoSend();
+      void sendRef.current(text);
+    }, 1000);
+  }
+
+  function noteEmptyRound() {
+    emptyRounds.current += 1;
+    if (emptyRounds.current >= MAX_EMPTY_ROUNDS) {
+      setVoiceNote("Δεν άκουσα κάτι για αρκετή ώρα, οπότε έκλεισα τη συνομιλία χωρίς χέρια. Πατήστε ξανά για να συνεχίσετε.");
+      stopHandsFree();
+      return;
+    }
+    resumeRef.current();
+  }
+
+  async function holdScreenAwake() {
+    try {
+      const api = (navigator as unknown as { wakeLock?: { request(type: "screen"): Promise<{ release(): Promise<void> }> } }).wakeLock;
+      if (api && !wakeLock.current) wakeLock.current = await api.request("screen");
+    } catch {
+      /* the screen may sleep; hands-free pauses with the page */
+    }
+  }
+
+  function startHandsFree() {
+    if (!session || handsFreeRef.current) return;
+    handsFreeRef.current = true;
+    emptyRounds.current = 0;
+    setHandsFree(true);
+    void holdScreenAwake();
+    void startRecording({ handsFree: true });
+  }
+
+  function stopHandsFree() {
+    handsFreeRef.current = false;
+    setHandsFree(false);
+    clearAutoSend();
+    if (recorderRef.current?.state === "recording") {
+      discardRef.current = true;
+      recorderRef.current.stop();
+    }
+    listenerRef.current?.stop();
+    listenerRef.current = null;
+    void wakeLock.current?.release().catch(() => undefined);
+    wakeLock.current = null;
+  }
+
+  /** Listen again after a reply has been spoken. */
+  function resumeListening() {
+    if (!handsFreeRef.current || recorderRef.current?.state === "recording") return;
+    void startRecording({ handsFree: true });
+  }
+  resumeRef.current = resumeListening;
+
+  useEffect(() => {
+    if ((session?.status !== "ACTIVE" || created) && handsFreeRef.current) stopHandsFree();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.status, created]);
+
+  // Hands-free stops with the page, with the draft being saved, and on the way out.
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.hidden && handsFreeRef.current) {
+        stopHandsFree();
+        setVoiceNote("Η συνομιλία χωρίς χέρια σταμάτησε επειδή φύγατε από τη σελίδα.");
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      stopHandsFree();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // --- Conversation ---------------------------------------------------------------
   async function send(text = input) {
     if (!session || !text.trim() || busy) return;
     unlockAudio();
+    clearAutoSend();
     setBusy(true);
     setError(null);
     try {
@@ -289,8 +515,10 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
       setSession(out.session);
       setInput("");
       writeDraft(session.id, "");
-      if (!out.session.muted) void speak(out.session.id);
+      const played = out.session.muted ? Promise.resolve() : speak(out.session.id);
+      if (handsFreeRef.current) void played.then(() => resumeRef.current());
     } catch (e) {
+      if (handsFreeRef.current) stopHandsFree(); // never keep sending into an error
       if (e instanceof IntakeRequestError && e.status === 409) {
         const fresh = await intakeApi.get(session.id).catch(() => null);
         if (fresh) setSession(fresh.session);
@@ -300,6 +528,8 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
       setBusy(false);
     }
   }
+
+  sendRef.current = send;
 
   async function edit(change: IntakeEdit) {
     if (!session) return;
@@ -349,14 +579,26 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
   // --- Saving the draft and uploading photos ---------------------------------------
   async function runUploads(propertyId: string, list: PendingFile[]) {
     const io = browserIO(propertyId);
+    const sessionId = session?.id;
     const result = await uploadAll(io, list.map((p) => p.file), "PHOTO", (index, update) => {
       const item = list[index];
       if (item) {
         progressRef.current = { ...progressRef.current, [item.id]: update };
         setProgress(progressRef.current);
+        // Once a photo is safely uploaded it no longer needs the copy kept on this device.
+        if (update.state === "done" && sessionId) void photoStore.remove(sessionId, item.id);
       }
     });
+    await applyLabels(propertyId, list);
     return result;
+  }
+
+  /** Accepted room labels become the photos' alternative text; a failure here never undoes an upload. */
+  async function applyLabels(propertyId: string, list: PendingFile[]) {
+    const updates = altUpdates(list, labels, (photoId) => (progressRef.current[photoId]?.state === "done" ? progressRef.current[photoId]?.mediaId : undefined));
+    if (updates.length === 0) return;
+    const failed = await saveAltText(propertyId, updates);
+    if (failed > 0) setVoiceNote(`Οι ετικέτες ${failed} φωτογραφιών δεν αποθηκεύτηκαν· μπορείτε να τις προσθέσετε από το ακίνητο.`);
   }
 
   /** The agent's order becomes the gallery order, and the first photo the cover (as on the normal form). */
@@ -367,12 +609,14 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
 
   async function saveDraft() {
     if (!session || busy) return;
+    if (handsFreeRef.current) stopHandsFree();
     setBusy(true);
     setError(null);
     try {
       const out = await intakeApi.create(session.id, session.revision);
       setSession(out.session);
       setCreated(out.property);
+      setOwnerOutcome(out.owner);
       if (photos.length > 0) {
         const result = await runUploads(out.property.id, photos);
         if (result.failed === 0) await savePhotoOrder(out.property.id, photos);
@@ -381,6 +625,81 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
       fail(e);
     } finally {
       setBusy(false);
+    }
+  }
+
+  /** Photos left over from a closed tab, for a draft that was already saved: upload them now. */
+  async function uploadRestored() {
+    if (!created || photos.length === 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      progressRef.current = {};
+      const result = await runUploads(created.id, photos);
+      if (result.failed === 0) setRestored(0);
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // --- Room labels for photos ------------------------------------------------------
+  async function suggestLabels() {
+    if (!session || photos.length === 0) return;
+    const todo = photos.filter((p) => !labels[p.id]);
+    if (todo.length === 0) return;
+    setLabelling(true);
+    setError(null);
+    try {
+      for (let i = 0; i < todo.length; i += 12) {
+        const batch = todo.slice(i, i + 12);
+        const previews = (await Promise.all(batch.map(async (p) => ({ id: p.id, preview: await makeLabelPreview(p.file) })))).flatMap((p) => (p.preview ? [{ id: p.id, ...p.preview }] : []));
+        if (previews.length === 0) continue;
+        const out = await intakeApi.labelPhotos(session.id, previews);
+        setLabels((cur) => {
+          const next = { ...cur };
+          for (const l of out.labels) if (isLabelCode(l.label)) next[l.id] = { code: l.label, confidence: l.confidence, accepted: false };
+          return next;
+        });
+      }
+    } catch (e) {
+      fail(e);
+    } finally {
+      setLabelling(false);
+    }
+  }
+
+  const photoLabel = (id: string) => labels[id];
+  function chooseLabel(id: string, code: string) {
+    setLabels((cur) => {
+      const next = { ...cur };
+      if (!isLabelCode(code)) delete next[id];
+      else next[id] = { code, confidence: "agent", accepted: true };
+      return next;
+    });
+  }
+  const acceptLabel = (id: string) => setLabels((cur) => (cur[id] ? { ...cur, [id]: { ...cur[id]!, accepted: true } } : cur));
+  const acceptAllLabels = () => setLabels((cur) => Object.fromEntries(Object.entries(cur).map(([k, v]) => [k, { ...v, accepted: true }])));
+
+  // --- Owner -----------------------------------------------------------------------
+  async function searchOwner() {
+    const q = ownerQuery.trim();
+    if (q.length < 2) {
+      setOwnerResults(null);
+      return;
+    }
+    try {
+      setOwnerResults((await intakeApi.searchContacts(q)).contacts);
+    } catch (e) {
+      fail(e);
+    }
+  }
+
+  async function chooseOwner(contactId: string | null) {
+    if (await edit({ type: "owner", contactId })) {
+      setOwnerResults(null);
+      setOwnerQuery("");
     }
   }
 
@@ -461,11 +780,50 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
           <button type="button" className="btn btn--outline btn--sm" disabled={busy || done} onClick={() => void edit({ type: "settings", muted: !session.muted })} aria-pressed={session.muted}>
             {session.muted ? "🔇 Σίγαση" : "🔊 Φωνή"}
           </button>
+          <button
+            type="button"
+            className={handsFree ? "btn btn--primary btn--sm" : "btn btn--outline btn--sm"}
+            disabled={done || !available || (busy && !handsFree)}
+            onClick={() => (handsFree ? stopHandsFree() : startHandsFree())}
+            aria-pressed={handsFree}
+            title="Μιλάτε χωρίς να πατάτε κουμπί: ο βοηθός ακούει, απαντά και ξανακούει."
+          >
+            {handsFree ? "🎧 Χωρίς χέρια: ενεργό" : "🎧 Χωρίς χέρια"}
+          </button>
         </div>
       </div>
 
       {error && <p className="notice notice--danger" role="alert">{error}</p>}
       {voiceNote && <p className="notice" role="status">{voiceNote}</p>}
+      {handsFree && (
+        <div className="notice intake-handsfree" role="status" aria-live="polite">
+          {autoSend ? (
+            <>
+              <span>Αποστολή σε {autoSend.left}…</span>
+              <span className="intake-pending__buttons">
+                <button type="button" className="btn btn--outline btn--sm" onClick={() => { clearAutoSend(); stopRecording(); }}>Ακύρωση — θα το διορθώσω</button>
+                <button type="button" className="btn btn--primary btn--sm" onClick={() => void send(autoSend.text)}>Στείλε τώρα</button>
+              </span>
+            </>
+          ) : recording === "recording" ? (
+            <span>Ακούω… μιλήστε και σταματήστε όταν τελειώσετε.</span>
+          ) : recording === "transcribing" ? (
+            <span>Μετατροπή σε κείμενο…</span>
+          ) : busy ? (
+            <span>Σκέφτομαι…</span>
+          ) : input.trim() ? (
+            <>
+              <span>Διορθώστε το κείμενο και πατήστε Αποστολή· μετά την απάντηση θα ακούω ξανά.</span>
+              <button type="button" className="btn btn--outline btn--sm" onClick={() => { setInput(""); resumeListening(); }}>Άκου ξανά από την αρχή</button>
+            </>
+          ) : (
+            <>
+              <span>Συνομιλία χωρίς χέρια ενεργή. Θα ακούσω ξανά μόλις απαντήσω.</span>
+              <button type="button" className="btn btn--outline btn--sm" onClick={() => resumeListening()}>🎤 Άκου τώρα</button>
+            </>
+          )}
+        </div>
+      )}
 
       <section className="intake-log" ref={logRef} aria-label="Συνομιλία" aria-live="polite">
         {session.turns.map((t, i) => (
@@ -502,7 +860,7 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
             value={input}
             placeholder={recording === "recording" ? "Ηχογράφηση… πατήστε ξανά για να σταματήσει." : recording === "transcribing" ? "Μετατροπή σε κείμενο…" : "Μιλήστε ή γράψτε. Μπορείτε να διορθώσετε το κείμενο πριν το στείλετε."}
             disabled={busy || recording === "transcribing"}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => { if (autoSend) clearAutoSend(); setInput(e.target.value); }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void send();
             }}
@@ -629,10 +987,114 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
         </section>
       )}
 
+      <section className="card intake-panel" aria-label="Ιδιοκτήτης">
+        <h2 style={{ marginTop: 0 }}>Ιδιοκτήτης</h2>
+        <p className="hint">
+          Επιλέξτε μια υπάρχουσα επαφή. Για την προστασία των προσωπικών δεδομένων μην υπαγορεύετε τηλέφωνα ή email στον βοηθό· ψάξτε την επαφή εδώ
+          ή δημιουργήστε πρώτα τη νέα επαφή.
+        </p>
+        {session.owner ? (
+          <p>
+            <strong>{session.owner.label}</strong> <span className="hint">· {session.owner.reference}</span>
+            {!done && (
+              <>
+                {" "}
+                <button type="button" className="btn btn--ghost btn--sm" disabled={busy} onClick={() => void chooseOwner(null)}>Αφαίρεση</button>
+              </>
+            )}
+          </p>
+        ) : (
+          <p className="muted">Δεν έχει οριστεί ιδιοκτήτης.</p>
+        )}
+        {!done && (
+          <>
+            <div className="intake-edit">
+              <label className="sr-only" htmlFor="owner-q">Αναζήτηση επαφής</label>
+              <input
+                id="owner-q"
+                type="search"
+                value={ownerQuery}
+                placeholder="Όνομα, εταιρεία, κωδικός επαφής, τηλέφωνο ή email"
+                onChange={(e) => setOwnerQuery(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") void searchOwner(); }}
+              />
+              <button type="button" className="btn btn--outline btn--sm" disabled={busy || ownerQuery.trim().length < 2} onClick={() => void searchOwner()}>Αναζήτηση</button>
+              <Link className="btn btn--ghost btn--sm" href="/contacts/new" target="_blank" rel="noopener">Νέα επαφή ↗</Link>
+            </div>
+            {ownerResults && ownerResults.length === 0 && <p className="hint">Δεν βρέθηκε επαφή. Δημιουργήστε την από το «Νέα επαφή» και αναζητήστε ξανά.</p>}
+            {ownerResults && ownerResults.length > 0 && (
+              <ul className="intake-rows">
+                {ownerResults.map((c) => (
+                  <li key={c.id}>
+                    <div className="intake-rows__main">
+                      <strong>{c.name}</strong>
+                      <span className="hint">{[c.reference, c.city, c.phoneHint].filter(Boolean).join(" · ")}</span>
+                    </div>
+                    <div className="intake-rows__meta">
+                      <button type="button" className="btn btn--outline btn--sm" disabled={busy} onClick={() => void chooseOwner(c.id)}>Επιλογή</button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="hint">Ο ιδιοκτήτης συνδέεται όταν αποθηκευτεί το πρόχειρο.</p>
+          </>
+        )}
+      </section>
+
       <section className="card intake-panel" aria-label="Φωτογραφίες">
         <h2 style={{ marginTop: 0 }}>Φωτογραφίες</h2>
         <p className="hint">Φωτογραφίστε τώρα ή προσθέστε τις αργότερα. Παραμένουν ιδιωτικές μέχρι να εγκριθούν.</p>
-        <PendingMedia files={photos} onChange={setPhotos} progress={progress} disabled={busy || done} maxBytes={maxUploadBytes} camera />
+        {storageNote && <p className="notice" role="status">{storageNote}</p>}
+        {restored > 0 && !done && <p className="notice" role="status">Επαναφέρθηκαν {restored} φωτογραφίες που είχατε επιλέξει πριν κλείσει η σελίδα.</p>}
+        {restored > 0 && done && !progress && (
+          <div className="notice notice--danger" role="alert">
+            Το πρόχειρο είχε αποθηκευτεί, αλλά {photos.length} φωτογραφίες δεν είχαν ανέβει πριν κλείσει η σελίδα.
+            <div style={{ marginTop: 8 }}><button type="button" className="btn btn--primary btn--sm" disabled={busy} onClick={() => void uploadRestored()}>Ανέβασμα τώρα</button></div>
+          </div>
+        )}
+        <PendingMedia
+          files={photos}
+          onChange={setPhotos}
+          progress={progress}
+          disabled={busy || (done && !(restored > 0 && !progress))}
+          maxBytes={maxUploadBytes}
+          camera
+          renderExtra={(item) => {
+            const label = photoLabel(item.id);
+            if (!label && !(photos.length > 0 && !progress)) return null;
+            return (
+              <span className="intake-photo-label">
+                <label className="sr-only" htmlFor={`label-${item.id}`}>Ετικέτα φωτογραφίας {item.file.name}</label>
+                <select id={`label-${item.id}`} value={label?.code ?? ""} disabled={busy || Boolean(progress)} onChange={(e) => chooseLabel(item.id, e.target.value)}>
+                  <option value="">Χωρίς ετικέτα</option>
+                  {PHOTO_LABELS.map((l) => <option key={l.code} value={l.code}>{l.el}</option>)}
+                </select>
+                {label && !label.accepted && (
+                  <>
+                    <span className="badge badge--warn">Πρόταση AI{label.confidence === "low" ? " (αβέβαιη)" : ""} — επιβεβαιώστε</span>
+                    <button type="button" className="btn btn--outline btn--sm" disabled={busy || Boolean(progress)} onClick={() => acceptLabel(item.id)}>Αποδοχή</button>
+                  </>
+                )}
+                {label?.accepted && <span className="badge badge--ok">Ετικέτα</span>}
+              </span>
+            );
+          }}
+        />
+        {!done && photos.length > 0 && !progress && (
+          <div className="intake-label-actions">
+            <button type="button" className="btn btn--outline btn--sm" disabled={busy || labelling || !available || photos.every((p) => labels[p.id])} onClick={() => void suggestLabels()}>
+              {labelling ? "Ανάλυση…" : "Πρόταση ετικετών από AI"}
+            </button>
+            {Object.values(labels).some((l) => !l.accepted) && (
+              <button type="button" className="btn btn--ghost btn--sm" disabled={busy} onClick={acceptAllLabels}>Αποδοχή όλων των προτάσεων</button>
+            )}
+            <p className="hint">
+              Για την πρόταση στέλνονται μικρές εκδοχές των φωτογραφιών στην υπηρεσία Gemini της Google, μόνο όταν πατήσετε το κουμπί. Δεν αποθηκεύονται από το HOME88. Οι ετικέτες που αποδέχεστε γίνονται
+              το εναλλακτικό κείμενο των φωτογραφιών.
+            </p>
+          </div>
+        )}
         {!done && (
           <label className="intake-later">
             <input type="checkbox" checked={session.photosLater} disabled={busy} onChange={(e) => void edit({ type: "settings", photosLater: e.target.checked })} /> Θα ανεβάσω φωτογραφίες αργότερα
@@ -667,6 +1129,8 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
                 <div style={{ marginTop: 8 }}><button type="button" className="btn btn--primary btn--sm" onClick={() => void retryPhotos()}>Επανάληψη των φωτογραφιών που απέτυχαν</button></div>
               </div>
             )}
+            {ownerOutcome === "linked" && session.owner && <p className="hint">Ο ιδιοκτήτης {session.owner.label} συνδέθηκε με το ακίνητο.</p>}
+            {ownerOutcome === "skipped" && <p className="notice notice--danger" role="alert">Το πρόχειρο αποθηκεύτηκε, αλλά ο ιδιοκτήτης δεν συνδέθηκε (η επαφή δεν υπάρχει πια). Συνδέστε τον από το ακίνητο.</p>}
             {created && <Link className="btn btn--primary btn--lg" href={`/properties/${created.id}`}>Μετάβαση στο ακίνητο</Link>}
           </>
         )}
