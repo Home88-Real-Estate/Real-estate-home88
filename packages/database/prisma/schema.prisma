@@ -414,6 +414,7 @@ enum AuditEntity {
   MANDATE
   MESSAGE
   REPORT
+  PROPERTY_INTAKE
 }
 
 // ---------------------------------------------------------------------------
@@ -503,6 +504,7 @@ model User {
   propertyPriceChanges      PropertyPriceHistory[]
   invitationsSent           Invitation[]            @relation("InvitationInviter")
   assignedValuationRequests ValuationRequest[]      @relation("ValuationRequestAgent")
+  propertyIntakeSessions    PropertyIntakeSession[]
 
   @@index([role])
   @@index([status])
@@ -755,6 +757,7 @@ model Property {
   tasks                    Task[]
   statusHistory            PropertyStatusHistory[]
   priceHistory             PropertyPriceHistory[]
+  intakeSession            PropertyIntakeSession?    @relation("PropertyIntakeProperty")
   submissionsLinked        PropertySubmission[]
 
   /// Commission is stored as a rate, not a hard-coded percentage.
@@ -3853,4 +3856,42 @@ model ContactProperty {
   @@unique([contactId, propertyId, relation])
   @@index([propertyId])
   @@map("contact_properties")
+}
+
+// ---------------------------------------------------------------------------
+// Voice/text property intake
+//
+// A resumable conversation that turns what an agent says into a property
+// draft. It holds only the structured answers and a short, capped transcript;
+// the property itself is created through the normal property service, and no
+// audio is ever stored. Nothing here is public.
+// ---------------------------------------------------------------------------
+
+enum PropertyIntakeStatus {
+  ACTIVE
+  CREATED
+  ABANDONED
+}
+
+model PropertyIntakeSession {
+  id         String               @id @default(cuid())
+  userId     String
+  user       User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status     PropertyIntakeStatus @default(ACTIVE)
+  /// "auto" | "el" | "en": the language the assistant answers in.
+  language   String               @default("auto")
+  /// Captured fields with their origin, skipped keys, pending confirmations.
+  state      Json                 @default("{}")
+  /// The last turns of the conversation (capped), so the agent can see and correct them.
+  turns      Json                 @default("[]")
+  /// Bumped on every change; a stale writer is refused instead of overwriting.
+  revision   Int                  @default(0)
+  /// Set once the property exists; unique so a retry can never create a second one.
+  propertyId String?              @unique
+  property   Property?            @relation("PropertyIntakeProperty", fields: [propertyId], references: [id], onDelete: SetNull)
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
+
+  @@index([userId, status, updatedAt])
+  @@map("property_intake_sessions")
 }

@@ -168,7 +168,8 @@ const nextConfig = {
           { key: "X-Frame-Options", value: "DENY" },
           { key: "Referrer-Policy", value: "no-referrer" },
           { key: "X-DNS-Prefetch-Control", value: "off" },
-          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()" },
+          // The microphone is allowed for the CRM's own pages only: the voice property assistant records with it.
+          { key: "Permissions-Policy", value: "camera=(), microphone=(self), geolocation=(), payment=(), usb=()" },
           { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
           // An internal tool should never be indexed, on any path.
           { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" },

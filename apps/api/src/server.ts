@@ -29,6 +29,7 @@ import { portalRoutes } from "./routes/portals";
 import { portalAccountRoutes } from "./routes/portal-accounts";
 import { publicationRoutes } from "./routes/publications";
 import { propertyRoutes } from "./routes/properties";
+import { propertyIntakeRoutes } from "./routes/property-intake";
 import { requestRoutes } from "./routes/requests";
 import { sellerRoutes } from "./routes/sellers";
 import { settingsRoutes } from "./routes/settings";
@@ -121,6 +122,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(accountRoutes, { prefix: "/api" });
   await app.register(invitationRoutes, { prefix: "/api" });
   await app.register(propertyRoutes, { prefix: "/api" });
+  await app.register(propertyIntakeRoutes, { prefix: "/api" });
   await app.register(leadRoutes, { prefix: "/api" });
   await app.register(contactRoutes, { prefix: "/api" });
   await app.register(portalRoutes, { prefix: "/api" });

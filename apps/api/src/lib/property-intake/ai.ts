@@ -1,0 +1,210 @@
+/**
+ * The one place this feature talks to Gemini.
+ *
+ * Everything else depends on `IntakeAiPort`, so the conversation logic is
+ * tested with a scripted port and the real SDK runs only against a configured
+ * server. Credentials stay here: the browser never sees a key, and error
+ * messages never carry provider text.
+ */
+
+import { GoogleGenAI } from "@google/genai";
+
+import { intakeAiConfig, type IntakeAiConfig } from "./config";
+import { SUGGEST_SYSTEM } from "./extraction";
+import type { Lang } from "./state";
+
+export type IntakeFailure = "not_configured" | "timeout" | "provider" | "empty" | "invalid";
+
+/** Any failure of the AI side. The cause is kept for the server log only. */
+export class IntakeAiError extends Error {
+  constructor(readonly category: IntakeFailure, cause?: unknown) {
+    super(`Property intake AI failed (${category}).`);
+    this.name = "IntakeAiError";
+    if (cause !== undefined) this.cause = cause;
+  }
+}
+
+export type LanguagePreference = "auto" | Lang;
+
+export type SuggestedTexts = { titleEl?: string; titleEn?: string; descriptionEl?: string; descriptionEn?: string };
+
+export interface IntakeAiPort {
+  /** Speech to text. `language` is null when the model could not tell. */
+  transcribe(input: { audio: Buffer; mimeType: string; preference: LanguagePreference }, signal: AbortSignal): Promise<{ text: string; language: Lang | null }>;
+  /** Runs an extraction request and returns the model's raw JSON (validated by the caller). */
+  extract(input: { system: string; user: string; schema: Record<string, unknown> }, signal: AbortSignal): Promise<unknown>;
+  /** Greek and English title/description drafted from confirmed facts only. */
+  suggestTexts(input: { facts: Array<{ label: string; value: string }> }, signal: AbortSignal): Promise<SuggestedTexts>;
+  /** Text to speech: a playable WAV. */
+  speak(input: { text: string; lang: Lang }, signal: AbortSignal): Promise<{ wav: Buffer; sampleRate: number }>;
+}
+
+const SPEECH_SAMPLE_RATE = 24_000;
+
+/** Wraps raw 16-bit mono PCM (what Gemini TTS returns) in a WAV header so every browser can play it. */
+export function pcmToWav(pcm: Buffer, sampleRate: number = SPEECH_SAMPLE_RATE): Buffer {
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + pcm.length, 4);
+  header.write("WAVE", 8);
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20); // PCM
+  header.writeUInt16LE(1, 22); // mono
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([header, pcm]);
+}
+
+function statusOf(cause: unknown): number | undefined {
+  if (typeof cause !== "object" || cause === null) return undefined;
+  const r = cause as { status?: unknown; code?: unknown };
+  for (const v of [r.status, r.code]) {
+    const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
+    if (Number.isInteger(n) && n > 0) return n;
+  }
+  return undefined;
+}
+
+/** Throttling and 5xx are worth one retry; a bad key, model or request is not. */
+export function isTransient(cause: unknown): boolean {
+  const status = statusOf(cause);
+  return status === undefined ? true : status === 429 || (status >= 500 && status <= 504);
+}
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+async function withRetry<T>(signal: AbortSignal, run: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await run();
+    } catch (error) {
+      const retry = error instanceof IntakeAiError && error.category === "provider" && !signal.aborted && isTransient(error.cause);
+      if (!retry || attempt >= 2) throw error;
+      await sleep(250 * attempt);
+    }
+  }
+}
+
+function fail(signal: AbortSignal, error: unknown): never {
+  throw new IntakeAiError(signal.aborted ? "timeout" : "provider", error);
+}
+
+function jsonOf(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new IntakeAiError("invalid");
+  }
+}
+
+export function createGeminiIntakeAi(config: Pick<IntakeAiConfig, "apiKey" | "transcribeModel" | "extractModel" | "ttsModel" | "ttsVoice">): IntakeAiPort {
+  if (!config.apiKey) throw new IntakeAiError("not_configured");
+  const client = new GoogleGenAI({ apiKey: config.apiKey });
+
+  async function text(model: string, signal: AbortSignal, request: Parameters<typeof client.models.generateContent>[0]["contents"], system: string | undefined, schema: unknown, maxOutputTokens: number): Promise<string> {
+    return withRetry(signal, async () => {
+      let response;
+      try {
+        response = await client.models.generateContent({
+          model,
+          contents: request,
+          config: { systemInstruction: system, responseMimeType: "application/json", responseJsonSchema: schema, temperature: 0, maxOutputTokens, abortSignal: signal },
+        });
+      } catch (error) {
+        return fail(signal, error);
+      }
+      const out = (response.candidates?.[0]?.content?.parts ?? []).flatMap((p) => (typeof p.text === "string" && !p.thought ? [p.text] : [])).join("").trim();
+      if (!out) throw new IntakeAiError("empty");
+      return out;
+    });
+  }
+
+  return {
+    async transcribe({ audio, mimeType, preference }, signal) {
+      const hint = preference === "el" ? "The speaker is most likely speaking Greek." : preference === "en" ? "The speaker is most likely speaking English." : "The speaker may speak Greek, English, or both in the same recording.";
+      const raw = await text(
+        config.transcribeModel,
+        signal,
+        [{ role: "user", parts: [{ inlineData: { mimeType, data: audio.toString("base64") } }, { text: `Transcribe the speech in this audio exactly as spoken, in the language spoken, using Greek letters for Greek. ${hint} Do not translate, summarise or add anything. If there is no intelligible speech, return an empty text. Reply as JSON: {"text": string, "language": "el" | "en"}.` }] }],
+        undefined,
+        { type: "object", properties: { text: { type: "string" }, language: { type: "string", enum: ["el", "en"] } }, required: ["text", "language"] },
+        1500,
+      );
+      const parsed = jsonOf(raw) as { text?: unknown; language?: unknown };
+      const spoken = typeof parsed.text === "string" ? parsed.text.trim() : "";
+      if (!spoken) throw new IntakeAiError("empty");
+      return { text: spoken, language: parsed.language === "el" || parsed.language === "en" ? parsed.language : null };
+    },
+
+    async extract({ system, user, schema }, signal) {
+      return jsonOf(await text(config.extractModel, signal, [{ role: "user", parts: [{ text: user }] }], system, schema, 1500));
+    },
+
+    async suggestTexts({ facts }, signal) {
+      const raw = await text(
+        config.extractModel,
+        signal,
+        [{ role: "user", parts: [{ text: `Facts:\n${facts.map((f) => `- ${f.label}: ${f.value}`).join("\n")}` }] }],
+        SUGGEST_SYSTEM,
+        {
+          type: "object",
+          properties: { titleEl: { type: "string" }, titleEn: { type: "string" }, descriptionEl: { type: "string" }, descriptionEn: { type: "string" } },
+          required: ["titleEl", "titleEn", "descriptionEl", "descriptionEn"],
+        },
+        1200,
+      );
+      const p = jsonOf(raw) as Record<string, unknown>;
+      const pick = (k: string, max: number) => (typeof p[k] === "string" && p[k]!.toString().trim() ? p[k]!.toString().trim().slice(0, max) : undefined);
+      return { titleEl: pick("titleEl", 200), titleEn: pick("titleEn", 200), descriptionEl: pick("descriptionEl", 5000), descriptionEn: pick("descriptionEn", 5000) };
+    },
+
+    async speak({ text: spoken }, signal) {
+      return withRetry(signal, async () => {
+        let response;
+        try {
+          response = await client.models.generateContent({
+            model: config.ttsModel,
+            contents: [{ role: "user", parts: [{ text: spoken }] }],
+            config: {
+              responseModalities: ["AUDIO"],
+              speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: config.ttsVoice } } },
+              abortSignal: signal,
+            },
+          });
+        } catch (error) {
+          return fail(signal, error);
+        }
+        const part = (response.candidates?.[0]?.content?.parts ?? []).find((p) => p.inlineData?.data);
+        if (!part?.inlineData?.data) throw new IntakeAiError("empty");
+        return { wav: pcmToWav(Buffer.from(part.inlineData.data, "base64")), sampleRate: SPEECH_SAMPLE_RATE };
+      });
+    },
+  };
+}
+
+let override: IntakeAiPort | null | undefined;
+let cached: { key: string; port: IntakeAiPort } | null = null;
+
+/** Test seam: `null` restores the real provider. */
+export function setIntakeAi(port: IntakeAiPort | null): void {
+  override = port ?? undefined;
+}
+
+/** The provider for this process, or null when no key is configured. */
+export function intakeAi(): IntakeAiPort | null {
+  if (override) return override;
+  const config = intakeAiConfig();
+  if (!config.apiKey) return null;
+  const signature = [config.apiKey.length, config.transcribeModel, config.extractModel, config.ttsModel, config.ttsVoice].join("|");
+  if (!cached || cached.key !== signature) cached = { key: signature, port: createGeminiIntakeAi(config) };
+  return cached.port;
+}
+
+export function intakeAiAvailable(): boolean {
+  return Boolean(override) || Boolean(intakeAiConfig().apiKey);
+}
