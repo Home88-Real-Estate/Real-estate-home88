@@ -299,7 +299,7 @@ export function Shell({
           Ακίνητα
         </Link>
         {hasRole(user.role, "AGENT") ? (
-          <Link href="/properties/new" aria-label="Νέο ακίνητο">
+          <Link href="/properties/new/assistant" aria-label="Νέο ακίνητο">
             <span className="tabbar__add">
               <Icon name="plus" size={24} />
             </span>

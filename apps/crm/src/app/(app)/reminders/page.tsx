@@ -85,7 +85,7 @@ export default async function RemindersPage({
         )}
       </div>
 
-      <section className="panel">
+      <section id="new" className="panel">
         <h2>Νέα υπενθύμιση</h2>
         <TaskForm />
       </section>

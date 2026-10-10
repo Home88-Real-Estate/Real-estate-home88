@@ -856,6 +856,62 @@ a.list__title:hover { color: var(--link); }
 
 .dash-error { margin-bottom: 18px; }
 
+/* --- Quick actions (the phone's first screen) ------------------------------ */
+.quick {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px 16px; align-items: center;
+  margin-bottom: 18px;
+}
+.quick__main { display: grid; gap: 4px; justify-items: start; }
+.quick__primary {
+  display: flex; align-items: center; gap: 12px; padding: 10px 18px 10px 10px; border-radius: var(--radius-lg);
+  background: var(--brand); color: var(--brand-ink); text-decoration: none; box-shadow: 0 8px 18px rgba(11, 83, 148, 0.22);
+}
+.quick__primary:hover { background: var(--brand-hover); color: var(--brand-ink); text-decoration: none; }
+.quick__plus { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: rgba(255, 255, 255, 0.16); }
+.quick__text { display: grid; line-height: 1.25; }
+.quick__text strong { font-size: 1.02rem; }
+.quick__sub { font-size: 0.78rem; opacity: 0.86; }
+.quick__alt { font-size: 0.8rem; padding-left: 4px; }
+.quick__grid { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.quick__action {
+  display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px;
+  background: var(--paper); border: 1px solid var(--line); color: var(--ink-2); font-size: 0.86rem; font-weight: 650; text-decoration: none;
+}
+.quick__action:hover { border-color: var(--line-strong); color: var(--ink); text-decoration: none; }
+.quick__action .icon { color: var(--link); }
+.quick__drafts, .quick > .sync { grid-column: 1 / -1; }
+.quick__drafts h2 { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-muted); margin: 4px 0 8px; }
+.quick__drafts ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
+.quick__drafts a {
+  display: grid; gap: 2px; padding: 10px 14px; border-radius: var(--radius); border: 1px dashed var(--line-strong);
+  background: var(--paper); color: var(--ink); text-decoration: none;
+}
+.quick__drafts a:hover { border-style: solid; text-decoration: none; }
+.quick__draft-title { font-weight: 650; overflow-wrap: anywhere; }
+
+/* On a phone the dashboard reads top-down in the order an agent works: act, today, recent, then figures. */
+@media (max-width: 760px) {
+  .quick { grid-template-columns: minmax(0, 1fr); }
+  .quick__main { justify-items: stretch; }
+  .quick__primary { padding: 14px 16px; }
+  .quick__plus { width: 46px; height: 46px; }
+  .quick__text strong { font-size: 1.15rem; }
+  .quick__alt { justify-self: center; padding: 6px; }
+  .quick__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .quick__grid li { display: grid; }
+  .quick__action { flex-direction: column; justify-content: center; gap: 6px; min-height: 76px; padding: 10px 6px; border-radius: var(--radius-lg); text-align: center; font-size: 0.78rem; line-height: 1.2; }
+  .dash { display: flex; flex-direction: column; }
+  .dash > .dash-grid, .dash .dash-main, .dash > .dash-head { display: contents; }
+  .dash > .dash-head > :first-child { order: 0; margin-bottom: 14px; }
+  .dash > .quick { order: 1; }
+  .dash > .today { order: 2; }
+  .dash .dash-side { order: 3; margin-bottom: 18px; }
+  .dash .dash-recent { order: 4; margin-bottom: 18px; }
+  .dash > .dash-head > .dash-filters { order: 5; margin-bottom: 14px; }
+  .dash > .kpi-section { order: 6; }
+  .dash .dash-main > :not(.dash-recent) { order: 7; margin-bottom: 18px; }
+}
+
 @media (max-width: 1320px) {
   .dash-grid { grid-template-columns: minmax(0, 1fr) 340px; }
   .multiples { grid-template-columns: repeat(2, minmax(0, 1fr)); }
