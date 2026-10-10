@@ -125,11 +125,63 @@ characteristics of the property's own profile first, features as one-tap chips, 
 instead of a 100-item dropdown; a review that separates what is required to save a draft from what is needed
 before activation; a sticky Back / Continue / Save bar that sits above the phone tab bar.
 
+## Release 3: redesigned workspace, location, offline drafts, installable app, documents, passport
+
+**Voice workspace.** The assistant page was rebuilt on the same intake logic (recording, hands-free,
+transcription, turns, touch edits, saving and uploads are unchanged). The microphone has one explicit state
+(idle, requesting permission, recording, processing, transcript ready, error); its waveform follows the real
+microphone signal, read locally through an analyser and drawn on a canvas, and the microphone is released as
+soon as a recording ends. Typing is a full mode of its own. "Τι έχει καταγραφεί" shows the five facts every
+listing needs (title, description, price or rent, area, size) from the server's state: a value counts only
+once it is the agent's own or approved, and AI text shows as "to review". Shortcuts start a sentence for what
+is missing; examples are templates whose bracketed parts must be filled before sending. The server draft is
+made on the first action and the address carries `?session=` so a reload reopens it.
+
+**Location.** Step 2 records where the property is: GPS on site (with its accuracy), a tap on an
+OpenStreetMap tile map (`NEXT_PUBLIC_MAP_TILES`, `off` to hide the map), or typed/pasted coordinates. The exact
+point stays in the intake session (the recording agent and managers see it on the property page). The
+property's own latitude/longitude, which the website and portals read, receive only what the agent chose:
+exact, approximate (snapped to a ~500 m grid) or nothing. The street address is never published.
+`Permissions-Policy` allows geolocation for the CRM's own pages; `img-src` allows the tile server's images.
+
+**Offline drafts.** Drafts entered without a connection live in IndexedDB with an operation queue (id,
+entity, type, payload, created, status, retries, last error, last attempt). The sync starts the server
+draft with the device's id (`clientRef`: the same id returns the same session, so a retry never duplicates),
+writes a field only if the server still holds the value the device last saw (otherwise the agent settles a
+conflict), sends notes to the assistant once, saves as a draft property when complete enough, and deletes each
+photo from the device only after the server confirmed it. It runs while a CRM page is open (not in the
+background), one run at a time across tabs, retrying busy servers with growing waits. Logout warns about
+anything unsynced and clears drafts, photos, unsent text and caches from the device.
+
+**Installable app.** A manifest under the CRM base path and a service worker that keeps only the app's own
+static files plus a data-free offline page; CRM pages and API answers are never cached. Production builds
+only (`NEXT_PUBLIC_SW_DEV=1` to try it in development).
+
+**Documents and mandate.** Each property gets a document checklist (title deed, cadastre, topographic plan,
+permits, engineer's certificate, building identity, energy certificate, tax, mandate, lease, other) with
+explicit statuses (Δεν απαιτείται, Εκκρεμεί, Ζητήθηκε, Ανέβηκε, Υπό έλεγχο, Επαληθεύτηκε, Απορρίφθηκε,
+Έληξε). Suggestions per listing and property type live in `packages/domain/src/property-documents.ts`.
+An uploaded file answers its item; only a manager marks it verified or rejected, and that review is recorded.
+The checklist tracks documents and never states that a property is legally transferable. After saving, step 5
+shows the property's file (checklist and "Νέα εντολή ανάθεσης", which uses the existing mandate workflow and
+approved templates).
+
+**Property passport.** The property page opens with five separate readinesses (data completeness,
+documents, legal/technical review, advert readiness, transaction readiness), then owners, location, photos,
+documents, mandate, publication, interest (leads, matching requests, viewings, offers) and history, from one
+`GET /properties/:id/passport` scoped like the lists it links to.
+
+**Database.** The checklist needs migration `20261022000000_property_document_checklist` (one new table,
+nothing else changes). Apply it with the usual procedure (`npm run prisma:deploy` with the direct database
+URL) before deploying this release. Until it is applied, the checklist shows a clear message instead of
+failing, and the rest of the property page works.
+
 ## Not in this release
 
-Voice-driven owner details (deliberately, see above), room-aware photo ordering, geocoding or GPS, creating a contact from the
-assistant, offline creation of a draft with a sync queue (photos and unsent text are kept on the device, but saving
-the draft needs a connection), document/legal checklists and mandates inside this flow.
+Voice-driven owner details (deliberately, see above), room-aware photo ordering, address search (geocoding),
+creating a contact from the assistant, background sync with the browser closed, document requirements edited
+from Settings (they are configured in code), electronic signature beyond the existing mandate workflow.
 
-Tested here with a simulated microphone (a looping audio file fed to a real Chromium) and a scripted AI; a real phone, a real
-microphone in a noisy room, Bluetooth headsets and iOS Safari behaviour have not been tested.
+Tested here with a simulated microphone (a looping audio file fed to a real Chromium), Playwright's network
+switch for offline, a scripted AI and a local fake object store; a real phone, a real microphone in a noisy
+room, Bluetooth headsets, iOS Safari and real map tiles from this environment have not been tested.

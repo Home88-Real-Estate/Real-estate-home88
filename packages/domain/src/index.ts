@@ -23,3 +23,4 @@ export * from "./document-fields";
 export * from "./document-render";
 export * from "./website-publication";
 export * from "./publication-panel";
+export * from "./property-documents";

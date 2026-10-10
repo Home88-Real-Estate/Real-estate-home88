@@ -8,6 +8,7 @@ import { CapturePanel } from "@/components/intake/CapturePanel";
 import { FeatureChips, FieldPicker, FieldRow, ORIGIN_LABEL } from "@/components/intake/fields";
 import { LocationPicker } from "@/components/intake/LocationPicker";
 import { OfflineDraftEditor } from "@/components/offline/OfflineDraftEditor";
+import { DocumentChecklist } from "@/components/property/DocumentChecklist";
 import { SyncStatus } from "@/components/offline/OfflineWorkspace";
 import { Stepper, type StepIndex, type StepState } from "@/components/intake/steps";
 import { VoiceOrb, type MicState } from "@/components/intake/VoiceOrb";
@@ -1525,6 +1526,21 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
           {reviewSection}
           {!done && texts}
           {saveSection}
+          {done && created && (
+            <section className="xcard ipanel" aria-labelledby="file-title">
+              <div className="ipanel__head">
+                <div>
+                  <h2 id="file-title">Φάκελος ακινήτου</h2>
+                  <p className="hint">Τα έγγραφα και η εντολή ανάθεσης του ακινήτου. Συμπληρώνονται τώρα ή αργότερα από την καρτέλα του.</p>
+                </div>
+                <span className="row">
+                  <ActionLink variant="primary" size="sm" icon="mandate" href={created.reference ? `/mandates/new?property=${encodeURIComponent(created.reference)}` : `/properties/${created.id}#mandate`}>Νέα εντολή ανάθεσης</ActionLink>
+                  <ActionLink variant="secondary" size="sm" icon="building" href={`/properties/${created.id}`}>Καρτέλα ακινήτου</ActionLink>
+                </span>
+              </div>
+              <DocumentChecklist propertyId={created.id} />
+            </section>
+          )}
         </div>
       )}
 
