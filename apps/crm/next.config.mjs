@@ -46,7 +46,20 @@ function storageOrigin() {
 }
 const uploadOrigin = storageOrigin();
 
+/**
+ * Map tiles for the property location picker (OpenStreetMap unless NEXT_PUBLIC_MAP_TILES names another
+ * tile server, or "off"). Only images: no script or frame from the tile host.
+ */
+let tileOrigin = "";
+try {
+  const tiles = process.env.NEXT_PUBLIC_MAP_TILES || "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+  if (tiles !== "off") tileOrigin = new URL(tiles.replace(/\{[xyz]\}/g, "0")).origin;
+} catch {
+  tileOrigin = "";
+}
+
 const imgSrc = ["'self'", "data:", "blob:"];
+if (tileOrigin) imgSrc.push(tileOrigin);
 const mediaSrc = ["'self'", "blob:"];
 const connectSrc = ["'self'"];
 for (const origin of new Set([mediaOrigin, uploadOrigin])) {
@@ -168,8 +181,9 @@ const nextConfig = {
           { key: "X-Frame-Options", value: "DENY" },
           { key: "Referrer-Policy", value: "no-referrer" },
           { key: "X-DNS-Prefetch-Control", value: "off" },
-          // The microphone is allowed for the CRM's own pages only: the voice property assistant records with it.
-          { key: "Permissions-Policy", value: "camera=(), microphone=(self), geolocation=(), payment=(), usb=()" },
+          // The microphone and location are allowed for the CRM's own pages only: the property assistant records
+          // with the first and, when the agent taps "Θέση μου (GPS)", reads the second.
+          { key: "Permissions-Policy", value: "camera=(), microphone=(self), geolocation=(self), payment=(), usb=()" },
           { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
           // An internal tool should never be indexed, on any path.
           { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" },

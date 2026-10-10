@@ -51,6 +51,8 @@ export type SessionDto = {
   photosLater: boolean;
   /** The existing contact that will be linked as owner when the draft is saved; chosen by touch only. */
   owner: { contactId: string; reference: string; label: string } | null;
+  /** Whether "undo last change" has something to undo. */
+  canUndo: boolean;
   /** Where the property is (exact, agent-only) and what the public will see; set by touch only. */
   location: (IntakeLocation & { public: { latitude: number; longitude: number } | null }) | null;
   lang: Lang;
@@ -182,6 +184,7 @@ export function toDto(row: Row): SessionDto {
     muted: state.muted,
     photosLater: state.photosLater,
     owner: state.owner,
+    canUndo: state.undo.length > 0,
     location: state.location ? { ...state.location, public: publicCoordinates(state.location) } : null,
     lang,
     turns: turnsOf(row.turns),

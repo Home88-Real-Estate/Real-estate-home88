@@ -16,6 +16,12 @@ export type IntakeSession = {
   muted: boolean;
   photosLater: boolean;
   owner: { contactId: string; reference: string; label: string } | null;
+  canUndo: boolean;
+  /** The exact point is for the office; `public` is what the website will show (null: nothing). */
+  location: {
+    lat: number; lng: number; accuracy: number | null; source: "gps" | "map" | "manual"; visibility: "exact" | "approximate" | "private"; capturedAt: string;
+    public: { latitude: number; longitude: number } | null;
+  } | null;
   lang: "el" | "en";
   turns: IntakeTurn[];
   pending: Array<{ key: string; label: string; proposed: string; current: string | null; reason: "conflict" | "unverified" }>;
@@ -34,6 +40,8 @@ export type IntakeEdit =
   | { type: "skip"; key: string }
   | { type: "undo" }
   | { type: "owner"; contactId: string | null }
+  | { type: "location"; lat: number; lng: number; accuracy?: number | null; source: "gps" | "map" | "manual"; visibility: "exact" | "approximate" | "private" }
+  | { type: "location"; clear: true }
   | { type: "settings"; muted?: boolean; photosLater?: boolean; language?: "auto" | "el" | "en"; stage?: "collect" | "review" };
 
 export type OwnerCandidate = { id: string; reference: string; name: string; city: string | null; roles: string[]; phoneHint: string | null };
@@ -73,7 +81,7 @@ async function request<T>(path: string, init?: { method?: string; body?: unknown
 export const intakeApi = {
   status: () => request<{ available: boolean; maxAudioBytes: number; maxUtteranceChars: number }>("/status"),
   list: () => request<{ sessions: Array<{ id: string; updatedAt: string; fieldCount: number; summary: string | null }> }>("/sessions"),
-  start: (language: "auto" | "el" | "en") => request<{ session: IntakeSession }>("/sessions", { body: { language } }),
+  start: (language: "auto" | "el" | "en", clientRef?: string) => request<{ session: IntakeSession }>("/sessions", { body: { language, clientRef } }),
   get: (id: string) => request<{ session: IntakeSession }>(`/sessions/${id}`),
   transcribe: (id: string, audioBase64: string, mimeType: string, language: "auto" | "el" | "en") =>
     request<{ text: string; language: "el" | "en" | null }>(`/sessions/${id}/transcribe`, { body: { audio: audioBase64, mimeType, language } }),
