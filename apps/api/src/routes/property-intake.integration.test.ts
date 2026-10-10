@@ -266,8 +266,8 @@ test("property intake: bilingual capture, correction, skip, conflict, review, on
   assert.equal(property.parking, true);
   assert.equal(property.yearBuilt, null, "a fact that was never given stays empty");
   assert.equal(property.city, null);
-  assert.equal(property.areaName, "Γλυφάδα");
-  assert.equal(property.titleEn, "Apartment 95 sqm in Γλυφάδα for sale", "the place name is kept as the agent said it, never re-spelled");
+  assert.equal(property.areaName, "Γλυφάδα", "the place itself is stored exactly as the agent said it");
+  assert.equal(property.titleEn, "Apartment 95 sqm in Glyfada for sale", "the approved English title spells it in Latin letters (ELOT 743)");
   assert.equal(await db().property.count(), before + 1);
   assert.equal(await db().portalListing.count({ where: { propertyId: property.id } }), 0, "nothing was sent to a portal");
   assert.equal(await db().propertyMedia.count({ where: { propertyId: property.id } }), 0);

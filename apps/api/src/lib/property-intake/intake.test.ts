@@ -11,6 +11,7 @@ import { allowedFields, coerceValue, specByKey } from "./fields";
 import { MAX_DETAIL_QUESTIONS, questionOrder } from "./flow";
 import { parseLabels, PHOTO_LABEL_CODES, sniffImage } from "./photo-labels";
 import { phoneHint, refreshTexts } from "./service";
+import { toLatin } from "./translit";
 import { detectLanguage, intakeVocabulary, LANGUAGE_CODES, routeFor, transcriptionPrompt } from "./transcription";
 import { acknowledge, confirmQuestion, pickLanguage, questionFor } from "./replies";
 import {
@@ -401,7 +402,7 @@ describe("listing texts follow the facts", () => {
     const ai = fakeAi({ descriptionEl: "Διαμέρισμα 95 τ.μ. με 2 υπνοδωμάτια στη Γλυφάδα.", descriptionEn: "A 95 sqm apartment with 2 bedrooms in Glyfada." });
     const out = await refreshTexts(facts(), ai.port, { force: false });
     assert.match(String(out.fields.titleEl?.value), /^Διαμέρισμα, 95 τ\.μ\., Γλυφάδα προς πώληση$/);
-    assert.equal(out.fields.titleEn?.value, "Apartment 95 sqm in Γλυφάδα for sale");
+    assert.equal(out.fields.titleEn?.value, "Apartment 95 sqm in Glyfada for sale", "the English title spells the place in Latin letters");
     assert.ok(out.fields.descriptionEl && out.fields.descriptionEn);
     for (const k of ["titleEl", "titleEn", "descriptionEl", "descriptionEn"]) assert.equal(out.fields[k]?.confirmed, false, `${k} awaits approval`);
     assert.equal(ai.calls(), 1);
@@ -434,6 +435,9 @@ describe("listing texts follow the facts", () => {
     const noAi = await refreshTexts(facts(), null, { force: false });
     assert.ok(noAi.fields.titleEl && noAi.fields.titleEn, "titles need no AI");
     assert.equal(noAi.fields.descriptionEl, undefined);
+    assert.equal(noAi.textsBasis, null, "descriptions are still owed: the next turn with the model writes them");
+    const changed = await refreshTexts(setManual(noAi, "area", 96, apartmentSale).state, null, { force: false });
+    assert.match(String(changed.fields.titleEl?.value), /96 τ\.μ\./, "an unapproved title follows a corrected fact");
   });
 });
 
@@ -520,5 +524,16 @@ describe("Greek utterance fixtures (scripted model output)", () => {
     const out = run("Διαμέρισμα στη Γλυφάδα", [prop("seaView", "true", "με θέα θάλασσα")], "SALE", "APARTMENT");
     assert.equal(out.state.fields.seaView, undefined);
     assert.equal(out.pending[0]?.reason, "unverified");
+  });
+});
+
+describe("place names in English text", () => {
+  it("are transliterated the way Greek road signs do", () => {
+    const cases: Array<[string, string]> = [
+      ["Γλυφάδα", "Glyfada"], ["Βούλα", "Voula"], ["Αχαρνές", "Acharnes"], ["Κηφισιά", "Kifisia"], ["Θεσσαλονίκη", "Thessaloniki"],
+      ["Ευκαρπία", "Efkarpia"], ["Αγία Παρασκευή", "Agia Paraskevi"], ["Ψυχικό", "Psychiko"], ["Νέα Σμύρνη", "Nea Smyrni"],
+      ["Κουκάκι", "Koukaki"], ["Χαλάνδρι", "Chalandri"], ["Glyfada", "Glyfada"],
+    ];
+    for (const [el, en] of cases) assert.equal(toLatin(el), en, el);
   });
 });

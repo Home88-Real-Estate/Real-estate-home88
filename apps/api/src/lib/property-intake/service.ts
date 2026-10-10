@@ -9,12 +9,13 @@
  */
 
 import type { Prisma, PrismaClient } from "@home88/database";
-import { completeness, normalizeForProfile, requiredIssues } from "@home88/domain";
+import { completeness, normalizeForProfile, profileFor, requiredIssues } from "@home88/domain";
 import { propertyUpsertSchema } from "@home88/validation";
 
 import { createPropertyInTx, type CreateMeta } from "../../routes/properties";
 import { writeAudit } from "../audit";
 import { contactWhere, touchContact } from "../contacts";
+import { toLatin } from "./translit";
 import { decryptField } from "../pii";
 import { HttpError, notFound } from "../errors";
 import { intakeAiConfig } from "./config";
@@ -55,6 +56,11 @@ export type SessionDto = {
   asked: { key: string; label: string; kind: string; options?: Array<{ value: string; label: string }> } | null;
   review: Review;
   fields: Record<string, { value: Value; origin: Origin; confirmed: boolean }>;
+  /**
+   * How the property type groups its characteristics (from the same profile the CRM form uses), so the
+   * screen can show what matters for this type first. Null until the type is known.
+   */
+  layout: { title: string; core: string[]; details: string[]; features: string[]; recommended: string[] } | null;
   /** Every field that applies right now, with how to edit it by touch. */
   catalog: Array<{ key: string; label: string; kind: string; unit?: string; options?: Array<{ value: string; label: string }> }>;
 };
@@ -190,6 +196,14 @@ export function toDto(row: Row): SessionDto {
       : null,
     review: buildReview(state, ui),
     fields: Object.fromEntries(Object.entries(state.fields).map(([k, e]) => [k, { value: e.value, origin: e.origin, confirmed: e.confirmed }])),
+    layout: (() => {
+      const type = stated(state, "propertyType");
+      if (!type) return null;
+      const p = profileFor(type);
+      const known = new Set(specs.map((x) => x.key));
+      const keep = (keys: readonly string[]) => keys.filter((k) => known.has(k));
+      return { title: p.title, core: keep(p.core), details: keep(p.details), features: keep(p.features), recommended: keep([...p.required, ...p.recommended]) };
+    })(),
     catalog: specs.map((s) => ({
       key: s.key, label: label(s, ui), kind: s.kind, unit: s.unit,
       options: s.options?.map((o) => ({ value: o.value, label: o.labelEl })),
@@ -503,6 +517,10 @@ export async function applyEdit(db: Db, userId: string, id: string, edit: Edit, 
       language = edit.language;
       break;
   }
+  // A fact changed by touch: the (unapproved) titles follow at once; descriptions follow on the next turn.
+  if (edit.type === "set" || edit.type === "clear" || edit.type === "resolve" || edit.type === "undo") {
+    if (!(edit.type !== "undo" && ["titleEl", "titleEn", "descriptionEl", "descriptionEn"].includes(edit.key))) state = await refreshTexts(state, null, { force: false });
+  }
   return toDto(await save(db, row, { state, language }));
 }
 
@@ -544,7 +562,7 @@ export async function refreshTexts(state: IntakeState, ai: IntakeAiPort | null, 
   const verbEl = listing === "RENT" ? "προς ενοικίαση" : listing === "SALE" ? "προς πώληση" : "";
   const verbEn = listing === "RENT" ? "for rent" : listing === "SALE" ? "for sale" : "";
   const titleEl = [typeRow[1], typeof area === "number" ? `${area} τ.μ.` : null, place ? `${place}` : null, verbEl].filter(Boolean).join(", ").replace(/, (προς)/, " $1");
-  const titleEn = [typeRow[2], typeof area === "number" ? `${area} sqm` : null, place ? `in ${place}` : null, verbEn].filter(Boolean).join(" ");
+  const titleEn = [typeRow[2], typeof area === "number" ? `${area} sqm` : null, place ? `in ${toLatin(place)}` : null, verbEn].filter(Boolean).join(" ");
   let next = setDerived(state, "titleEl", titleEl, "SYSTEM_DERIVED");
   next = setDerived(next, "titleEn", titleEn, "SYSTEM_DERIVED");
 
@@ -560,9 +578,9 @@ export async function refreshTexts(state: IntakeState, ai: IntakeAiPort | null, 
       if (!(error instanceof IntakeAiError)) throw error;
       // Text is optional: the agent can write it, or regenerate later.
     }
-  } else {
-    next = { ...next, textsBasis: basis };
   }
+  // Without the model only the titles were refreshed: the basis stays as it was, so the descriptions are
+  // rewritten on the next turn that can reach the model.
   return next;
 }
 
