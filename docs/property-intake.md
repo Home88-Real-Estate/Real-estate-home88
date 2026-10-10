@@ -50,7 +50,7 @@ returns the same property.
 |---|---|
 | `GEMINI_API_KEY` | The key. (`AI_Property_Intake` is accepted as an alternative name.) Set it as a **Sensitive** variable on the CRM Vercel project, then redeploy. Restrict the key to the Gemini API. |
 | `GEMINI_INTAKE_TEXT_MODEL` | Extraction and text suggestions. Default `gemini-3.5-flash-lite` (also reads `GEMINI_MODEL`). |
-| `GEMINI_INTAKE_TRANSCRIBE_MODEL` | Transcription. Defaults to the text model: transcription is an audio prompt to a Flash model. A dedicated transcription model id was **not** found in the installed SDK; set this only after confirming one exists for your project. |
+| `GEMINI_INTAKE_TRANSCRIBE_MODEL`, `GEMINI_INTAKE_TRANSCRIBE_MODE` | Transcription. Default `gemini-3.5-flash` (an audio prompt to the full Flash model, with language codes and vocabulary). `asr` mode uses a dedicated recogniser through `audioTranscriptionConfig`; see "Release 2.1". A refused model falls back to the text model. |
 | `GEMINI_INTAKE_TTS_MODEL` / `GEMINI_INTAKE_TTS_VOICE` | Speech. Default `gemini-3.8-flash-tts` (listed by the installed SDK) and voice `Kore`. |
 | `INTAKE_MAX_AUDIO_BYTES`, `INTAKE_MAX_UTTERANCE_CHARS`, `INTAKE_AI_TIMEOUT_MS`, `INTAKE_RATE_TURNS/TRANSCRIBE/SPEAK/PHOTOS` | Limits (per signed-in user per 10 minutes). |
 
@@ -88,9 +88,48 @@ stops after a pause, transcribes, shows the text with a 3-second "send now / can
 again. The microphone is never open while the assistant speaks. It switches itself off after three silent rounds, when the page is
 hidden, when the draft is saved, or on any provider error. The screen is kept awake where the browser allows it.
 
+## Release 2.1: Greek recognition, listing text after Send, five-step screen
+
+**Why Greek was recognised poorly (from the code, not measured on live audio).** Speech went to the Lite text
+model through a generic prompt, with no BCP-47 language code and no real-estate vocabulary; the language buttons
+changed one sentence of that prompt. Recording and encoding were sound (16 kHz mono WAV, complete before upload).
+A production report also showed "Δεν δόθηκε άδεια για το μικρόφωνο": that is the browser's microphone permission
+for the site, not recognition; it is reset from the padlock / site settings.
+
+**Transcription now.** `GEMINI_INTAKE_TRANSCRIBE_MODEL` (default `gemini-3.5-flash`, the full model) with:
+- the agent's language as codes: Ελληνικά → `el-GR`, English → `en-US`, Αυτόματα → both as hints;
+- a vocabulary of ≤120 phrases from HOME88's own property types and field names plus agents' terms;
+- numbers written as digits and self-corrections kept, so the editable transcript is easy to check.
+A dedicated recogniser is supported through the SDK's documented `audioTranscriptionConfig` (`languageCodes`,
+`customVocabulary`, `mode: VERBATIM`): set `GEMINI_INTAKE_TRANSCRIBE_MODE=asr`, or use a model id containing
+"transcribe". Its exact id could not be verified from this environment (Google's documentation site was
+unreachable and the installed SDK lists no such model), so it is opt-in. If a model id or option is refused
+(HTTP 400/404) the recording is transcribed with the text model instead of failing. The transcript is always
+shown for review before it is sent (by hand, or after the hands-free countdown).
+
+**Send fills the draft.** Audio → transcript (editable) → structured proposals (allow-listed keys, validated,
+quoting the agent's words) → merged into the draft (agent-confirmed values are never overwritten silently; a
+conflict is asked) → titles and descriptions refreshed → reply. The reply says what was understood ("Ωραία,
+κατέγραψα: διαμέρισμα, προς πώληση, περιοχή Γλυφάδα, 95 τ.μ., 3ος όροφος, 2 υπνοδωμάτια, τιμή €350.000.") and asks
+one question: the essentials, then at most four details of that property type.
+
+**Titles and descriptions** are written after every turn that changes confirmed facts (and titles after a touch
+correction): titles deterministically (place names in Latin letters for English), descriptions by the model and
+discarded if they contain a number that is not a fact. All four arrive as unapproved proposals; anything the agent
+wrote or approved is never replaced. On step 5 each can be approved, edited, rejected, or regenerated ("Νέα
+πρόταση"). The model is not called again when nothing changed.
+
+**Screen.** Five steps (Περιγραφή · Βασικά στοιχεία · Χαρακτηριστικά · Φωτογραφίες · Έλεγχος & αποθήκευση),
+free to move between, compact on a phone; a live summary beside the conversation; basic details in cards; the
+characteristics of the property's own profile first, features as one-tap chips, everything else behind a search
+instead of a 100-item dropdown; a review that separates what is required to save a draft from what is needed
+before activation; a sticky Back / Continue / Save bar that sits above the phone tab bar.
+
 ## Not in this release
 
-Voice-driven owner details (deliberately, see above), room-aware photo ordering, geocoding or GPS, creating a contact from the assistant.
+Voice-driven owner details (deliberately, see above), room-aware photo ordering, geocoding or GPS, creating a contact from the
+assistant, offline creation of a draft with a sync queue (photos and unsent text are kept on the device, but saving
+the draft needs a connection), document/legal checklists and mandates inside this flow.
 
 Tested here with a simulated microphone (a looping audio file fed to a real Chromium) and a scripted AI; a real phone, a real
 microphone in a noisy room, Bluetooth headsets and iOS Safari behaviour have not been tested.

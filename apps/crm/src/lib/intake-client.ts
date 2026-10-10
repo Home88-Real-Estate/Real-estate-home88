@@ -22,6 +22,7 @@ export type IntakeSession = {
   asked: { key: string; label: string; kind: string; options?: Array<{ value: string; label: string }> } | null;
   review: { rows: IntakeReviewRow[]; blockers: string[]; warnings: string[]; missing: string[]; ignored: string[]; ready: boolean };
   fields: Record<string, { value: string | number | boolean; origin: IntakeOrigin; confirmed: boolean }>;
+  layout: { title: string; core: string[]; details: string[]; features: string[]; recommended: string[] } | null;
   catalog: Array<{ key: string; label: string; kind: string; unit?: string; options?: Array<{ value: string; label: string }> }>;
 };
 

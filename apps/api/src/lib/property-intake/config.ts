@@ -11,6 +11,11 @@
  */
 
 export const DEFAULT_TEXT_MODEL = "gemini-3.5-flash-lite";
+/**
+ * Speech is recognised by the full Flash model, not the Lite one: Greek speech, numbers spoken as words and
+ * real-estate terms are where the smaller model is weakest. If this id is refused, the Lite text model is used.
+ */
+export const DEFAULT_TRANSCRIBE_MODEL = "gemini-3.5-flash";
 export const DEFAULT_TTS_MODEL = "gemini-3.8-flash-tts";
 export const DEFAULT_TTS_VOICE = "Kore";
 
@@ -18,6 +23,10 @@ export type IntakeAiConfig = {
   /** Null when the key is not configured: the assistant reports itself unavailable. */
   apiKey: string | null;
   transcribeModel: string;
+  /** "asr" (dedicated model with audioTranscriptionConfig) or "prompt"; unset = chosen from the model id. */
+  transcribeMode: string | undefined;
+  /** Used when the transcription model is refused (unknown id, unsupported option). */
+  fallbackModel: string;
   extractModel: string;
   ttsModel: string;
   ttsVoice: string;
@@ -46,7 +55,9 @@ export function intakeAiConfig(env: Record<string, string | undefined> = process
   const text = env.GEMINI_INTAKE_TEXT_MODEL?.trim() || env.GEMINI_MODEL?.trim() || DEFAULT_TEXT_MODEL;
   return {
     apiKey: key ? key : null,
-    transcribeModel: env.GEMINI_INTAKE_TRANSCRIBE_MODEL?.trim() || text,
+    transcribeModel: env.GEMINI_INTAKE_TRANSCRIBE_MODEL?.trim() || DEFAULT_TRANSCRIBE_MODEL,
+    transcribeMode: env.GEMINI_INTAKE_TRANSCRIBE_MODE?.trim() || undefined,
+    fallbackModel: text,
     extractModel: text,
     ttsModel: env.GEMINI_INTAKE_TTS_MODEL?.trim() || DEFAULT_TTS_MODEL,
     ttsVoice: env.GEMINI_INTAKE_TTS_VOICE?.trim() || DEFAULT_TTS_VOICE,

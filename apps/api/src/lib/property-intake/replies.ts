@@ -19,9 +19,9 @@ const QUESTIONS: Record<string, L> = {
   price: { el: "Ποια είναι η ζητούμενη τιμή;", en: "What is the asking price?" },
   monthlyRent: { el: "Ποιο είναι το μηνιαίο μίσθωμα;", en: "What is the monthly rent?" },
   area: { el: "Πόσα τετραγωνικά είναι;", en: "How many square metres is it?" },
+  areaName: { el: "Σε ποια περιοχή βρίσκεται;", en: "Which area is it in?" },
   plotArea: { el: "Πόσα τετραγωνικά είναι το οικόπεδο;", en: "How large is the plot in square metres?" },
   city: { el: "Σε ποια πόλη ή δήμο βρίσκεται;", en: "Which city or municipality is it in?" },
-  areaName: { el: "Σε ποια περιοχή;", en: "Which area?" },
   bedrooms: { el: "Πόσα υπνοδωμάτια έχει;", en: "How many bedrooms does it have?" },
   bathrooms: { el: "Πόσα μπάνια έχει;", en: "How many bathrooms does it have?" },
   floor: { el: "Σε ποιον όροφο βρίσκεται;", en: "Which floor is it on?" },
@@ -51,6 +51,8 @@ export function valueText(spec: FieldSpec, value: Value, lang: Lang): string {
     return o ? (lang === "en" ? o.labelEn ?? o.labelEl : o.labelEl) : String(value);
   }
   if (typeof value === "number") {
+    // A year is a label, not a quantity: 1998, never "1.998".
+    if (/year/i.test(spec.key)) return String(value);
     if (spec.unit === "€") return `€${num(lang, value)}`;
     return spec.unit ? `${num(lang, value)} ${spec.unit}` : num(lang, value);
   }
@@ -69,16 +71,44 @@ export function questionFor(spec: FieldSpec, lang: Lang): string {
   return lang === "el" ? `${name}: ποια είναι η τιμή;` : `What is the ${name}?`;
 }
 
+/** How a captured value is said in a sentence; fields without a phrase fall back to "Label value". */
+function phrase(spec: FieldSpec, value: Value, lang: Lang): string {
+  const v = valueText(spec, value, lang);
+  const el = lang === "el";
+  switch (spec.key) {
+    case "propertyType": return v.toLowerCase();
+    case "listingType": return value === "SALE" ? (el ? "προς πώληση" : "for sale") : value === "RENT" ? (el ? "προς ενοικίαση" : "for rent") : el ? `είδος: ${v.toLowerCase()}` : `type: ${v.toLowerCase()}`;
+    case "area": case "plotArea": case "builtArea": {
+      const size = typeof value === "number" ? `${num(lang, value)} ${el ? "τ.μ." : "sqm"}` : v;
+      return spec.key === "area" ? size : `${label(spec, lang).toLowerCase()} ${size}`;
+    }
+    case "areaName": case "city": return el ? `περιοχή ${v}` : `in ${v}`;
+    case "floor": return typeof value === "number" ? (value === 0 ? (el ? "ισόγειο" : "ground floor") : el ? `${value}ος όροφος` : `floor ${value}`) : `${label(spec, lang)} ${v}`;
+    case "bedrooms": return el ? `${v} ${value === 1 ? "υπνοδωμάτιο" : "υπνοδωμάτια"}` : `${v} bedroom${value === 1 ? "" : "s"}`;
+    case "bathrooms": return el ? `${v} ${value === 1 ? "μπάνιο" : "μπάνια"}` : `${v} bathroom${value === 1 ? "" : "s"}`;
+    case "price": return el ? `τιμή ${v}` : `price ${v}`;
+    case "monthlyRent": return el ? `μίσθωμα ${v} τον μήνα` : `rent ${v} a month`;
+    default:
+      if (typeof value === "boolean") return value ? label(spec, lang).toLowerCase() : el ? `χωρίς ${label(spec, lang).toLowerCase()}` : `no ${label(spec, lang).toLowerCase()}`;
+      return `${label(spec, lang)} ${v}`;
+  }
+}
+
+/** "Ωραία, κατέγραψα: διαμέρισμα προς πώληση, περιοχή Γλυφάδα, 95 τ.μ., 3ος όροφος, 2 υπνοδωμάτια, τιμή €350.000." Only what was applied this turn. */
 export function acknowledge(applied: Array<{ key: string; value: Value; previous?: Value }>, specs: FieldSpec[], lang: Lang): string | null {
   if (applied.length === 0) return null;
-  const parts = applied.flatMap((a) => {
+  const order = ["propertyType", "listingType", "areaName", "city", "area", "floor", "bedrooms", "bathrooms", "price", "monthlyRent"];
+  const sorted = [...applied].sort((a, b) => (order.indexOf(a.key) + 100) % 100 - (order.indexOf(b.key) + 100) % 100);
+  const parts = sorted.flatMap((a) => {
     const spec = specs.find((s) => s.key === a.key);
     if (!spec) return [];
-    const shown = `${label(spec, lang)} ${valueText(spec, a.value, lang)}`;
-    return [a.previous !== undefined ? (lang === "el" ? `${shown} (ήταν ${valueText(spec, a.previous, lang)})` : `${shown} (was ${valueText(spec, a.previous, lang)})`) : shown];
+    const said = phrase(spec, a.value, lang);
+    return [a.previous !== undefined ? (lang === "el" ? `${said} (αντί για ${valueText(spec, a.previous, lang)})` : `${said} (instead of ${valueText(spec, a.previous, lang)})`) : said];
   });
   if (parts.length === 0) return null;
-  return lang === "el" ? `Κατάλαβα. Καταχώρησα: ${parts.join(", ")}.` : `Got it. I've added: ${parts.join(", ")}.`;
+  const corrected = applied.some((a) => a.previous !== undefined);
+  if (lang === "el") return `${corrected ? "Το διόρθωσα" : "Ωραία, κατέγραψα"}: ${parts.join(", ")}.`;
+  return `${corrected ? "Corrected" : "Great, I've noted"}: ${parts.join(", ")}.`;
 }
 
 export function confirmQuestion(p: Pending, spec: FieldSpec, lang: Lang): string {

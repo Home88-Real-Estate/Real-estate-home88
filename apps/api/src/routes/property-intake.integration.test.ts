@@ -115,17 +115,25 @@ test("property intake: bilingual capture, correction, skip, conflict, review, on
   let r = await turn(agentC, id, first);
   assert.equal(r.status, 200, JSON.stringify(r.body));
   let s = r.body.session;
+  const TEXTS = ["titleEl", "titleEn", "descriptionEl", "descriptionEn"];
   assert.deepEqual(
-    Object.fromEntries(Object.entries(s.fields).map(([k, v]: any) => [k, v.value])),
+    Object.fromEntries(Object.entries(s.fields).filter(([k]) => !TEXTS.includes(k)).map(([k, v]: any) => [k, v.value])),
     { listingType: "SALE", propertyType: "APARTMENT", areaName: "Γλυφάδα", area: 95, bedrooms: 2, parking: true, storage: true, price: 420000 },
     "only what the agent said, validated, and nothing the model made up or must not touch",
   );
-  assert.ok(Object.values(s.fields).every((f: any) => f.origin === "AGENT_STATED" && f.confirmed), "agent's own words are marked as such");
+  assert.ok(Object.entries(s.fields).filter(([k]) => !TEXTS.includes(k)).every(([, f]: any) => f.origin === "AGENT_STATED" && f.confirmed), "agent's own words are marked as such");
+  // Send also drafts the listing text from the confirmed facts: suggestions only, awaiting approval.
+  assert.equal(s.fields.titleEl.value, "Διαμέρισμα, 95 τ.μ., Γλυφάδα προς πώληση");
+  assert.equal(s.fields.titleEl.confirmed, false);
+  assert.equal(s.fields.titleEn.origin, "SYSTEM_DERIVED");
+  assert.equal(seen.suggestFacts.length, 1, "the model was asked for descriptions once, from confirmed facts only");
+  assert.ok(seen.suggestFacts[0]!.every((f) => !/1998/.test(f.value)), "the unverified year is not a fact");
   assert.equal(s.fields.yearBuilt, undefined);
   assert.equal(s.pending.length, 1, "the unsupported year is a question, not a fact");
   assert.equal(s.pending[0].key, "yearBuilt");
   assert.equal(s.pending[0].reason, "unverified");
-  assert.match(r.body.reply, /Κατάλαβα\. Καταχώρησα/);
+  assert.match(r.body.reply, /^Ωραία, κατέγραψα: διαμέρισμα, προς πώληση, περιοχή Γλυφάδα, 95 τ\.μ\., 2 υπνοδωμάτια, τιμή €420\.000, θέση στάθμευσης, αποθήκη\./);
+  assert.match(r.body.reply, /Έτος κατασκευής 1998/, "a year is never written as 1.998");
   assert.match(r.body.reply, /Είναι σωστό;/, "the held value is asked about");
   assert.equal(seen.extractSystems.at(-1)!.includes("publishedOnWebsite"), false, "the model is never told publication fields exist");
   assert.equal(seen.extractSystems.at(-1)!.includes("agentId"), false);
@@ -143,26 +151,26 @@ test("property intake: bilingual capture, correction, skip, conflict, review, on
   s = r.body.session;
   assert.equal(s.fields.floor.value, 3);
   assert.equal(s.lang, "en");
-  assert.match(r.body.reply, /^Got it\. I've added: floor 3\./, "it answers in the language it was just spoken to");
+  assert.match(r.body.reply, /^Great, I've noted: floor 3\./, "it answers in the language it was just spoken to");
   assert.match(r.body.reply, /\?$/, "and asks exactly one question");
   assert.equal((r.body.reply.match(/\?/g) ?? []).length, 1);
-  assert.equal(s.asked.key, "city");
+  assert.equal(s.asked.key, "bathrooms", "after the essentials, a detail that matters for an apartment (not every optional field)");
 
   // --- "I don't know": skipped, never invented ---------------------------------
-  const unknownCity = "I don't know the city";
-  script(unknownCity, { language: "en", unknownKeys: ["city"] });
-  r = await turn(agentC, id, unknownCity);
+  const unknownBaths = "I don't know how many bathrooms";
+  script(unknownBaths, { language: "en", unknownKeys: ["bathrooms"] });
+  r = await turn(agentC, id, unknownBaths);
   s = r.body.session;
-  assert.equal(s.fields.city, undefined);
-  assert.match(r.body.reply, /leave "city or municipality" empty/);
-  assert.notEqual(s.asked.key, "city", "a skipped field is not asked again");
+  assert.equal(s.fields.bathrooms, undefined);
+  assert.match(r.body.reply, /leave "bathrooms" empty/);
+  assert.notEqual(s.asked?.key, "bathrooms", "a skipped field is not asked again");
 
   // --- Correcting by voice -------------------------------------------------------
   const change = "Άλλαξε την τιμή στις 400.000 ευρώ";
   script(change, { proposals: [p("price", "400000", "400.000 ευρώ", { isCorrection: true })] });
   r = await turn(agentC, id, change, { language: "el" });
   assert.equal(r.body.session.fields.price.value, 400000);
-  assert.match(r.body.reply, /ήταν/, "the old value is acknowledged");
+  assert.match(r.body.reply, /^Το διόρθωσα: τιμή €400\.000 \(αντί για €420\.000\)/, "the old value is acknowledged");
 
   // --- A conflicting value is asked about, then answered by voice ---------------
   const maybe = "Ίσως η τιμή να είναι 380.000";
@@ -258,8 +266,8 @@ test("property intake: bilingual capture, correction, skip, conflict, review, on
   assert.equal(property.parking, true);
   assert.equal(property.yearBuilt, null, "a fact that was never given stays empty");
   assert.equal(property.city, null);
-  assert.equal(property.areaName, "Γλυφάδα");
-  assert.equal(property.titleEn, "Apartment 95 sqm in Γλυφάδα for sale", "the place name is kept as the agent said it, never re-spelled");
+  assert.equal(property.areaName, "Γλυφάδα", "the place itself is stored exactly as the agent said it");
+  assert.equal(property.titleEn, "Apartment 95 sqm in Glyfada for sale", "the approved English title spells it in Latin letters (ELOT 743)");
   assert.equal(await db().property.count(), before + 1);
   assert.equal(await db().portalListing.count({ where: { propertyId: property.id } }), 0, "nothing was sent to a portal");
   assert.equal(await db().propertyMedia.count({ where: { propertyId: property.id } }), 0);

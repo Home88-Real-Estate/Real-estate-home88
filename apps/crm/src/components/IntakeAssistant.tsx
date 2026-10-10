@@ -3,27 +3,21 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { FeatureChips, FieldPicker, FieldRow, ORIGIN_LABEL } from "@/components/intake/fields";
+import { Stepper, type StepIndex } from "@/components/intake/steps";
 import { PendingMedia, type PendingFile } from "@/components/PendingMedia";
 import { browserIO, makeLabelPreview, persistOrder, saveAltText } from "@/lib/browser-upload";
 import { listenForSpeech, type Listener } from "@/lib/hands-free";
 import {
-  intakeApi, IntakeRequestError, type IntakeEdit, type IntakeOrigin, type IntakeSession, type OwnerCandidate,
+  intakeApi, IntakeRequestError, type IntakeEdit, type IntakeSession, type OwnerCandidate,
 } from "@/lib/intake-client";
 import { photoStore } from "@/lib/pending-photos";
 import { altUpdates, isLabelCode, PHOTO_LABELS, type PhotoLabel } from "@/lib/photo-labels";
 import { uploadAll, type UploadUpdate } from "@/lib/upload-queue";
 import { MAX_RECORDING_SECONDS, recordingToWav, toBase64 } from "@/lib/wav";
 
-type Catalog = IntakeSession["catalog"][number];
 type Language = "auto" | "el" | "en";
 type Recording = "idle" | "recording" | "transcribing";
-
-const ORIGIN_LABEL: Record<IntakeOrigin, { text: string; className: string }> = {
-  AGENT_STATED: { text: "Από εσάς", className: "badge badge--ok" },
-  AGENT_MANUAL: { text: "Από εσάς", className: "badge badge--ok" },
-  SYSTEM_DERIVED: { text: "Αυτόματο — επιβεβαιώστε", className: "badge badge--warn" },
-  AI_SUGGESTED: { text: "Πρόταση AI — επιβεβαιώστε", className: "badge badge--warn" },
-};
 
 /**
  * A tiny silent clip, played on the first tap so iOS lets later replies play
@@ -87,38 +81,6 @@ const AUTO_SEND_SECONDS = 3;
 /** After this many silent rounds in a row, hands-free mode switches itself off. */
 const MAX_EMPTY_ROUNDS = 3;
 
-function ValueInput({ spec, value, onChange, id }: { spec: Catalog; value: string; onChange: (v: string) => void; id: string }) {
-  if (spec.kind === "bool") {
-    return (
-      <select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="">—</option>
-        <option value="true">Ναι</option>
-        <option value="false">Όχι</option>
-      </select>
-    );
-  }
-  if (spec.kind === "select") {
-    return (
-      <select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="">—</option>
-        {spec.options?.map((o) => (
-          <option key={o.value} value={o.value}>{o.label}</option>
-        ))}
-      </select>
-    );
-  }
-  const numeric = spec.kind === "int" || spec.kind === "decimal";
-  return (
-    <input
-      id={id}
-      type={spec.kind === "date" ? "date" : "text"}
-      inputMode={numeric ? (spec.kind === "int" ? "numeric" : "decimal") : undefined}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-    />
-  );
-}
-
 export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: number; resumeId?: string }) {
   const [phase, setPhase] = useState<"loading" | "picker" | "session">("loading");
   const [available, setAvailable] = useState(true);
@@ -134,7 +96,6 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
   const [progress, setProgress] = useState<Record<string, UploadUpdate> | undefined>();
   const [created, setCreated] = useState<{ id: string; reference: string } | null>(null);
   const [editing, setEditing] = useState<{ key: string; value: string } | null>(null);
-  const [adding, setAdding] = useState("");
   const [labels, setLabels] = useState<Record<string, PhotoLabel>>({});
   const [labelling, setLabelling] = useState(false);
   const [restored, setRestored] = useState(0);
@@ -145,6 +106,8 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
   const [handsFree, setHandsFree] = useState(false);
   const [autoSend, setAutoSend] = useState<{ text: string; left: number } | null>(null);
   const [photosReady, setPhotosReady] = useState(false);
+  const [step, setStep] = useState<StepIndex>(0);
+  const [pickedKeys, setPickedKeys] = useState<string[]>([]);
 
   const progressRef = useRef<Record<string, UploadUpdate>>({});
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -617,6 +580,7 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
       setSession(out.session);
       setCreated(out.property);
       setOwnerOutcome(out.owner);
+      setStep(4); // the result (reference, uploads, owner) is shown on the last step, whichever step saved it
       if (photos.length > 0) {
         const result = await runUploads(out.property.id, photos);
         if (result.failed === 0) await savePhotoOrder(out.property.id, photos);
@@ -760,25 +724,65 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
 
   const done = session.status === "CREATED" || Boolean(created);
   const lastAssistant = [...session.turns].reverse().find((t) => t.role === "assistant");
-  const addable = session.catalog.filter((c) => !session.fields[c.key] && !["titleEl", "titleEn", "descriptionEl", "descriptionEn"].includes(c.key));
-  const textKeys = ["titleEl", "titleEn", "descriptionEl", "descriptionEn"] as const;
   const specOf = (key: string) => session.catalog.find((c) => c.key === key);
+  const specsOf = (keys: readonly string[]) => keys.flatMap((k) => (specOf(k) ? [specOf(k)!] : []));
   const photoFailures = photos.filter((p) => progress?.[p.id]?.state === "failed").length;
+  const locked = busy || done;
 
-  return (
-    <div className="intake">
-      <div className="between" style={{ marginBottom: 12 }}>
-        <div>
-          <span className="badge badge--info">Πρόχειρο</span> <span className="hint">Δεν δημοσιεύεται πουθενά</span>
-        </div>
+  // What goes where. Step 2 holds what every listing needs; step 3 what this TYPE of property has.
+  const TEXT_KEYS = ["titleEl", "titleEn", "descriptionEl", "descriptionEn"];
+  const GROUPS = {
+    type: ["listingType", "propertyType"],
+    price: ["price", "priceOnRequest", "monthlyRent", "deposit", "minRentalMonths"],
+    location: ["areaName", "city", "region", "neighborhood", "address", "postalCode"],
+    size: ["area", "plotArea", "builtArea", "condition"],
+  };
+  const basicKeys = new Set(Object.values(GROUPS).flat());
+  const layout = session.layout;
+  const isBool = (k: string) => specOf(k)?.kind === "bool";
+  const mainKeys = layout ? [...new Set([...layout.recommended, ...layout.core])].filter((k) => !basicKeys.has(k) && !isBool(k) && !TEXT_KEYS.includes(k)) : [];
+  const featureKeys = layout ? layout.features.filter((k) => isBool(k)) : [];
+  const shownKeys = new Set([...basicKeys, ...mainKeys, ...featureKeys, ...TEXT_KEYS]);
+  const extraShown = session.catalog.filter((c) => !shownKeys.has(c.key) && (session.fields[c.key] || pickedKeys.includes(c.key)));
+  const pickable = session.catalog.filter((c) => !shownKeys.has(c.key) && !session.fields[c.key] && !pickedKeys.includes(c.key));
+
+  const filled = (keys: string[]) => keys.some((k) => session.fields[k]);
+  const stepDone = [
+    session.turns.some((t) => t.role === "agent") || Object.keys(session.fields).length > 0,
+    Boolean(session.fields.listingType && session.fields.propertyType) && filled(GROUPS.price) && filled(GROUPS.location) && filled(GROUPS.size),
+    filled([...mainKeys, ...featureKeys]),
+    photos.length > 0 || session.photosLater,
+    done,
+  ];
+  const go = (i: StepIndex) => {
+    setStep(i);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const setField = async (key: string, value: string | number | boolean | null) =>
+    (await edit(value === null ? { type: "clear", key } : { type: "set", key, value })) ?? false;
+  const confirm = (key: string) => void edit({ type: "confirm", key });
+  const rows = (keys: readonly string[]) =>
+    specsOf(keys).map((spec) => <FieldRow key={spec.key} spec={spec} session={session} disabled={locked} onSet={setField} onConfirm={confirm} />);
+
+  // The summary reads like a listing: what and where first, then price and size, then the rest as said.
+  const FACT_ORDER = ["propertyType", "listingType", "areaName", "city", "price", "monthlyRent", "area", "floor", "bedrooms", "bathrooms"];
+  const rank = (k: string) => (FACT_ORDER.includes(k) ? FACT_ORDER.indexOf(k) : FACT_ORDER.length);
+  const keyFacts = session.review.rows.filter((r) => !TEXT_KEYS.includes(r.key)).sort((a, b) => rank(a.key) - rank(b.key));
+  const textsReady = TEXT_KEYS.filter((k) => session.fields[k]).length;
+
+  const conversation = (
+    <section className="card ipanel" aria-label="Συνομιλία με τον βοηθό">
+      <div className="ipanel__head">
+        <h2>Περιγράψτε το ακίνητο</h2>
         <div className="intake-toolbar" role="group" aria-label="Γλώσσα και ήχος">
           {(["auto", "el", "en"] as const).map((l) => (
-            <button key={l} type="button" className={session.language === l ? "btn btn--primary btn--sm" : "btn btn--outline btn--sm"} disabled={busy || done} onClick={() => void edit({ type: "settings", language: l })} aria-pressed={session.language === l}>
+            <button key={l} type="button" className={session.language === l ? "btn btn--primary btn--sm" : "btn btn--outline btn--sm"} disabled={locked} onClick={() => void edit({ type: "settings", language: l })} aria-pressed={session.language === l} title="Επηρεάζει την αναγνώριση ομιλίας και τη γλώσσα των απαντήσεων">
               {l === "auto" ? "Αυτόματα" : l === "el" ? "Ελληνικά" : "English"}
             </button>
           ))}
-          <button type="button" className="btn btn--outline btn--sm" disabled={busy || done} onClick={() => void edit({ type: "settings", muted: !session.muted })} aria-pressed={session.muted}>
-            {session.muted ? "🔇 Σίγαση" : "🔊 Φωνή"}
+          <button type="button" className="btn btn--outline btn--sm" disabled={locked} onClick={() => void edit({ type: "settings", muted: !session.muted })} aria-pressed={!session.muted}>
+            {session.muted ? "Φωνή: όχι" : "Φωνή: ναι"}
           </button>
           <button
             type="button"
@@ -788,12 +792,11 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
             aria-pressed={handsFree}
             title="Μιλάτε χωρίς να πατάτε κουμπί: ο βοηθός ακούει, απαντά και ξανακούει."
           >
-            {handsFree ? "🎧 Χωρίς χέρια: ενεργό" : "🎧 Χωρίς χέρια"}
+            {handsFree ? "Χωρίς χέρια: ενεργό" : "Χωρίς χέρια"}
           </button>
         </div>
       </div>
 
-      {error && <p className="notice notice--danger" role="alert">{error}</p>}
       {voiceNote && <p className="notice" role="status">{voiceNote}</p>}
       {handsFree && (
         <div className="notice intake-handsfree" role="status" aria-live="polite">
@@ -806,11 +809,11 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
               </span>
             </>
           ) : recording === "recording" ? (
-            <span>Ακούω… μιλήστε και σταματήστε όταν τελειώσετε.</span>
+            <span className="istate istate--rec">Ακούω… μιλήστε και σταματήστε όταν τελειώσετε.</span>
           ) : recording === "transcribing" ? (
-            <span>Μετατροπή σε κείμενο…</span>
+            <span className="istate">Μετατροπή σε κείμενο…</span>
           ) : busy ? (
-            <span>Σκέφτομαι…</span>
+            <span className="istate">Επεξεργασία…</span>
           ) : input.trim() ? (
             <>
               <span>Διορθώστε το κείμενο και πατήστε Αποστολή· μετά την απάντηση θα ακούω ξανά.</span>
@@ -819,25 +822,27 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
           ) : (
             <>
               <span>Συνομιλία χωρίς χέρια ενεργή. Θα ακούσω ξανά μόλις απαντήσω.</span>
-              <button type="button" className="btn btn--outline btn--sm" onClick={() => resumeListening()}>🎤 Άκου τώρα</button>
+              <button type="button" className="btn btn--outline btn--sm" onClick={() => resumeListening()}>Άκου τώρα</button>
             </>
           )}
         </div>
       )}
 
-      <section className="intake-log" ref={logRef} aria-label="Συνομιλία" aria-live="polite">
+      <div className="intake-log" ref={logRef} aria-label="Συνομιλία" aria-live="polite">
         {session.turns.map((t, i) => (
           <div key={`${t.at}-${i}`} className={t.role === "agent" ? "intake-msg intake-msg--agent" : "intake-msg"}>
             <span className="intake-msg__who">{t.role === "agent" ? "Εσείς" : "Βοηθός"}</span>
             <p>{t.text}</p>
             {t.role === "assistant" && t === lastAssistant && !session.muted && (
-              <button type="button" className={needsTap ? "btn btn--primary btn--sm" : "btn btn--ghost btn--sm"} onClick={() => { unlockAudio(); void speak(session.id); }}>
-                ▶ Ακούστε
-              </button>
+              <span className="intake-msg__audio">
+                <button type="button" className={needsTap ? "btn btn--primary btn--sm" : "btn btn--ghost btn--sm"} onClick={() => { unlockAudio(); void speak(session.id); }}>▶ Ακούστε</button>
+                <button type="button" className="btn btn--ghost btn--sm" onClick={() => audioRef.current?.pause()}>■ Διακοπή</button>
+              </span>
             )}
           </div>
         ))}
-      </section>
+        {busy && !done && <div className="intake-msg intake-msg--thinking" role="status">Ο βοηθός ενημερώνει την καταχώριση…</div>}
+      </div>
 
       {session.pending.map((p) => (
         <div key={p.key} className="notice intake-pending" role="group" aria-label={`Επιβεβαίωση: ${p.label}`}>
@@ -858,283 +863,342 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
             id="intake-text"
             rows={3}
             value={input}
-            placeholder={recording === "recording" ? "Ηχογράφηση… πατήστε ξανά για να σταματήσει." : recording === "transcribing" ? "Μετατροπή σε κείμενο…" : "Μιλήστε ή γράψτε. Μπορείτε να διορθώσετε το κείμενο πριν το στείλετε."}
+            placeholder={recording === "recording" ? "Ηχογράφηση… πατήστε ξανά για να σταματήσει." : recording === "transcribing" ? "Μετατροπή σε κείμενο…" : "π.χ. «Διαμέρισμα 95 τ.μ. στη Γλυφάδα, 3ος όροφος, 2 υπνοδωμάτια, 350.000 ευρώ». Μπορείτε να διορθώσετε το κείμενο πριν το στείλετε."}
             disabled={busy || recording === "transcribing"}
             onChange={(e) => { if (autoSend) clearAutoSend(); setInput(e.target.value); }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void send();
-            }}
+            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void send(); }}
           />
           <div className="intake-composer__buttons">
             <button
               type="button"
               className={recording === "recording" ? "btn btn--danger btn--lg" : "btn btn--outline btn--lg"}
-              disabled={busy || recording === "transcribing" || !available}
+              disabled={busy || recording === "transcribing" || !available || handsFree}
               onClick={() => (recording === "recording" ? stopRecording() : void startRecording())}
               aria-pressed={recording === "recording"}
             >
-              {recording === "recording" ? "⏹ Σταμάτημα" : recording === "transcribing" ? "…" : "🎤 Μίλησε"}
+              {recording === "recording" ? "■ Τέλος ηχογράφησης" : recording === "transcribing" ? "Μετατροπή…" : "🎤 Μιλήστε"}
             </button>
-            <button type="button" className="btn btn--primary btn--lg" disabled={busy || !input.trim() || !available} onClick={() => void send()}>Αποστολή</button>
+            <button type="button" className="btn btn--primary btn--lg" disabled={busy || !input.trim() || !available} onClick={() => void send()}>{busy ? "Επεξεργασία…" : "Αποστολή"}</button>
           </div>
           <div className="intake-quick">
-            {session.asked && (
-              <button type="button" className="btn btn--ghost btn--sm" disabled={busy} onClick={() => void edit({ type: "skip", key: session.asked!.key })}>Παράλειψη: {session.asked.label}</button>
-            )}
-            <button type="button" className="btn btn--ghost btn--sm" disabled={busy} onClick={() => void edit({ type: "undo" })}>↶ Πίσω</button>
-            <button type="button" className="btn btn--ghost btn--sm" disabled={busy} onClick={() => void edit({ type: "settings", stage: session.stage === "review" ? "collect" : "review" })}>
-              {session.stage === "review" ? "Συνέχεια ερωτήσεων" : "Πάμε στη σύνοψη"}
-            </button>
+            {session.asked && <button type="button" className="btn btn--ghost btn--sm" disabled={busy} onClick={() => void edit({ type: "skip", key: session.asked!.key })}>Παράλειψη: {session.asked.label}</button>}
+            <button type="button" className="btn btn--ghost btn--sm" disabled={busy} onClick={() => void edit({ type: "undo" })}>↶ Αναίρεση τελευταίας αλλαγής</button>
           </div>
+          {!available && <p className="hint">Η φωνή και η αυτόματη συμπλήρωση δεν είναι ρυθμισμένες στον server (λείπει το κλειδί Gemini). Συνεχίστε με τα πεδία στα επόμενα βήματα.</p>}
+        </div>
+      )}
+    </section>
+  );
+
+  const summary = (
+    <aside className="card ipanel isummary" aria-label="Τι έχει καταγραφεί">
+      <h2>Τι έχει καταγραφεί</h2>
+      {keyFacts.length === 0 ? (
+        <p className="muted">Ό,τι πείτε εμφανίζεται εδώ.</p>
+      ) : (
+        <dl className="isummary__list">
+          {keyFacts.map((r) => (
+            <div key={r.key} className={r.needsConfirmation ? "needs" : undefined}>
+              <dt>{r.label}</dt>
+              <dd>{r.display}{r.needsConfirmation && <span className="badge badge--warn"> επιβεβαιώστε</span>}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {session.review.missing.length > 0 && <p className="hint">Λείπουν: {session.review.missing.join(", ")}.</p>}
+      <p className="hint">{textsReady > 0 ? `Τίτλος/περιγραφή: ${textsReady} από 4 προτάσεις έτοιμες για έλεγχο (βήμα 5).` : "Ο τίτλος και η περιγραφή γράφονται αυτόματα μόλις υπάρξουν αρκετά στοιχεία."}</p>
+    </aside>
+  );
+
+  const ownerCard = (
+    <section className="card ipanel" aria-label="Ιδιοκτήτης">
+      <h3>Ιδιοκτήτης</h3>
+      <p className="hint">Επιλέξτε μια υπάρχουσα επαφή. Μην υπαγορεύετε τηλέφωνα ή email στον βοηθό· ψάξτε την επαφή εδώ ή δημιουργήστε πρώτα τη νέα επαφή.</p>
+      {session.owner ? (
+        <p>
+          <strong>{session.owner.label}</strong> <span className="hint">· {session.owner.reference}</span>
+          {!done && <> <button type="button" className="btn btn--ghost btn--sm" disabled={busy} onClick={() => void chooseOwner(null)}>Αφαίρεση</button></>}
+        </p>
+      ) : (
+        <p className="muted">Δεν έχει οριστεί ιδιοκτήτης.</p>
+      )}
+      {!done && (
+        <>
+          <div className="intake-edit">
+            <label className="sr-only" htmlFor="owner-q">Αναζήτηση επαφής</label>
+            <input id="owner-q" type="search" value={ownerQuery} placeholder="Όνομα, εταιρεία, κωδικός, τηλέφωνο ή email" onChange={(e) => setOwnerQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void searchOwner(); }} />
+            <button type="button" className="btn btn--outline btn--sm" disabled={busy || ownerQuery.trim().length < 2} onClick={() => void searchOwner()}>Αναζήτηση</button>
+            <Link className="btn btn--ghost btn--sm" href="/contacts/new" target="_blank" rel="noopener">Νέα επαφή ↗</Link>
+          </div>
+          {ownerResults && ownerResults.length === 0 && <p className="hint">Δεν βρέθηκε επαφή. Δημιουργήστε την από το «Νέα επαφή» και αναζητήστε ξανά.</p>}
+          {ownerResults && ownerResults.length > 0 && (
+            <ul className="intake-rows">
+              {ownerResults.map((c) => (
+                <li key={c.id}>
+                  <div className="intake-rows__main"><strong>{c.name}</strong><span className="hint">{[c.reference, c.city, c.phoneHint].filter(Boolean).join(" · ")}</span></div>
+                  <div className="intake-rows__meta"><button type="button" className="btn btn--outline btn--sm" disabled={busy} onClick={() => void chooseOwner(c.id)}>Επιλογή</button></div>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="hint">Ο ιδιοκτήτης συνδέεται όταν αποθηκευτεί το πρόχειρο.</p>
+        </>
+      )}
+    </section>
+  );
+
+  const photoSection = (
+    <section className="card ipanel" aria-label="Φωτογραφίες">
+      <h2>Φωτογραφίες</h2>
+      <p className="hint">Φωτογραφίστε τώρα ή προσθέστε τις αργότερα. Παραμένουν ιδιωτικές μέχρι να εγκριθούν και κρατιούνται σε αυτή τη συσκευή μέχρι να ανέβουν.</p>
+      {storageNote && <p className="notice" role="status">{storageNote}</p>}
+      {restored > 0 && !done && <p className="notice" role="status">Επαναφέρθηκαν {restored} φωτογραφίες που είχατε επιλέξει πριν κλείσει η σελίδα.</p>}
+      {restored > 0 && done && !progress && (
+        <div className="notice notice--danger" role="alert">
+          Το πρόχειρο είχε αποθηκευτεί, αλλά {photos.length} φωτογραφίες δεν είχαν ανέβει πριν κλείσει η σελίδα.
+          <div style={{ marginTop: 8 }}><button type="button" className="btn btn--primary btn--sm" disabled={busy} onClick={() => void uploadRestored()}>Ανέβασμα τώρα</button></div>
+        </div>
+      )}
+      <PendingMedia
+        files={photos}
+        onChange={setPhotos}
+        progress={progress}
+        disabled={busy || (done && !(restored > 0 && !progress))}
+        maxBytes={maxUploadBytes}
+        camera
+        renderExtra={(item) => {
+          const label = photoLabel(item.id);
+          if (!label && !(photos.length > 0 && !progress)) return null;
+          return (
+            <span className="intake-photo-label">
+              <label className="sr-only" htmlFor={`label-${item.id}`}>Ετικέτα φωτογραφίας {item.file.name}</label>
+              <select id={`label-${item.id}`} value={label?.code ?? ""} disabled={busy || Boolean(progress)} onChange={(e) => chooseLabel(item.id, e.target.value)}>
+                <option value="">Χωρίς ετικέτα</option>
+                {PHOTO_LABELS.map((l) => <option key={l.code} value={l.code}>{l.el}</option>)}
+              </select>
+              {label && !label.accepted && (
+                <>
+                  <span className="badge badge--warn">Πρόταση AI{label.confidence === "low" ? " (αβέβαιη)" : ""} — επιβεβαιώστε</span>
+                  <button type="button" className="btn btn--outline btn--sm" disabled={busy || Boolean(progress)} onClick={() => acceptLabel(item.id)}>Αποδοχή</button>
+                </>
+              )}
+              {label?.accepted && <span className="badge badge--ok">Ετικέτα</span>}
+            </span>
+          );
+        }}
+      />
+      {!done && photos.length > 0 && !progress && (
+        <div className="intake-label-actions">
+          <button type="button" className="btn btn--outline btn--sm" disabled={busy || labelling || !available || photos.every((p) => labels[p.id])} onClick={() => void suggestLabels()}>
+            {labelling ? "Ανάλυση…" : "Πρόταση ετικετών από AI"}
+          </button>
+          {Object.values(labels).some((l) => !l.accepted) && <button type="button" className="btn btn--ghost btn--sm" disabled={busy} onClick={acceptAllLabels}>Αποδοχή όλων των προτάσεων</button>}
+          <p className="hint">Για την πρόταση στέλνονται μικρές εκδοχές των φωτογραφιών στην υπηρεσία Gemini της Google, μόνο όταν πατήσετε το κουμπί. Δεν αποθηκεύονται από το HOME88. Οι ετικέτες που αποδέχεστε γίνονται το εναλλακτικό κείμενο των φωτογραφιών.</p>
+        </div>
+      )}
+      {!done && (
+        <label className="intake-later">
+          <input type="checkbox" checked={session.photosLater} disabled={busy} onChange={(e) => void edit({ type: "settings", photosLater: e.target.checked })} /> Θα ανεβάσω φωτογραφίες αργότερα
+        </label>
+      )}
+      {!done && photos.length > 0 && <p className="hint">Οι φωτογραφίες ανεβαίνουν μόλις αποθηκευτεί το πρόχειρο.</p>}
+    </section>
+  );
+
+  const texts = (
+    <section className="card ipanel" aria-label="Τίτλος και περιγραφή">
+      <div className="ipanel__head">
+        <h2>Τίτλος και περιγραφή</h2>
+        {!done && <button type="button" className="btn btn--outline btn--sm" disabled={busy || !session.fields.propertyType} onClick={() => void suggest()}>Νέα πρόταση</button>}
+      </div>
+      <p className="hint">Γράφονται αυτόματα μόνο από στοιχεία που έχετε δώσει ή επιβεβαιώσει. Δεν αποθηκεύονται αν δεν τα εγκρίνετε.</p>
+      <div className="itexts">
+        {TEXT_KEYS.map((key) => {
+          const f = session.fields[key];
+          const spec = specOf(key);
+          if (!spec) return null;
+          const isEditing = editing?.key === key;
+          return (
+            <div key={key} className={f && !f.confirmed ? "itext is-proposal" : "itext"}>
+              <div className="itext__head">
+                <label htmlFor={`txt-${key}`}>{spec.label}</label>
+                {f && <span className={f.confirmed ? "badge badge--ok" : ORIGIN_LABEL[f.origin].className}>{f.confirmed ? "Εγκρίθηκε" : `${ORIGIN_LABEL[f.origin].text} — δεν έχει εγκριθεί`}</span>}
+              </div>
+              {isEditing ? (
+                <>
+                  <textarea id={`txt-${key}`} rows={key.startsWith("description") ? 5 : 2} value={editing.value} onChange={(e) => setEditing({ key, value: e.target.value })} />
+                  <span className="intake-edit">
+                    <button type="button" className="btn btn--primary btn--sm" disabled={busy} onClick={() => void saveEditing()}>Αποθήκευση</button>
+                    <button type="button" className="btn btn--ghost btn--sm" onClick={() => setEditing(null)}>Άκυρο</button>
+                  </span>
+                </>
+              ) : (
+                <>
+                  <p className="intake-text">{f ? String(f.value) : <span className="muted">Δεν υπάρχει ακόμη πρόταση.</span>}</p>
+                  {!done && (
+                    <span className="intake-edit">
+                      {f && !f.confirmed && <button type="button" className="btn btn--primary btn--sm" disabled={busy} onClick={() => void edit({ type: "confirm", key })}>Έγκριση</button>}
+                      <button type="button" className="btn btn--ghost btn--sm" onClick={() => setEditing({ key, value: f ? String(f.value) : "" })}>{f ? "Επεξεργασία" : "Γράψτε"}</button>
+                      {f && <button type="button" className="btn btn--ghost btn--sm" disabled={busy} onClick={() => void edit({ type: "clear", key })}>Απόρριψη</button>}
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+
+  const reviewSection = (
+    <section className="card ipanel" aria-label="Έλεγχος">
+      <h2>Έλεγχος</h2>
+      <dl className="ireview">
+        {[
+          ["Είδος & τύπος", GROUPS.type, 1],
+          ["Τιμή", GROUPS.price, 1],
+          ["Τοποθεσία", GROUPS.location, 1],
+          ["Εμβαδόν & κατάσταση", GROUPS.size, 1],
+          ["Χαρακτηριστικά", [...mainKeys, ...featureKeys, ...extraShown.map((x) => x.key)], 2],
+        ].map(([title, keys, target]) => {
+          const shown = session.review.rows.filter((r) => (keys as string[]).includes(r.key));
+          return (
+            <div key={title as string}>
+              <dt>{title as string} <button type="button" className="btn btn--ghost btn--sm" onClick={() => go(target as StepIndex)}>Αλλαγή</button></dt>
+              <dd>{shown.length ? shown.map((r) => `${r.label}: ${r.display}`).join(" · ") : <span className="muted">—</span>}</dd>
+            </div>
+          );
+        })}
+        <div>
+          <dt>Ιδιοκτήτης <button type="button" className="btn btn--ghost btn--sm" onClick={() => go(1)}>Αλλαγή</button></dt>
+          <dd>{session.owner ? `${session.owner.label} · ${session.owner.reference}` : <span className="muted">Δεν έχει οριστεί</span>}</dd>
+        </div>
+        <div>
+          <dt>Φωτογραφίες <button type="button" className="btn btn--ghost btn--sm" onClick={() => go(3)}>Αλλαγή</button></dt>
+          <dd>{photos.length ? `${photos.length} · εξώφυλλο: ${photos[0]!.file.name}` : session.photosLater ? "Αργότερα" : <span className="muted">Καμία</span>}</dd>
+        </div>
+      </dl>
+      {session.review.ignored.length > 0 && <p className="hint">Δεν ισχύουν για αυτόν τον τύπο και δεν θα αποθηκευτούν: {session.review.ignored.join(", ")}.</p>}
+    </section>
+  );
+
+  const saveSection = (
+    <section className="card ipanel" aria-label="Αποθήκευση">
+      {!done ? (
+        <>
+          <h2>Αποθήκευση πρόχειρου</h2>
+          <h3 className="ilevel">Απαιτείται για να αποθηκευτεί το πρόχειρο</h3>
+          {session.review.blockers.length > 0 ? (
+            <ul className="notice notice--danger intake-list">{session.review.blockers.map((b) => <li key={b}>{b}</li>)}</ul>
+          ) : (
+            <p className="ok-line">✓ Όλα έτοιμα για αποθήκευση ως πρόχειρο.</p>
+          )}
+          {session.review.warnings.length > 0 && (
+            <>
+              <h3 className="ilevel">Πριν την ενεργοποίηση ή για πληρέστερη καταχώριση (δεν εμποδίζουν την αποθήκευση)</h3>
+              <ul className="notice intake-list">{session.review.warnings.map((w) => <li key={w}>{w}</li>)}</ul>
+            </>
+          )}
+          <p className="hint">Δημιουργείται ως πρόχειρο με τον κανονικό κωδικό H88. Δεν δημοσιεύεται στον ιστότοπο ούτε σε portals· η δημοσίευση γίνεται χωριστά, από το ακίνητο.</p>
+        </>
+      ) : (
+        <>
+          <h2>Το πρόχειρο αποθηκεύτηκε{created?.reference ? ` · ${created.reference}` : ""}</h2>
+          <p>Δεν έχει δημοσιευτεί.</p>
+          {photos.length > 0 && progress && (
+            <p className="hint" role="status" aria-live="polite">
+              Φωτογραφίες: {photos.filter((p) => progress[p.id]?.state === "done").length} / {photos.length} ανέβηκαν
+              {photos.some((p) => !["done", "failed"].includes(progress[p.id]?.state ?? "queued")) ? "…" : "."}
+            </p>
+          )}
+          {photos.length > 0 && photoFailures > 0 && !busy && (
+            <div className="notice notice--danger" role="alert">
+              Το ακίνητο αποθηκεύτηκε, αλλά {photoFailures} φωτογραφίες δεν ανέβηκαν. Δεν θα δημιουργηθεί δεύτερο ακίνητο.
+              <div style={{ marginTop: 8 }}><button type="button" className="btn btn--primary btn--sm" onClick={() => void retryPhotos()}>Επανάληψη των φωτογραφιών που απέτυχαν</button></div>
+            </div>
+          )}
+          {ownerOutcome === "linked" && session.owner && <p className="hint">Ο ιδιοκτήτης {session.owner.label} συνδέθηκε με το ακίνητο.</p>}
+          {ownerOutcome === "skipped" && <p className="notice notice--danger" role="alert">Το πρόχειρο αποθηκεύτηκε, αλλά ο ιδιοκτήτης δεν συνδέθηκε (η επαφή δεν υπάρχει πια). Συνδέστε τον από το ακίνητο.</p>}
+          {created && <Link className="btn btn--primary btn--lg" href={`/properties/${created.id}`}>Μετάβαση στο ακίνητο</Link>}
+        </>
+      )}
+    </section>
+  );
+
+  return (
+    <div className="intake">
+      <div className="iheader">
+        <span className="badge badge--info">{done ? "Πρόχειρο αποθηκεύτηκε" : "Πρόχειρο"}</span> <span className="hint">Δεν δημοσιεύεται πουθενά</span>
+      </div>
+      <Stepper current={step} done={stepDone} onGo={go} />
+      {error && <p className="notice notice--danger" role="alert">{error}</p>}
+
+      {step === 0 && (
+        <div className="igrid">
+          {conversation}
+          {summary}
         </div>
       )}
 
-      <section className="card intake-panel" aria-label="Η καταχώρησή σας">
-        <h2 style={{ marginTop: 0 }}>Η καταχώρησή σας</h2>
-        {session.review.rows.length === 0 && <p className="muted">Δεν έχει καταχωριστεί τίποτα ακόμη.</p>}
-        <ul className="intake-rows">
-          {session.review.rows.map((row) => {
-            const spec = specOf(row.key);
-            const isEditing = editing?.key === row.key;
-            return (
-              <li key={row.key}>
-                <div className="intake-rows__main">
-                  <strong>{row.label}</strong>
-                  {isEditing && spec ? (
-                    <span className="intake-edit">
-                      <ValueInput spec={spec} id={`edit-${row.key}`} value={editing.value} onChange={(v) => setEditing({ key: row.key, value: v })} />
-                      <button type="button" className="btn btn--primary btn--sm" disabled={busy} onClick={() => void saveEditing()}>Αποθήκευση</button>
-                      <button type="button" className="btn btn--ghost btn--sm" onClick={() => setEditing(null)}>Άκυρο</button>
-                    </span>
-                  ) : (
-                    <span>{row.display}</span>
-                  )}
-                </div>
-                <div className="intake-rows__meta">
-                  <span className={ORIGIN_LABEL[row.origin].className}>{row.needsConfirmation ? ORIGIN_LABEL[row.origin].text : "Από εσάς"}</span>
-                  {!done && spec && !isEditing && (
-                    <button type="button" className="btn btn--ghost btn--sm" onClick={() => setEditing({ key: row.key, value: String(session.fields[row.key]?.value ?? "") })}>Αλλαγή</button>
-                  )}
-                  {!done && row.needsConfirmation && (
-                    <button type="button" className="btn btn--outline btn--sm" disabled={busy} onClick={() => void edit({ type: "confirm", key: row.key })}>Επιβεβαίωση</button>
-                  )}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-
-        {!done && addable.length > 0 && (
-          <div className="intake-add">
-            <label htmlFor="intake-add">Προσθήκη πεδίου</label>
-            <select id="intake-add" value={adding} onChange={(e) => { setAdding(e.target.value); const spec = specOf(e.target.value); if (spec) setEditing({ key: spec.key, value: "" }); }}>
-              <option value="">Επιλέξτε…</option>
-              {addable.map((c) => (
-                <option key={c.key} value={c.key}>{c.label}</option>
-              ))}
-            </select>
-          </div>
-        )}
-        {!done && editing && !session.fields[editing.key] && specOf(editing.key) && (
-          <div className="intake-edit" style={{ marginTop: 8 }}>
-            <strong>{specOf(editing.key)!.label}</strong>
-            <ValueInput spec={specOf(editing.key)!} id={`new-${editing.key}`} value={editing.value} onChange={(v) => setEditing({ key: editing.key, value: v })} />
-            <button type="button" className="btn btn--primary btn--sm" disabled={busy || !editing.value.trim()} onClick={() => void saveEditing().then(() => setAdding(""))}>Προσθήκη</button>
-            <button type="button" className="btn btn--ghost btn--sm" onClick={() => { setEditing(null); setAdding(""); }}>Άκυρο</button>
-          </div>
-        )}
-
-        {session.review.ignored.length > 0 && <p className="hint">Δεν ισχύουν για αυτόν τον τύπο και δεν θα αποθηκευτούν: {session.review.ignored.join(", ")}.</p>}
-        {session.review.missing.length > 0 && <p className="hint">Λείπουν: {session.review.missing.join(", ")}. Μπορείτε να τα συμπληρώσετε αργότερα.</p>}
-      </section>
-
-      {!done && (
-        <section className="card intake-panel" aria-label="Τίτλος και περιγραφή">
-          <div className="between">
-            <h2 style={{ margin: 0 }}>Τίτλος και περιγραφή</h2>
-            <button type="button" className="btn btn--outline btn--sm" disabled={busy || !session.fields.propertyType} onClick={() => void suggest()}>Πρόταση από τα στοιχεία μου</button>
-          </div>
-          <p className="hint">Οι προτάσεις γράφονται μόνο από όσα έχετε επιβεβαιώσει και δεν αποθηκεύονται αν δεν τις εγκρίνετε.</p>
-          {textKeys.map((key) => {
-            const f = session.fields[key];
-            const spec = specOf(key);
-            if (!spec) return null;
-            const isEditing = editing?.key === key;
-            return (
-              <div key={key} className="field">
-                <label htmlFor={`txt-${key}`}>{spec.label}</label>
-                {isEditing ? (
-                  <>
-                    <textarea id={`txt-${key}`} rows={key.startsWith("description") ? 4 : 1} value={editing.value} onChange={(e) => setEditing({ key, value: e.target.value })} />
-                    <span className="intake-edit">
-                      <button type="button" className="btn btn--primary btn--sm" disabled={busy} onClick={() => void saveEditing()}>Αποθήκευση</button>
-                      <button type="button" className="btn btn--ghost btn--sm" onClick={() => setEditing(null)}>Άκυρο</button>
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <p className="intake-text">{f ? String(f.value) : <span className="muted">—</span>}</p>
-                    <span className="intake-edit">
-                      {f && <span className={ORIGIN_LABEL[f.origin].className}>{f.confirmed ? "Από εσάς" : ORIGIN_LABEL[f.origin].text}</span>}
-                      <button type="button" className="btn btn--ghost btn--sm" onClick={() => setEditing({ key, value: f ? String(f.value) : "" })}>{f ? "Αλλαγή" : "Γράψτε"}</button>
-                      {f && !f.confirmed && <button type="button" className="btn btn--outline btn--sm" disabled={busy} onClick={() => void edit({ type: "confirm", key })}>Έγκριση</button>}
-                    </span>
-                  </>
-                )}
-              </div>
-            );
-          })}
-        </section>
+      {step === 1 && (
+        <div className="igrid igrid--even">
+          <section className="card ipanel" aria-label="Είδος και τύπος"><h3>Είδος & τύπος ακινήτου</h3>{rows(GROUPS.type)}</section>
+          <section className="card ipanel" aria-label="Τιμή"><h3>Τιμή</h3>{rows(GROUPS.price)}</section>
+          <section className="card ipanel" aria-label="Τοποθεσία"><h3>Τοποθεσία</h3>{rows(GROUPS.location)}</section>
+          <section className="card ipanel" aria-label="Εμβαδόν"><h3>Εμβαδόν & κατάσταση</h3>{rows(GROUPS.size)}</section>
+          {ownerCard}
+        </div>
       )}
 
-      <section className="card intake-panel" aria-label="Ιδιοκτήτης">
-        <h2 style={{ marginTop: 0 }}>Ιδιοκτήτης</h2>
-        <p className="hint">
-          Επιλέξτε μια υπάρχουσα επαφή. Για την προστασία των προσωπικών δεδομένων μην υπαγορεύετε τηλέφωνα ή email στον βοηθό· ψάξτε την επαφή εδώ
-          ή δημιουργήστε πρώτα τη νέα επαφή.
-        </p>
-        {session.owner ? (
-          <p>
-            <strong>{session.owner.label}</strong> <span className="hint">· {session.owner.reference}</span>
-            {!done && (
-              <>
-                {" "}
-                <button type="button" className="btn btn--ghost btn--sm" disabled={busy} onClick={() => void chooseOwner(null)}>Αφαίρεση</button>
-              </>
-            )}
-          </p>
-        ) : (
-          <p className="muted">Δεν έχει οριστεί ιδιοκτήτης.</p>
-        )}
-        {!done && (
-          <>
-            <div className="intake-edit">
-              <label className="sr-only" htmlFor="owner-q">Αναζήτηση επαφής</label>
-              <input
-                id="owner-q"
-                type="search"
-                value={ownerQuery}
-                placeholder="Όνομα, εταιρεία, κωδικός επαφής, τηλέφωνο ή email"
-                onChange={(e) => setOwnerQuery(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") void searchOwner(); }}
-              />
-              <button type="button" className="btn btn--outline btn--sm" disabled={busy || ownerQuery.trim().length < 2} onClick={() => void searchOwner()}>Αναζήτηση</button>
-              <Link className="btn btn--ghost btn--sm" href="/contacts/new" target="_blank" rel="noopener">Νέα επαφή ↗</Link>
-            </div>
-            {ownerResults && ownerResults.length === 0 && <p className="hint">Δεν βρέθηκε επαφή. Δημιουργήστε την από το «Νέα επαφή» και αναζητήστε ξανά.</p>}
-            {ownerResults && ownerResults.length > 0 && (
-              <ul className="intake-rows">
-                {ownerResults.map((c) => (
-                  <li key={c.id}>
-                    <div className="intake-rows__main">
-                      <strong>{c.name}</strong>
-                      <span className="hint">{[c.reference, c.city, c.phoneHint].filter(Boolean).join(" · ")}</span>
-                    </div>
-                    <div className="intake-rows__meta">
-                      <button type="button" className="btn btn--outline btn--sm" disabled={busy} onClick={() => void chooseOwner(c.id)}>Επιλογή</button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <p className="hint">Ο ιδιοκτήτης συνδέεται όταν αποθηκευτεί το πρόχειρο.</p>
-          </>
-        )}
-      </section>
+      {step === 2 && (
+        <div className="stack">
+          {!layout ? (
+            <p className="notice">Δηλώστε πρώτα τον τύπο ακινήτου (βήμα 2): τα χαρακτηριστικά εξαρτώνται από αυτόν.</p>
+          ) : (
+            <>
+              <section className="card ipanel" aria-label={layout.title}>
+                <h2>{layout.title}</h2>
+                <div className="ifields">{rows(mainKeys)}</div>
+              </section>
+              {featureKeys.length > 0 && (
+                <section className="card ipanel" aria-label="Παροχές">
+                  <h3>Παροχές</h3>
+                  <p className="hint">Πατήστε όσα υπάρχουν.</p>
+                  <FeatureChips specs={specsOf(featureKeys)} session={session} disabled={locked} onSet={setField} />
+                </section>
+              )}
+              <section className="card ipanel" aria-label="Περισσότερα χαρακτηριστικά">
+                <h3>Περισσότερα χαρακτηριστικά</h3>
+                {extraShown.length > 0 && <div className="ifields">{extraShown.map((spec) => <FieldRow key={spec.key} spec={spec} session={session} disabled={locked} onSet={setField} onConfirm={confirm} />)}</div>}
+                {!done && <FieldPicker specs={pickable} onPick={(key) => setPickedKeys((cur) => [...cur, key])} />}
+              </section>
+            </>
+          )}
+        </div>
+      )}
 
-      <section className="card intake-panel" aria-label="Φωτογραφίες">
-        <h2 style={{ marginTop: 0 }}>Φωτογραφίες</h2>
-        <p className="hint">Φωτογραφίστε τώρα ή προσθέστε τις αργότερα. Παραμένουν ιδιωτικές μέχρι να εγκριθούν.</p>
-        {storageNote && <p className="notice" role="status">{storageNote}</p>}
-        {restored > 0 && !done && <p className="notice" role="status">Επαναφέρθηκαν {restored} φωτογραφίες που είχατε επιλέξει πριν κλείσει η σελίδα.</p>}
-        {restored > 0 && done && !progress && (
-          <div className="notice notice--danger" role="alert">
-            Το πρόχειρο είχε αποθηκευτεί, αλλά {photos.length} φωτογραφίες δεν είχαν ανέβει πριν κλείσει η σελίδα.
-            <div style={{ marginTop: 8 }}><button type="button" className="btn btn--primary btn--sm" disabled={busy} onClick={() => void uploadRestored()}>Ανέβασμα τώρα</button></div>
-          </div>
-        )}
-        <PendingMedia
-          files={photos}
-          onChange={setPhotos}
-          progress={progress}
-          disabled={busy || (done && !(restored > 0 && !progress))}
-          maxBytes={maxUploadBytes}
-          camera
-          renderExtra={(item) => {
-            const label = photoLabel(item.id);
-            if (!label && !(photos.length > 0 && !progress)) return null;
-            return (
-              <span className="intake-photo-label">
-                <label className="sr-only" htmlFor={`label-${item.id}`}>Ετικέτα φωτογραφίας {item.file.name}</label>
-                <select id={`label-${item.id}`} value={label?.code ?? ""} disabled={busy || Boolean(progress)} onChange={(e) => chooseLabel(item.id, e.target.value)}>
-                  <option value="">Χωρίς ετικέτα</option>
-                  {PHOTO_LABELS.map((l) => <option key={l.code} value={l.code}>{l.el}</option>)}
-                </select>
-                {label && !label.accepted && (
-                  <>
-                    <span className="badge badge--warn">Πρόταση AI{label.confidence === "low" ? " (αβέβαιη)" : ""} — επιβεβαιώστε</span>
-                    <button type="button" className="btn btn--outline btn--sm" disabled={busy || Boolean(progress)} onClick={() => acceptLabel(item.id)}>Αποδοχή</button>
-                  </>
-                )}
-                {label?.accepted && <span className="badge badge--ok">Ετικέτα</span>}
-              </span>
-            );
-          }}
-        />
-        {!done && photos.length > 0 && !progress && (
-          <div className="intake-label-actions">
-            <button type="button" className="btn btn--outline btn--sm" disabled={busy || labelling || !available || photos.every((p) => labels[p.id])} onClick={() => void suggestLabels()}>
-              {labelling ? "Ανάλυση…" : "Πρόταση ετικετών από AI"}
-            </button>
-            {Object.values(labels).some((l) => !l.accepted) && (
-              <button type="button" className="btn btn--ghost btn--sm" disabled={busy} onClick={acceptAllLabels}>Αποδοχή όλων των προτάσεων</button>
-            )}
-            <p className="hint">
-              Για την πρόταση στέλνονται μικρές εκδοχές των φωτογραφιών στην υπηρεσία Gemini της Google, μόνο όταν πατήσετε το κουμπί. Δεν αποθηκεύονται από το HOME88. Οι ετικέτες που αποδέχεστε γίνονται
-              το εναλλακτικό κείμενο των φωτογραφιών.
-            </p>
-          </div>
-        )}
-        {!done && (
-          <label className="intake-later">
-            <input type="checkbox" checked={session.photosLater} disabled={busy} onChange={(e) => void edit({ type: "settings", photosLater: e.target.checked })} /> Θα ανεβάσω φωτογραφίες αργότερα
-          </label>
-        )}
-        {!done && photos.length > 0 && <p className="hint">Οι φωτογραφίες ανεβαίνουν μόλις αποθηκευτεί το πρόχειρο. Μην κλείσετε τη σελίδα μέχρι τότε.</p>}
-      </section>
+      {step === 3 && photoSection}
 
-      <section className="card intake-panel" aria-label="Αποθήκευση">
+      {step === 4 && (
+        <div className="stack">
+          {reviewSection}
+          {!done && texts}
+          {saveSection}
+        </div>
+      )}
+
+      <div className="iactions" role="group" aria-label="Πλοήγηση και αποθήκευση">
+        <button type="button" className="btn btn--outline" disabled={step === 0} onClick={() => go((step - 1) as StepIndex)}>← Πίσω</button>
+        {step < 4 && <button type="button" className="btn btn--outline" onClick={() => go((step + 1) as StepIndex)}>Συνέχεια →</button>}
         {!done ? (
-          <>
-            <h2 style={{ marginTop: 0 }}>Αποθήκευση πρόχειρου</h2>
-            {session.review.blockers.length > 0 && (
-              <ul className="notice notice--danger intake-list">
-                {session.review.blockers.map((b) => <li key={b}>{b}</li>)}
-              </ul>
-            )}
-            {session.review.warnings.length > 0 && (
-              <ul className="notice intake-list">
-                {session.review.warnings.map((w) => <li key={w}>{w}</li>)}
-              </ul>
-            )}
-            <button type="button" className="btn btn--primary btn--lg btn--block" disabled={busy || !session.review.ready} onClick={() => void saveDraft()}>Αποθήκευση πρόχειρου ακινήτου</button>
-            <p className="hint">Δημιουργείται ως πρόχειρο με τον κανονικό κωδικό H88. Δεν δημοσιεύεται στον ιστότοπο ούτε σε portals.</p>
-          </>
+          <button type="button" className="btn btn--primary" disabled={busy || !session.review.ready} onClick={() => void saveDraft()} title={session.review.ready ? undefined : session.review.blockers.join(" ")}>
+            {busy ? "Αποθήκευση…" : "Αποθήκευση πρόχειρου"}
+          </button>
         ) : (
-          <>
-            <h2 style={{ marginTop: 0 }}>Το πρόχειρο αποθηκεύτηκε{created?.reference ? ` · ${created.reference}` : ""}</h2>
-            {photos.length > 0 && photoFailures > 0 && !busy && (
-              <div className="notice notice--danger" role="alert">
-                Το ακίνητο αποθηκεύτηκε, αλλά {photoFailures} φωτογραφίες δεν ανέβηκαν. Δεν θα δημιουργηθεί δεύτερο ακίνητο.
-                <div style={{ marginTop: 8 }}><button type="button" className="btn btn--primary btn--sm" onClick={() => void retryPhotos()}>Επανάληψη των φωτογραφιών που απέτυχαν</button></div>
-              </div>
-            )}
-            {ownerOutcome === "linked" && session.owner && <p className="hint">Ο ιδιοκτήτης {session.owner.label} συνδέθηκε με το ακίνητο.</p>}
-            {ownerOutcome === "skipped" && <p className="notice notice--danger" role="alert">Το πρόχειρο αποθηκεύτηκε, αλλά ο ιδιοκτήτης δεν συνδέθηκε (η επαφή δεν υπάρχει πια). Συνδέστε τον από το ακίνητο.</p>}
-            {created && <Link className="btn btn--primary btn--lg" href={`/properties/${created.id}`}>Μετάβαση στο ακίνητο</Link>}
-          </>
+          created && <Link className="btn btn--primary" href={`/properties/${created.id}`}>Μετάβαση στο ακίνητο</Link>
         )}
-      </section>
+      </div>
     </div>
   );
 }

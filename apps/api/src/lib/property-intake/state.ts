@@ -52,12 +52,14 @@ export type IntakeState = {
    * and a display name, and the link is made when the draft is saved.
    */
   owner: OwnerRef | null;
+  /** The facts the current title/description suggestions were written from, so a turn that adds nothing new does not ask the model again. */
+  textsBasis: string | null;
 };
 
 export type OwnerRef = { contactId: string; reference: string; label: string };
 
 export function emptyState(): IntakeState {
-  return { fields: {}, skipped: [], pending: [], asked: null, lang: "el", muted: false, photosLater: false, stage: "collect", undo: [], owner: null };
+  return { fields: {}, skipped: [], pending: [], asked: null, lang: "el", muted: false, photosLater: false, stage: "collect", undo: [], owner: null, textsBasis: null };
 }
 
 /** Defensive read of the stored JSON: unknown shapes become an empty conversation, never an error. */
@@ -76,6 +78,7 @@ export function readState(raw: unknown): IntakeState {
     stage: r.stage === "review" ? "review" : "collect",
     undo: Array.isArray(r.undo) ? r.undo.slice(-20) : [],
     owner: readOwner(r.owner),
+    textsBasis: typeof r.textsBasis === "string" ? r.textsBasis.slice(0, 200) : null,
   };
 }
 

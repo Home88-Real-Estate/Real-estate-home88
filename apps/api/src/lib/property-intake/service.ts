@@ -9,12 +9,13 @@
  */
 
 import type { Prisma, PrismaClient } from "@home88/database";
-import { completeness, normalizeForProfile, requiredIssues } from "@home88/domain";
+import { completeness, normalizeForProfile, profileFor, requiredIssues } from "@home88/domain";
 import { propertyUpsertSchema } from "@home88/validation";
 
 import { createPropertyInTx, type CreateMeta } from "../../routes/properties";
 import { writeAudit } from "../audit";
 import { contactWhere, touchContact } from "../contacts";
+import { toLatin } from "./translit";
 import { decryptField } from "../pii";
 import { HttpError, notFound } from "../errors";
 import { intakeAiConfig } from "./config";
@@ -55,6 +56,11 @@ export type SessionDto = {
   asked: { key: string; label: string; kind: string; options?: Array<{ value: string; label: string }> } | null;
   review: Review;
   fields: Record<string, { value: Value; origin: Origin; confirmed: boolean }>;
+  /**
+   * How the property type groups its characteristics (from the same profile the CRM form uses), so the
+   * screen can show what matters for this type first. Null until the type is known.
+   */
+  layout: { title: string; core: string[]; details: string[]; features: string[]; recommended: string[] } | null;
   /** Every field that applies right now, with how to edit it by touch. */
   catalog: Array<{ key: string; label: string; kind: string; unit?: string; options?: Array<{ value: string; label: string }> }>;
 };
@@ -190,6 +196,14 @@ export function toDto(row: Row): SessionDto {
       : null,
     review: buildReview(state, ui),
     fields: Object.fromEntries(Object.entries(state.fields).map(([k, e]) => [k, { value: e.value, origin: e.origin, confirmed: e.confirmed }])),
+    layout: (() => {
+      const type = stated(state, "propertyType");
+      if (!type) return null;
+      const p = profileFor(type);
+      const known = new Set(specs.map((x) => x.key));
+      const keep = (keys: readonly string[]) => keys.filter((k) => known.has(k));
+      return { title: p.title, core: keep(p.core), details: keep(p.details), features: keep(p.features), recommended: keep([...p.required, ...p.recommended]) };
+    })(),
     catalog: specs.map((s) => ({
       key: s.key, label: label(s, ui), kind: s.kind, unit: s.unit,
       options: s.options?.map((o) => ({ value: o.value, label: o.labelEl })),
@@ -411,6 +425,10 @@ export async function takeTurn(db: Db, ai: IntakeAiPort, userId: string, id: str
   const nothing = !changed && notes.length === 0 ? reply("noChange", lang) : null;
   const message = composeReply([ack, ...notes, nothing, ask]);
 
+  // The listing texts follow the facts: after every turn that changed them, the four suggestions are refreshed
+  // (never over anything the agent wrote or approved), so they do not sit empty until a button is pressed.
+  if (changed) state = await refreshTexts(state, ai, { force: false });
+
   turns.push({ role: "agent", text, at: now.toISOString(), lang });
   turns.push({ role: "assistant", text: message, at: now.toISOString(), lang });
   const saved = await save(db, row, { state, turns, language: newPref !== pref ? newPref : undefined });
@@ -499,6 +517,10 @@ export async function applyEdit(db: Db, userId: string, id: string, edit: Edit, 
       language = edit.language;
       break;
   }
+  // A fact changed by touch: the (unapproved) titles follow at once; descriptions follow on the next turn.
+  if (edit.type === "set" || edit.type === "clear" || edit.type === "resolve" || edit.type === "undo") {
+    if (!(edit.type !== "undo" && ["titleEl", "titleEn", "descriptionEl", "descriptionEn"].includes(edit.key))) state = await refreshTexts(state, null, { force: false });
+  }
   return toDto(await save(db, row, { state, language }));
 }
 
@@ -506,48 +528,69 @@ export async function applyEdit(db: Db, userId: string, id: string, edit: Edit, 
 
 const digits = (s: string) => s.match(/\d+/g) ?? [];
 
+/** Facts the suggestions may use: confirmed values only, never the texts themselves. */
+function textFacts(state: IntakeState, specs: FieldSpec[]) {
+  return specs
+    .filter((s) => !TEXT_KEYS.includes(s.key))
+    .flatMap((s) => {
+      const e = state.fields[s.key];
+      return e && e.confirmed ? [{ key: s.key, label: s.labelEn, value: valueText(s, e.value, "en") }] : [];
+    });
+}
+const TEXT_KEYS = ["titleEl", "titleEn", "descriptionEl", "descriptionEn"];
+/** Enough to write a useful first draft: the type plus two other facts. */
+const MIN_FACTS_FOR_TEXT = 3;
+
 /**
- * Drafts the listing title (deterministic) and descriptions (model) from the
- * agent's own confirmed facts. All of it arrives UNCONFIRMED: the agent must
- * accept or edit it before it can be saved. A description that mentions a
- * number that is not among the facts is discarded.
+ * Writes (or rewrites) the suggested titles and descriptions from the agent's CONFIRMED facts.
+ * Titles are built here, deterministically; descriptions come from the model, and one that mentions a
+ * number not among the facts is discarded. Everything arrives UNCONFIRMED, and a text the agent wrote
+ * or approved is never replaced (setDerived refuses). Without `force`, the model is only asked again
+ * when the facts have changed since the last suggestion.
  */
-export async function suggestTexts(db: Db, ai: IntakeAiPort | null, userId: string, id: string): Promise<SessionDto> {
-  const row = await loadOwn(db, userId, id);
-  if (row.status !== "ACTIVE") throw new HttpError(409, "intake_closed", "Η συνεδρία έχει ολοκληρωθεί.");
-  let state = readState(row.state);
+export async function refreshTexts(state: IntakeState, ai: IntakeAiPort | null, options: { force: boolean }): Promise<IntakeState> {
   const specs = specsFor(state);
   const typeRow = PROPERTY_TYPES.find(([v]) => v === stated(state, "propertyType"));
-  if (!typeRow) throw new HttpError(422, "type_missing", "Δηλώστε πρώτα τον τύπο ακινήτου.");
-  const area = state.fields.area?.value;
+  const facts = textFacts(state, specs);
+  if (!typeRow || (!options.force && facts.length < MIN_FACTS_FOR_TEXT)) return state;
+  const basis = facts.map((f) => `${f.key}=${f.value}`).join("|").slice(0, 200);
+  if (!options.force && basis === state.textsBasis) return state;
+
+  const area = state.fields.area?.confirmed ? state.fields.area.value : undefined;
   const place = stated(state, "areaName") ?? stated(state, "city");
   const listing = stated(state, "listingType");
   const verbEl = listing === "RENT" ? "προς ενοικίαση" : listing === "SALE" ? "προς πώληση" : "";
   const verbEn = listing === "RENT" ? "for rent" : listing === "SALE" ? "for sale" : "";
   const titleEl = [typeRow[1], typeof area === "number" ? `${area} τ.μ.` : null, place ? `${place}` : null, verbEl].filter(Boolean).join(", ").replace(/, (προς)/, " $1");
-  const titleEn = [typeRow[2], typeof area === "number" ? `${area} sqm` : null, place ? `in ${place}` : null, verbEn].filter(Boolean).join(" ");
-  state = setDerived(state, "titleEl", titleEl, "SYSTEM_DERIVED");
-  state = setDerived(state, "titleEn", titleEn, "SYSTEM_DERIVED");
+  const titleEn = [typeRow[2], typeof area === "number" ? `${area} sqm` : null, place ? `in ${toLatin(place)}` : null, verbEn].filter(Boolean).join(" ");
+  let next = setDerived(state, "titleEl", titleEl, "SYSTEM_DERIVED");
+  next = setDerived(next, "titleEn", titleEn, "SYSTEM_DERIVED");
 
-  const facts = specs
-    .filter((s) => !["titleEl", "titleEn", "descriptionEl", "descriptionEn"].includes(s.key))
-    .flatMap((s) => {
-      const e = state.fields[s.key];
-      return e && e.confirmed ? [{ label: s.labelEn, value: valueText(s, e.value, "en") }] : [];
-    });
   if (ai && facts.length >= 2) {
     try {
-      const out = await ai.suggestTexts({ facts }, AbortSignal.timeout(intakeAiConfig().timeoutMs));
+      const out = await ai.suggestTexts({ facts: facts.map(({ label, value }) => ({ label, value })) }, AbortSignal.timeout(intakeAiConfig().timeoutMs));
       const allowedNumbers = new Set(facts.flatMap((f) => digits(f.value)));
       for (const [key, value] of [["descriptionEl", out.descriptionEl], ["descriptionEn", out.descriptionEn]] as const) {
-        if (value && digits(value).every((d) => allowedNumbers.has(d))) state = setDerived(state, key, value, "AI_SUGGESTED");
+        if (value && digits(value).every((d) => allowedNumbers.has(d))) next = setDerived(next, key, value, "AI_SUGGESTED");
       }
+      next = { ...next, textsBasis: basis };
     } catch (error) {
       if (!(error instanceof IntakeAiError)) throw error;
-      // Text generation is optional: the agent can write the description or retry.
+      // Text is optional: the agent can write it, or regenerate later.
     }
   }
-  return toDto(await save(db, row, { state }));
+  // Without the model only the titles were refreshed: the basis stays as it was, so the descriptions are
+  // rewritten on the next turn that can reach the model.
+  return next;
+}
+
+/** "Πρόταση από τα στοιχεία μου": regenerate now, whatever changed. */
+export async function suggestTexts(db: Db, ai: IntakeAiPort | null, userId: string, id: string): Promise<SessionDto> {
+  const row = await loadOwn(db, userId, id);
+  if (row.status !== "ACTIVE") throw new HttpError(409, "intake_closed", "Η συνεδρία έχει ολοκληρωθεί.");
+  const state = readState(row.state);
+  if (!PROPERTY_TYPES.some(([v]) => v === stated(state, "propertyType"))) throw new HttpError(422, "type_missing", "Δηλώστε πρώτα τον τύπο ακινήτου.");
+  return toDto(await save(db, row, { state: await refreshTexts(state, ai, { force: true }) }));
 }
 
 // --- Creation -----------------------------------------------------------------
