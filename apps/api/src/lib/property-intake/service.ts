@@ -22,6 +22,7 @@ import { intakeAiConfig } from "./config";
 import { extractionJsonSchema, extractionSystemPrompt, extractionUserPrompt, parseExtraction } from "./extraction";
 import { allowedFields, LISTING_TYPES, PROPERTY_TYPES, ROOT_SPECS, specByKey, type FieldSpec } from "./fields";
 import { questionOrder } from "./flow";
+import { publicCoordinates, validCoordinates, type IntakeLocation, type LocationSource, type LocationVisibility } from "./location";
 import { IntakeAiError, type IntakeAiPort, type LanguagePreference } from "./ai";
 import {
   acknowledge, composeReply, confirmQuestion, label, pickLanguage, questionFor, reply, skippedNote, valueText,
@@ -50,6 +51,8 @@ export type SessionDto = {
   photosLater: boolean;
   /** The existing contact that will be linked as owner when the draft is saved; chosen by touch only. */
   owner: { contactId: string; reference: string; label: string } | null;
+  /** Where the property is (exact, agent-only) and what the public will see; set by touch only. */
+  location: (IntakeLocation & { public: { latitude: number; longitude: number } | null }) | null;
   lang: Lang;
   turns: Turn[];
   pending: Array<{ key: string; label: string; proposed: string; current: string | null; reason: "conflict" | "unverified" }>;
@@ -179,6 +182,7 @@ export function toDto(row: Row): SessionDto {
     muted: state.muted,
     photosLater: state.photosLater,
     owner: state.owner,
+    location: state.location ? { ...state.location, public: publicCoordinates(state.location) } : null,
     lang,
     turns: turnsOf(row.turns),
     pending: state.pending.map((p) => {
@@ -230,10 +234,16 @@ async function save(db: Db, row: Row, patch: { state?: IntakeState; turns?: Turn
   return db.propertyIntakeSession.findUniqueOrThrow({ where: { id: row.id } });
 }
 
-export async function startSession(db: Db, userId: string, language: LanguagePreference, meta: CreateMeta): Promise<SessionDto> {
+export async function startSession(db: Db, userId: string, language: LanguagePreference, meta: CreateMeta, clientRef?: string): Promise<SessionDto> {
+  if (clientRef) {
+    // A draft started offline and synced before: hand back the same session, whatever became of it.
+    const existing = await db.propertyIntakeSession.findFirst({ where: { userId, state: { path: ["clientRef"], equals: clientRef } }, orderBy: { createdAt: "asc" } });
+    if (existing) return toDto(existing);
+  }
   const state = emptyState();
   const lang: Lang = language === "en" ? "en" : "el";
   state.lang = lang;
+  state.clientRef = clientRef ?? null;
   const turns: Turn[] = [{ role: "assistant", text: reply("greeting", lang), at: new Date().toISOString(), lang }];
   const row = await db.propertyIntakeSession.create({ data: { userId, language, state: state as unknown as Prisma.InputJsonValue, turns: turns as unknown as Prisma.InputJsonValue } });
   await writeAudit({ entity: "PROPERTY_INTAKE", entityId: row.id, action: "session_start", actorId: userId, ipAddress: meta.ipAddress, userAgent: meta.userAgent, changes: { language } });
@@ -479,6 +489,8 @@ export type Edit =
   | { type: "skip"; key: string }
   | { type: "undo" }
   | { type: "owner"; contactId: string | null }
+  | { type: "location"; lat: number; lng: number; accuracy?: number | null; source: LocationSource; visibility: LocationVisibility }
+  | { type: "location"; clear: true }
   | { type: "settings"; muted?: boolean; photosLater?: boolean; language?: LanguagePreference; stage?: "collect" | "review" };
 
 export async function applyEdit(db: Db, userId: string, id: string, edit: Edit, revision?: number): Promise<SessionDto> {
@@ -508,6 +520,16 @@ export async function applyEdit(db: Db, userId: string, id: string, edit: Edit, 
       if (!contact) throw notFound("Η επαφή δεν βρέθηκε.");
       const label = `${contact.firstName} ${contact.lastName}`.trim() || contact.company || contact.reference;
       state = { ...state, owner: { contactId: contact.id, reference: contact.reference, label } };
+      break;
+    }
+    case "location": {
+      if ("clear" in edit) {
+        state = { ...state, location: null };
+        break;
+      }
+      if (!validCoordinates(edit.lat, edit.lng)) throw new HttpError(422, "invalid_location", "Μη έγκυρες συντεταγμένες.");
+      const accuracy = edit.accuracy == null ? null : Math.max(0, Math.round(edit.accuracy));
+      state = { ...state, location: { lat: Math.round(edit.lat * 1e7) / 1e7, lng: Math.round(edit.lng * 1e7) / 1e7, accuracy, source: edit.source, visibility: edit.visibility, capturedAt: new Date().toISOString() } };
       break;
     }
     case "settings":
@@ -618,7 +640,8 @@ export async function createProperty(db: Db, userId: string, id: string, meta: C
   const review = buildReview(state, "el");
   if (!review.ready) throw new HttpError(422, "intake_not_ready", "Η καταχώριση δεν είναι έτοιμη.", { review: review.blockers });
   const { payload } = buildPayload(state, specs);
-  const parsed = propertyUpsertSchema.parse({ ...payload, agentId: userId });
+  // Only what the chosen visibility allows reaches the property (and so the website); the exact point stays in this session.
+  const parsed = propertyUpsertSchema.parse({ ...payload, ...(publicCoordinates(state.location) ?? {}), agentId: userId });
 
   try {
     const created = await db.$transaction(
@@ -637,7 +660,7 @@ export async function createProperty(db: Db, userId: string, id: string, meta: C
         }
         await tx.propertyIntakeSession.update({ where: { id }, data: { propertyId: property.id } });
         const origins = Object.values(state.fields).reduce<Record<string, number>>((acc, e) => ({ ...acc, [e.origin]: (acc[e.origin] ?? 0) + 1 }), {});
-        await writeAudit({ entity: "PROPERTY_INTAKE", entityId: id, action: "property_create", actorId: userId, ipAddress: meta.ipAddress, userAgent: meta.userAgent, changes: { propertyId: property.id, reference: property.reference, fields: Object.keys(state.fields).length, origins } }, tx);
+        await writeAudit({ entity: "PROPERTY_INTAKE", entityId: id, action: "property_create", actorId: userId, ipAddress: meta.ipAddress, userAgent: meta.userAgent, changes: { propertyId: property.id, reference: property.reference, fields: Object.keys(state.fields).length, origins, location: state.location?.visibility ?? null } }, tx);
         return property;
       },
       { isolationLevel: "Serializable" },

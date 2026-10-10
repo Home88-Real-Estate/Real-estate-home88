@@ -8,6 +8,7 @@ import { sniffAudio } from "./audio";
 import { intakeAiConfig } from "./config";
 import { extractionJsonSchema, parseExtraction } from "./extraction";
 import { allowedFields, coerceValue, specByKey } from "./fields";
+import { APPROXIMATE_STEP, publicCoordinates, readLocation } from "./location";
 import { MAX_DETAIL_QUESTIONS, questionOrder } from "./flow";
 import { parseLabels, PHOTO_LABEL_CODES, sniffImage } from "./photo-labels";
 import { phoneHint, refreshTexts } from "./service";
@@ -535,5 +536,34 @@ describe("place names in English text", () => {
       ["Κουκάκι", "Koukaki"], ["Χαλάνδρι", "Chalandri"], ["Glyfada", "Glyfada"],
     ];
     for (const [el, en] of cases) assert.equal(toLatin(el), en, el);
+  });
+});
+
+describe("location visibility", () => {
+  const at = (visibility: "exact" | "approximate" | "private") => ({ lat: 37.8654321, lng: 23.7543219, accuracy: 8, source: "gps" as const, visibility, capturedAt: "2026-10-10T00:00:00.000Z" });
+
+  it("gives the public only what the agent allowed", () => {
+    assert.deepEqual(publicCoordinates(at("exact")), { latitude: 37.8654321, longitude: 23.7543219 });
+    assert.deepEqual(publicCoordinates(at("approximate")), { latitude: 37.865, longitude: 23.755 });
+    assert.equal(publicCoordinates(at("private")), null);
+    assert.equal(publicCoordinates(null), null);
+  });
+
+  it("an approximate point is at most half a grid step away and the same for nearby points", () => {
+    const a = publicCoordinates({ ...at("approximate"), lat: 37.86601, lng: 23.75399 })!;
+    const b = publicCoordinates({ ...at("approximate"), lat: 37.86699, lng: 23.75301 })!;
+    assert.deepEqual(a, b, "two points in the same block read the same");
+    assert.ok(Math.abs(a.latitude - 37.86601) <= APPROXIMATE_STEP / 2 + 1e-9);
+  });
+
+  it("reads stored JSON defensively", () => {
+    assert.equal(readLocation(null), null);
+    assert.equal(readLocation({ lat: "37", lng: 23 }), null);
+    assert.equal(readLocation({ lat: 91, lng: 23 }), null);
+    assert.equal(readLocation({ lat: 0, lng: 0 }), null, "0,0 is a failed fix, not a property");
+    const loc = readLocation({ lat: 37.9, lng: 23.7, visibility: "public!", source: "radar", accuracy: -3 })!;
+    assert.equal(loc.visibility, "approximate", "an unknown visibility falls back to the cautious one");
+    assert.equal(loc.source, "manual");
+    assert.equal(loc.accuracy, null);
   });
 });

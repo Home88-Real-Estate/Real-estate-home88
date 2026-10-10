@@ -16,19 +16,20 @@ import { db } from "../lib/prisma";
 import { consume } from "../lib/rate-limit";
 import { IntakeAiError, intakeAi, intakeAiAvailable } from "../lib/property-intake/ai";
 import { sniffAudio } from "../lib/property-intake/audio";
+import { CLIENT_REF } from "../lib/property-intake/state";
 import { intakeAiConfig } from "../lib/property-intake/config";
 import { MAX_LABEL_IMAGE_BYTES, MAX_LABEL_IMAGES, parseLabels, sniffImage } from "../lib/property-intake/photo-labels";
 import { imageDimensions } from "../lib/image-size";
 import {
   abandonSession, applyEdit, createProperty, getSession, lastAssistantText, listResumable, normalizeAudioType,
-  searchOwnerCandidates, startSession, suggestTexts, takeTurn, transcribe,
+  searchOwnerCandidates, startSession, suggestTexts, takeTurn, transcribe, type Edit,
 } from "../lib/property-intake/service";
 import { requireRole } from "../plugins/auth";
 
 const language = z.enum(["auto", "el", "en"]).default("auto");
 const revision = z.number().int().min(0).optional();
 
-const startSchema = z.object({ language: language.optional() }).default({});
+const startSchema = z.object({ language: language.optional(), clientRef: z.string().regex(CLIENT_REF).optional() }).default({});
 const turnSchema = z.object({ text: z.string().min(1).max(4000), detectedLanguage: z.enum(["el", "en"]).nullish(), revision });
 const transcribeSchema = z.object({ audio: z.string().min(100).max(6_000_000), mimeType: z.string().max(100), language: language.optional() });
 const editSchema = z.object({
@@ -40,6 +41,15 @@ const editSchema = z.object({
     z.object({ type: z.literal("skip"), key: z.string().max(60) }),
     z.object({ type: z.literal("undo") }),
     z.object({ type: z.literal("owner"), contactId: z.string().min(1).max(40).nullable() }),
+    z.object({
+      type: z.literal("location"),
+      lat: z.number().min(-90).max(90).optional(),
+      lng: z.number().min(-180).max(180).optional(),
+      accuracy: z.number().min(0).max(100_000).nullish(),
+      source: z.enum(["gps", "map", "manual"]).optional(),
+      visibility: z.enum(["exact", "approximate", "private"]).optional(),
+      clear: z.literal(true).optional(),
+    }),
     z.object({ type: z.literal("settings"), muted: z.boolean().optional(), photosLater: z.boolean().optional(), language: language.optional(), stage: z.enum(["collect", "review"]).optional() }),
   ]),
   revision,
@@ -48,6 +58,14 @@ const labelSchema = z.object({
   images: z.array(z.object({ id: z.string().min(1).max(120), mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]), data: z.string().min(100).max(600_000) })).min(1).max(MAX_LABEL_IMAGES),
 });
 const revisionOnly = z.object({ revision }).default({});
+
+/** A location edit either clears the point or gives all of it. */
+function toEdit(edit: z.infer<typeof editSchema>["edit"]): Edit {
+  if (edit.type !== "location") return edit;
+  if (edit.clear) return { type: "location", clear: true };
+  if (edit.lat === undefined || edit.lng === undefined || !edit.source || !edit.visibility) throw new HttpError(422, "invalid_location", "Λείπουν συντεταγμένες ή η ορατότητα της θέσης.");
+  return { type: "location", lat: edit.lat, lng: edit.lng, accuracy: edit.accuracy ?? null, source: edit.source, visibility: edit.visibility };
+}
 
 const SPEECH_FAILURE = "Η φωνητική λειτουργία δεν είναι διαθέσιμη αυτή τη στιγμή. Συνεχίστε γράφοντας ή με τα πεδία.";
 
@@ -92,7 +110,7 @@ export async function propertyIntakeRoutes(app: FastifyInstance): Promise<void> 
 
   app.post("/property-intake/sessions", agent, async (request, reply) => {
     const input = parseInput(startSchema, request.body ?? {});
-    const session = await startSession(db(), request.auth!.user.id, input.language ?? "auto", meta(request));
+    const session = await startSession(db(), request.auth!.user.id, input.language ?? "auto", meta(request), input.clientRef);
     reply.code(201);
     return { session };
   });
@@ -140,7 +158,7 @@ export async function propertyIntakeRoutes(app: FastifyInstance): Promise<void> 
   app.post("/property-intake/sessions/:id/edit", agent, async (request) => {
     const { id } = request.params as { id: string };
     const input = parseInput(editSchema, request.body);
-    return { session: await applyEdit(db(), request.auth!.user.id, id, input.edit, input.revision) };
+    return { session: await applyEdit(db(), request.auth!.user.id, id, toEdit(input.edit), input.revision) };
   });
 
   app.post("/property-intake/sessions/:id/suggest", agent, async (request) => {
