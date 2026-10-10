@@ -38,9 +38,10 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
   const sp = await searchParams;
   const category = first(sp.category);
   const q = first(sp.q);
+  const propertyId = first(sp.propertyId);
   const page = Math.max(1, Number(first(sp.page)) || 1);
   const result = await apiFetch<{ data: Row[]; canDelete: boolean; storageConfigured: boolean; pagination: { page: number; pages: number; total: number } }>("/api/documents", {
-    query: { category: category || undefined, q: q || undefined, page },
+    query: { category: category || undefined, q: q || undefined, propertyId: propertyId || undefined, page },
   });
 
   return (
@@ -57,6 +58,11 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
           <Link key={k} href={`/documents?category=${k}`} className="tabs__link" aria-current={category === k ? "page" : undefined}>{l}</Link>
         ))}
       </nav>
+      {propertyId && (
+        <div className="notice">
+          Έγγραφα ενός ακινήτου. <Link href={`/properties/${encodeURIComponent(propertyId)}#documents`}>Πίσω στο ακίνητο</Link> · <Link href="/documents">Όλα τα έγγραφα</Link>
+        </div>
+      )}
       {result.ok && !result.data.storageConfigured && <div className="notice notice--warn">Η αποθήκευση αρχείων (S3) δεν έχει ρυθμιστεί στον server· δεν μπορούν να ανέβουν έγγραφα.</div>}
       {result.ok && result.data.storageConfigured && (
         <details className="subpanel panel no-print">

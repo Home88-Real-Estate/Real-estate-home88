@@ -110,7 +110,7 @@ export default async function CalendarPage({
         </div>
       </div>
 
-      <details className="panel" open={!result.ok || (result.ok && result.data.data.length === 0)}>
+      <details id="new" className="panel" open={sp.new === "1" || !result.ok || (result.ok && result.data.data.length === 0)}>
         <summary className="panel__summary">
           <h2>Νέο ραντεβού / υπόδειξη</h2>
         </summary>

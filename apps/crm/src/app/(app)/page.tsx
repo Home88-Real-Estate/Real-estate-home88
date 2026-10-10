@@ -4,6 +4,7 @@ import Link from "next/link";
 import { AgentsTable, Categories, LeadsBySource, MonthlyActivity, Pipeline } from "@/components/dashboard/ChartPanels";
 import { Kpi } from "@/components/dashboard/Kpi";
 import { PropertyTabs } from "@/components/dashboard/PropertyTabs";
+import { QuickActions, type IntakeDraft } from "@/components/dashboard/QuickActions";
 import { ReminderTabs } from "@/components/dashboard/ReminderTabs";
 import { Alerts, LatestLeads, LatestOffers, TodaysViewings } from "@/components/dashboard/SidePanels";
 import { TodayStrip } from "@/components/dashboard/TodayStrip";
@@ -61,7 +62,12 @@ export default async function DashboardPage({
     to: first(sp.to) || undefined,
     scope: first(sp.scope) || undefined,
   };
-  const result = await apiFetch<DashboardData>("/api/dashboard", { query });
+  const [result, draftsResult] = await Promise.all([
+    apiFetch<DashboardData>("/api/dashboard", { query }),
+    // Half-done voice registrations; the dashboard still renders when this fails.
+    apiFetch<{ sessions: IntakeDraft[] }>("/api/property-intake/sessions"),
+  ]);
+  const drafts = draftsResult.ok ? draftsResult.data.sessions : [];
 
   /** Dashboard URL with some filters changed, the others kept. */
   const href = (change: Partial<Record<keyof typeof query, string | undefined>>) => {
@@ -82,6 +88,7 @@ export default async function DashboardPage({
             <p>{longDate(now)}</p>
           </div>
         </div>
+        <QuickActions drafts={drafts} />
         <div className="notice notice--danger dash-error" role="alert">
           Δεν ήταν δυνατή η φόρτωση των στοιχείων ({result.error.message}). Ανανεώστε τη σελίδα σε λίγο.
         </div>
@@ -101,7 +108,7 @@ export default async function DashboardPage({
   const rangeKey = data.range.key;
 
   return (
-    <>
+    <div className="dash">
       <div className="dash-head">
         <div>
           <h1>
@@ -154,6 +161,8 @@ export default async function DashboardPage({
           </details>
         </div>
       </div>
+
+      <QuickActions drafts={drafts} />
 
       <TodayStrip data={data} mine={mine} userId={user.id} />
 
@@ -251,7 +260,9 @@ export default async function DashboardPage({
           </div>
           <Categories byCategory={data.portfolio.byCategory} />
           {data.agents && <AgentsTable agents={data.agents} />}
-          <PropertyTabs added={data.recentProperties} updated={data.updatedProperties} now={data.generatedAt} />
+          <div className="dash-recent">
+            <PropertyTabs added={data.recentProperties} updated={data.updatedProperties} now={data.generatedAt} />
+          </div>
         </div>
         <aside className="dash-side" aria-label="Σήμερα">
           <ReminderTabs reminders={data.reminders} now={data.generatedAt} />
@@ -261,6 +272,6 @@ export default async function DashboardPage({
           <LatestOffers offers={data.latestOffers} now={data.generatedAt} />
         </aside>
       </div>
-    </>
+    </div>
   );
 }

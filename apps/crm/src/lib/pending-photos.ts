@@ -130,17 +130,51 @@ export function createPhotoStore(factory: IDBFactory | undefined = typeof indexe
       }, undefined);
     },
 
-    /** Forgets photos saved more than a week ago, whichever draft they belonged to. */
-    purgeStale(now: number = Date.now()): Promise<number> {
+    /**
+     * Forgets photos saved more than a week ago, whichever draft they belonged to, except those of drafts
+     * saved for offline sync (`keep`): those are deleted only once uploaded, or at logout.
+     */
+    purgeStale(now: number = Date.now(), keep: (sessionId: string) => boolean = () => false): Promise<number> {
       return withDb(async (db) => {
         const tx = db.transaction(STORE, "readwrite");
         const store = tx.objectStore(STORE);
         const rows = (await wrap(store.getAll())) as Row[];
-        const stale = rows.filter((r) => r.savedAt <= now - WEEK_MS);
+        const stale = rows.filter((r) => r.savedAt <= now - WEEK_MS && !r.sessionId.startsWith("local:") && !keep(r.sessionId));
         for (const r of stale) store.delete(r.key);
         await done(tx);
         return stale.length;
       }, 0);
+    },
+
+    /** Moves a draft's photos to another key (a draft saved offline gets its server id when it syncs). */
+    move(from: string, to: string): Promise<void> {
+      return withDb(async (db) => {
+        const tx = db.transaction(STORE, "readwrite");
+        const store = tx.objectStore(STORE);
+        const rows = (await wrap(store.index("sessionId").getAll(from))) as Row[];
+        for (const row of rows) {
+          store.delete(row.key);
+          store.put({ ...row, key: `${to}:${row.id}`, sessionId: to });
+        }
+        await done(tx);
+      }, undefined);
+    },
+
+    /** How many photos are kept for each draft. */
+    counts(): Promise<Record<string, number>> {
+      return withDb(async (db) => {
+        const rows = (await wrap(db.transaction(STORE).objectStore(STORE).getAll())) as Row[];
+        return rows.reduce<Record<string, number>>((acc, r) => ({ ...acc, [r.sessionId]: (acc[r.sessionId] ?? 0) + 1 }), {});
+      }, {});
+    },
+
+    /** Everything, for logout. */
+    wipe(): Promise<void> {
+      return withDb(async (db) => {
+        const tx = db.transaction(STORE, "readwrite");
+        tx.objectStore(STORE).clear();
+        await done(tx);
+      }, undefined);
     },
   };
 }

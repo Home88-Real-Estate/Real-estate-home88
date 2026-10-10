@@ -16,6 +16,7 @@
  */
 
 import { coerceValue, specByKey, type FieldSpec } from "./fields";
+import { readLocation, type IntakeLocation } from "./location";
 
 export type Origin = "AGENT_STATED" | "AGENT_MANUAL" | "SYSTEM_DERIVED" | "AI_SUGGESTED";
 export type Value = string | number | boolean;
@@ -54,12 +55,19 @@ export type IntakeState = {
   owner: OwnerRef | null;
   /** The facts the current title/description suggestions were written from, so a turn that adds nothing new does not ask the model again. */
   textsBasis: string | null;
+  /** Where the property is, and how much of it the public may see (see location.ts). Set by touch only. */
+  location: IntakeLocation | null;
+  /**
+   * The device's own id for a draft started offline. Starting a session again with the same id returns
+   * this session, so a sync that is retried after a lost answer never makes a second draft.
+   */
+  clientRef: string | null;
 };
 
 export type OwnerRef = { contactId: string; reference: string; label: string };
 
 export function emptyState(): IntakeState {
-  return { fields: {}, skipped: [], pending: [], asked: null, lang: "el", muted: false, photosLater: false, stage: "collect", undo: [], owner: null, textsBasis: null };
+  return { fields: {}, skipped: [], pending: [], asked: null, lang: "el", muted: false, photosLater: false, stage: "collect", undo: [], owner: null, textsBasis: null, location: null, clientRef: null };
 }
 
 /** Defensive read of the stored JSON: unknown shapes become an empty conversation, never an error. */
@@ -79,8 +87,13 @@ export function readState(raw: unknown): IntakeState {
     undo: Array.isArray(r.undo) ? r.undo.slice(-20) : [],
     owner: readOwner(r.owner),
     textsBasis: typeof r.textsBasis === "string" ? r.textsBasis.slice(0, 200) : null,
+    location: readLocation(r.location),
+    clientRef: typeof r.clientRef === "string" && CLIENT_REF.test(r.clientRef) ? r.clientRef : null,
   };
 }
+
+/** A device-made draft id: letters, digits and dashes (a UUID fits). */
+export const CLIENT_REF = /^[A-Za-z0-9-]{16,64}$/;
 
 function readOwner(raw: unknown): OwnerRef | null {
   if (!raw || typeof raw !== "object") return null;

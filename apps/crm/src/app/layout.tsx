@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 
+import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
 import { THEME_BOOT_SCRIPT } from "@/lib/theme";
 
 import "./globals.css";
@@ -9,6 +10,8 @@ export const metadata: Metadata = {
   // Belt and braces with the X-Robots-Tag header: an internal tool is never a
   // search result.
   robots: { index: false, follow: false, nocache: true },
+  // Opened from the home screen it looks like an app; the manifest (app/manifest.ts) does the rest.
+  appleWebApp: { capable: true, title: "HOME88", statusBarStyle: "default" },
 };
 
 export const viewport: Viewport = {
@@ -25,7 +28,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+        <ServiceWorkerRegister />
+      </body>
     </html>
   );
 }

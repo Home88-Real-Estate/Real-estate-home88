@@ -22,6 +22,8 @@ import { LISTING_TYPE_LABELS, PROPERTY_TYPE_LABELS, label } from "@home88/types"
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { PropertyPublicationPanel } from "@/components/PropertyPublicationPanel";
 import { PropertyTagsPanel } from "@/components/PropertyTagsPanel";
+import { DocumentChecklist } from "@/components/property/DocumentChecklist";
+import { ActivityPanel, InterestPanel, LocationPanel, MandatePanel, OwnersPanel, ReadinessBoard, SectionNav, type PassportData } from "@/components/property/Passport";
 import { hasRole, requireRole } from "@/lib/session";
 
 type PortalListing = {
@@ -74,6 +76,8 @@ type Property = {
   virtualTourUrl: string | null;
   publishedOnWebsite: boolean;
   featured: boolean;
+  latitude: unknown;
+  longitude: unknown;
   createdAt: string;
   updatedAt: string;
   agent: { id: string; firstName: string; lastName: string } | null;
@@ -93,13 +97,15 @@ export default async function PropertyDetailPage({
   const user = await requireRole("AGENT");
   const { id } = await params;
 
-  const [result, mediaResult, historyResult, matchResult] = await Promise.all([
+  const [result, mediaResult, historyResult, matchResult, passportResult] = await Promise.all([
     apiFetch<{ property: Property; allowedTransitions: string[]; canEdit: boolean }>(
       `/api/properties/${id}`,
     ),
     apiFetch<{ media: MediaItemData[] }>(`/api/properties/${id}/media`),
     apiFetch<{ statuses: StatusEntry[]; prices: PriceEntry[] }>(`/api/properties/${id}/history`),
     apiFetch<{ matches: RequestMatch[] }>(`/api/properties/${id}/matching-requests`),
+    // The workspace summary; the page still works without it.
+    apiFetch<PassportData>(`/api/properties/${id}/passport`),
   ]);
   if (!result.ok) {
     if (result.status === 404) notFound();
@@ -107,6 +113,8 @@ export default async function PropertyDetailPage({
   }
 
   const p = result.data.property;
+  const passport = passportResult.ok ? passportResult.data : null;
+  const publicPoint = p.latitude != null && p.longitude != null ? { lat: Number(p.latitude), lng: Number(p.longitude) } : null;
   const { allowedTransitions, canEdit } = result.data;
   const media = mediaResult.ok ? mediaResult.data.media : [];
   const described = describeProperty(p as unknown as Record<string, unknown>);
@@ -130,6 +138,7 @@ export default async function PropertyDetailPage({
             ) : (
               <span className="badge badge--muted">Εκτός ιστότοπου</span>
             )}
+            {passport?.intake && <span className="badge badge--info">Από φωνητική καταχώριση · {formatDate(passport.intake.createdAt)}</span>}
           </div>
           <h1 style={{ margin: 0 }}>{p.titleEl}</h1>
           {p.titleEn && <p className="muted" style={{ margin: 0 }}>{p.titleEn}</p>}
@@ -143,7 +152,14 @@ export default async function PropertyDetailPage({
         )}
       </div>
 
-      <div className="panel">
+      {passport ? (
+        <ReadinessBoard data={passport} hasTitle={Boolean(p.titleEl?.trim())} hasDescription={Boolean(p.descriptionEl?.trim())} />
+      ) : (
+        <div className="notice">Η σύνοψη του ακινήτου δεν φορτώθηκε ({passportResult.ok ? "" : passportResult.error.message}). Τα στοιχεία παρακάτω είναι πλήρη.</div>
+      )}
+      <SectionNav />
+
+      <div className="panel" id="details">
         <h2>Κατάσταση</h2>
         <PropertyStatusActions id={id} allowed={allowedTransitions} />
         {p.status === "DELETED" && (
@@ -250,6 +266,33 @@ export default async function PropertyDetailPage({
         )}
       </div>
 
+      {passport && <OwnersPanel data={passport} />}
+      {passport && <LocationPanel data={passport} publicPoint={publicPoint} />}
+
+      <div id="media">
+        <MediaPanel propertyId={id} media={media} canModerate={hasRole(user.role, "MANAGER")} />
+      </div>
+
+      <section className="panel" id="documents" aria-labelledby="documents-title">
+        <div className="panel__head">
+          <div>
+            <h2 id="documents-title">Νομικά & τεχνικά έγγραφα</h2>
+            <p className="panel__sub">{passport ? `${passport.documents.count} έγγραφα στο αρχείο του ακινήτου.` : "Λίστα εγγράφων του ακινήτου."}</p>
+          </div>
+          <Link href={`/documents?propertyId=${encodeURIComponent(id)}`} className="btn btn--ghost btn--sm">Όλα τα έγγραφα</Link>
+        </div>
+        <DocumentChecklist propertyId={id} />
+      </section>
+
+      {passport && <MandatePanel data={passport} reference={p.reference} />}
+
+      <div id="publication">
+        <PropertyPublicationPanel propertyId={id} />
+        <PropertyTagsPanel propertyId={id} canManage={hasRole(user.role, "MANAGER")} />
+      </div>
+
+      {passport && <InterestPanel data={passport} propertyId={id} />}
+
       <div className="panel">
         <div className="panel__head">
           <div>
@@ -288,13 +331,7 @@ export default async function PropertyDetailPage({
         )}
       </div>
 
-      <MediaPanel
-        propertyId={id}
-        media={media}
-        canModerate={hasRole(user.role, "MANAGER")}
-      />
-
-      <div className="panel">
+      <div className="panel" id="history">
         <h2>Ιστορικό</h2>
         {historyResult.ok ? (
           <PropertyHistory statuses={historyResult.data.statuses} prices={historyResult.data.prices} />
@@ -303,9 +340,7 @@ export default async function PropertyDetailPage({
         )}
       </div>
 
-      <PropertyTagsPanel propertyId={id} canManage={hasRole(user.role, "MANAGER")} />
-
-      <PropertyPublicationPanel propertyId={id} />
+      {passport && <ActivityPanel data={passport} />}
     </>
   );
 }

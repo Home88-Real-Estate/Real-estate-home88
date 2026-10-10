@@ -34,6 +34,10 @@ type Props = {
   contactId?: string;
   transactionId?: string;
   checklistItemId?: string;
+  /** A property's document checklist entry this file answers. */
+  propertyChecklistItemId?: string;
+  /** Called after a successful upload (for screens that reload their own data). */
+  onDone?: () => void;
   defaultTitle?: string;
   defaultCategory?: string;
   /** Page to refresh afterwards. */
@@ -41,7 +45,7 @@ type Props = {
   compact?: boolean;
 };
 
-export function DocumentUploader({ mode = "document", mandateId, propertyId, contactId, transactionId, checklistItemId, defaultTitle, defaultCategory = "OTHER", path, compact }: Props) {
+export function DocumentUploader({ mode = "document", mandateId, propertyId, contactId, transactionId, checklistItemId, propertyChecklistItemId, onDone, defaultTitle, defaultCategory = "OTHER", path, compact }: Props) {
   const router = useRouter();
   const uid = useId();
   const [busy, setBusy] = useState(false);
@@ -76,12 +80,14 @@ export function DocumentUploader({ mode = "document", mandateId, propertyId, con
           contactId: contactId ?? "",
           transactionId: transactionId ?? "",
           checklistItemId: checklistItemId ?? "",
+          propertyChecklistItemId: propertyChecklistItemId ?? "",
         });
       }
       form.reset();
       setMessage({ ok: true, text: mode === "signed-copy" ? "Η εντολή καταχωρίστηκε ως υπογεγραμμένη." : "Το έγγραφο ανέβηκε." });
       await revalidateAfterUpload(path);
       router.refresh();
+      onDone?.();
     } catch (error) {
       setMessage({ ok: false, text: error instanceof Error ? error.message : "Η μεταφόρτωση απέτυχε." });
     } finally {

@@ -788,6 +788,8 @@ model Property {
   @@index([ownerId])
   @@index([createdAt])
   @@index([updatedAt])
+  documentItems PropertyDocumentItem[]
+
   @@map("properties")
 }
 
@@ -1230,6 +1232,7 @@ model Document {
   checklistItems  TransactionChecklistItem[]
   mandatePdfOf    Mandate?                   @relation("MandatePdf")
   mandateSignedOf Mandate?                   @relation("MandateSignedCopy")
+  propertyChecklistItems PropertyDocumentItem[]
 
   @@index([propertyId])
   @@index([transactionId])
@@ -2644,6 +2647,35 @@ model TransactionCommission {
 /// What documents a transaction needs and where each stands. Items are added
 /// per transaction: which documents apply is a business and legal decision,
 /// not a built-in list.
+/// One entry of a property's legal/technical document checklist (see
+/// packages/domain/src/property-documents.ts). Tracking only: a verified item
+/// is a manager's review of a document, never a statement that the property
+/// is legally transferable.
+model PropertyDocumentItem {
+  id           String    @id @default(cuid())
+  propertyId   String
+  property     Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  /// TITLE_DEED, CADASTRE, ENERGY_CERT, ... or OTHER (with a label).
+  kind         String
+  label        String?
+  /// NOT_REQUIRED, PENDING, REQUESTED, UPLOADED, IN_REVIEW, VERIFIED, REJECTED, EXPIRED.
+  status       String    @default("PENDING")
+  note         String?
+  documentId   String?
+  document     Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  expiresAt    DateTime?
+  requestedAt  DateTime?
+  reviewedById String?
+  reviewedAt   DateTime?
+  updatedById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([propertyId])
+  @@index([documentId])
+  @@map("property_document_items")
+}
+
 model TransactionChecklistItem {
   id            String      @id @default(cuid())
   transactionId String

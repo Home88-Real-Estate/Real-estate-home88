@@ -5,12 +5,14 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { USER_ROLE_LABELS, label } from "@home88/types";
 
-import { logoutAction } from "@/actions/auth";
 import { CRM_BASE_PATH } from "@/lib/paths";
 import { activeGroup, activeHref, isGroup, navFor, type NavGroup, type NavLink } from "@/lib/nav";
 import { displayName, hasRole, type CurrentUser } from "@/lib/user";
 
+import { OfflineSyncAgent } from "@/lib/offline-runtime";
+
 import { Icon, type IconName } from "./Icon";
+import { LogoutButton } from "./LogoutButton";
 import { Logo, MARK_WHITE } from "./Logo";
 import { ThemeToggle } from "./ThemeToggle";
 
@@ -275,11 +277,7 @@ export function Shell({
                 </a>
               )}
               <hr />
-              <form action={logoutAction}>
-                <button type="submit">
-                  <Icon name="logout" size={16} /> Αποσύνδεση
-                </button>
-              </form>
+              <LogoutButton />
             </div>
           </details>
         </header>
@@ -287,6 +285,7 @@ export function Shell({
         <main className="content" id="main">
           {children}
         </main>
+        {hasRole(user.role, "AGENT") && <OfflineSyncAgent />}
       </div>
 
       <nav className="tabbar" aria-label="Γρήγορη πλοήγηση">
@@ -299,7 +298,7 @@ export function Shell({
           Ακίνητα
         </Link>
         {hasRole(user.role, "AGENT") ? (
-          <Link href="/properties/new" aria-label="Νέο ακίνητο">
+          <Link href="/properties/new/assistant" aria-label="Νέο ακίνητο">
             <span className="tabbar__add">
               <Icon name="plus" size={24} />
             </span>

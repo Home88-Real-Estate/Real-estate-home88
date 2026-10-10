@@ -49,6 +49,8 @@ const confirmSchema = z.object({
   contactId: optionalId,
   transactionId: optionalId,
   checklistItemId: optionalId,
+  /** A property's document checklist entry this file answers (property-documents.ts). */
+  propertyChecklistItemId: optionalId,
   containsPersonalData: z.boolean().default(false),
 });
 
@@ -238,6 +240,15 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
+    let propertyItemId: string | null = null;
+    if (input.propertyChecklistItemId) {
+      if (!input.propertyId) throw badRequest("Το έγγραφο της λίστας ανήκει σε ακίνητο.");
+      const item = await db().propertyDocumentItem.findFirst({ where: { id: input.propertyChecklistItemId, propertyId: input.propertyId }, select: { id: true, status: true } });
+      if (!item) throw badRequest("Το έγγραφο της λίστας δεν βρέθηκε.");
+      if (item.status === "VERIFIED" && !manager) throw forbidden("Ένα επαληθευμένο έγγραφο αλλάζει μόνο από υπεύθυνο γραφείου.");
+      propertyItemId = item.id;
+    }
+
     const doc = await db().$transaction(async (tx) => {
       const d = await confirmUpload(
         actor,
@@ -252,6 +263,10 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
         },
         tx,
       );
+      if (propertyItemId) {
+        // The new file answers the checklist entry; a fresh upload always goes back to "uploaded" for review.
+        await tx.propertyDocumentItem.update({ where: { id: propertyItemId }, data: { documentId: d.id, status: "UPLOADED", updatedById: actor.id, reviewedById: null, reviewedAt: null } });
+      }
       if (checklistItemId && input.transactionId) {
         const item = await tx.transactionChecklistItem.update({
           where: { id: checklistItemId },

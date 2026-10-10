@@ -3,21 +3,38 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { Icon } from "@/components/Icon";
+import { CapturePanel } from "@/components/intake/CapturePanel";
 import { FeatureChips, FieldPicker, FieldRow, ORIGIN_LABEL } from "@/components/intake/fields";
-import { Stepper, type StepIndex } from "@/components/intake/steps";
+import { LocationPicker } from "@/components/intake/LocationPicker";
+import { OfflineDraftEditor } from "@/components/offline/OfflineDraftEditor";
+import { DocumentChecklist } from "@/components/property/DocumentChecklist";
+import { SyncStatus } from "@/components/offline/OfflineWorkspace";
+import { Stepper, type StepIndex, type StepState } from "@/components/intake/steps";
+import { VoiceOrb, type MicState } from "@/components/intake/VoiceOrb";
+import { ActionButton, ActionLink, Segmented, Toggle } from "@/components/ui/ActionButton";
 import { PendingMedia, type PendingFile } from "@/components/PendingMedia";
 import { browserIO, makeLabelPreview, persistOrder, saveAltText } from "@/lib/browser-upload";
 import { listenForSpeech, type Listener } from "@/lib/hands-free";
 import {
   intakeApi, IntakeRequestError, type IntakeEdit, type IntakeSession, type OwnerCandidate,
 } from "@/lib/intake-client";
+import { emptyDraft, offlineStore, type OfflineDraft } from "@/lib/offline-store";
+import { notifyOffline } from "@/lib/offline-runtime";
 import { photoStore } from "@/lib/pending-photos";
 import { altUpdates, isLabelCode, PHOTO_LABELS, type PhotoLabel } from "@/lib/photo-labels";
 import { uploadAll, type UploadUpdate } from "@/lib/upload-queue";
 import { MAX_RECORDING_SECONDS, recordingToWav, toBase64 } from "@/lib/wav";
 
 type Language = "auto" | "el" | "en";
-type Recording = "idle" | "recording" | "transcribing";
+
+/** Templates for "Δείτε παραδείγματα": the parts in brackets are for the agent to fill, so nothing is sent as if it were a fact. */
+const EXAMPLES = [
+  { title: "Κατοικία προς πώληση", text: "Πωλείται διαμέρισμα [εμβαδόν] τ.μ. στην περιοχή [περιοχή], στον [όροφο] όροφο, με [αριθμό] υπνοδωμάτια και [αριθμό] μπάνια, στην τιμή των [ποσό] ευρώ." },
+  { title: "Επαγγελματικός χώρος προς ενοικίαση", text: "Ενοικιάζεται κατάστημα [εμβαδόν] τ.μ. στην περιοχή [περιοχή], ισόγειο, με μηνιαίο μίσθωμα [ποσό] ευρώ." },
+  { title: "Οικόπεδο", text: "Πωλείται οικόπεδο [εμβαδόν] τ.μ. στην περιοχή [περιοχή], εντός σχεδίου, στην τιμή των [ποσό] ευρώ." },
+];
+const PLACEHOLDER = /\[[^\]]{1,40}\]/;
 
 /**
  * A tiny silent clip, played on the first tap so iOS lets later replies play
@@ -82,14 +99,27 @@ const AUTO_SEND_SECONDS = 3;
 const MAX_EMPTY_ROUNDS = 3;
 
 export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: number; resumeId?: string }) {
-  const [phase, setPhase] = useState<"loading" | "picker" | "session">("loading");
+  const [phase, setPhase] = useState<"loading" | "ready">("loading");
   const [available, setAvailable] = useState(true);
   const [resumable, setResumable] = useState<Array<{ id: string; updatedAt: string; fieldCount: number; summary: string | null }>>([]);
   const [session, setSession] = useState<IntakeSession | null>(null);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [recording, setRecording] = useState<Recording>("idle");
+  const [mic, setMic] = useState<MicState>("idle");
+  const [micError, setMicError] = useState<string | null>(null);
+  const [micStream, setMicStream] = useState<MediaStream | null>(null);
+  const [recSeconds, setRecSeconds] = useState(0);
+  const [mode, setMode] = useState<"voice" | "type">("voice");
+  const [maxChars, setMaxChars] = useState(4000);
+  const [savedAt, setSavedAt] = useState<Date | null>(null);
+  const [saveFlash, setSaveFlash] = useState(false);
+  const [online, setOnline] = useState(true);
+  const [showLog, setShowLog] = useState(false);
+  const [visitedReview, setVisitedReview] = useState(false);
+  const [netDown, setNetDown] = useState(false);
+  const [offlineDraft, setOfflineDraft] = useState<OfflineDraft | null>(null);
+  const [deviceNote, setDeviceNote] = useState<string | null>(null);
   const [voiceNote, setVoiceNote] = useState<string | null>(null);
   const [needsTap, setNeedsTap] = useState(false);
   const [photos, setPhotos] = useState<PendingFile[]>([]);
@@ -124,8 +154,19 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
   const wakeLock = useRef<{ release(): Promise<void> } | null>(null);
   const sendRef = useRef<(text?: string) => Promise<void>>(async () => undefined);
   const resumeRef = useRef<() => void>(() => undefined);
+  const recTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const textRef = useRef<HTMLTextAreaElement>(null);
+  const examplesRef = useRef<HTMLDialogElement>(null);
+  const startingRef = useRef<Promise<IntakeSession | null> | null>(null);
 
-  const fail = useCallback((e: unknown) => setError(e instanceof IntakeRequestError ? e.message : "Κάτι πήγε στραβά. Δοκιμάστε ξανά."), []);
+  const fail = useCallback((e: unknown) => {
+    if (e instanceof IntakeRequestError && e.status === 0) setNetDown(true);
+    setError(e instanceof IntakeRequestError ? e.message : "Κάτι πήγε στραβά. Δοκιμάστε ξανά.");
+  }, []);
+  // Any answer from the server means the connection is back.
+  useEffect(() => {
+    if (savedAt) setNetDown(false);
+  }, [savedAt]);
 
   // --- Loading and resuming ----------------------------------------------------
   useEffect(() => {
@@ -135,16 +176,18 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
         const [status, list] = await Promise.all([intakeApi.status(), intakeApi.list()]);
         if (!alive) return;
         setAvailable(status.available);
+        setMaxChars(status.maxUtteranceChars);
         setResumable(list.sessions);
         if (resumeId) {
           const loaded = await intakeApi.get(resumeId);
           if (!alive) return;
           openSession(loaded.session);
-        } else setPhase("picker");
+        }
+        setPhase("ready");
       } catch (e) {
         if (!alive) return;
         fail(e);
-        setPhase("picker");
+        setPhase("ready");
       }
     })();
     return () => {
@@ -153,14 +196,33 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function openSession(next: IntakeSession) {
+  function openSession(next: IntakeSession, keepInput = false) {
     setSession(next);
-    setInput(readDraft(next.id));
+    if (!keepInput) setInput(readDraft(next.id));
     setCreated(next.propertyId ? { id: next.propertyId, reference: "" } : null);
     setLabels(readLabels(next.id));
-    setPhase("session");
+    setSavedAt(new Date());
     void restorePhotos(next);
+    // The address names the draft, so a reload (or a phone reopening the tab) lands back in it.
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("session") !== next.id) {
+      url.searchParams.set("session", next.id);
+      window.history.replaceState(window.history.state, "", url);
+    }
   }
+
+  // The connection state decides what "save" can do and whether the map can load.
+  useEffect(() => {
+    setOnline(navigator.onLine);
+    const up = () => setOnline(true);
+    const down = () => setOnline(false);
+    window.addEventListener("online", up);
+    window.addEventListener("offline", down);
+    return () => {
+      window.removeEventListener("online", up);
+      window.removeEventListener("offline", down);
+    };
+  }, []);
 
   /** Photos picked before the tab was closed come back from this device's own storage. */
   async function restorePhotos(next: IntakeSession) {
@@ -174,16 +236,27 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
     setPhotosReady(true);
   }
 
-  async function begin(language: Language = "auto") {
-    setBusy(true);
-    setError(null);
-    try {
-      openSession((await intakeApi.start(language)).session);
-    } catch (e) {
-      fail(e);
-    } finally {
-      setBusy(false);
-    }
+  /**
+   * The server draft is made on the agent's first action (speaking, sending text, a field), not by a separate
+   * "start" click. Concurrent first actions share one request, so there is never a second empty draft.
+   */
+  async function ensureSession(): Promise<IntakeSession | null> {
+    if (session) return session;
+    if (startingRef.current) return startingRef.current;
+    startingRef.current = (async () => {
+      setError(null);
+      try {
+        const started = (await intakeApi.start("auto")).session;
+        openSession(started, true);
+        return started;
+      } catch (e) {
+        fail(e);
+        return null;
+      } finally {
+        startingRef.current = null;
+      }
+    })();
+    return startingRef.current;
   }
 
   async function resume(id: string) {
@@ -280,14 +353,25 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
    * recording stops by itself after a pause, a recording is only transcribed if speech was heard, and
    * the microphone is never open while the assistant is speaking.
    */
+  function micFailed(message: string) {
+    setMicError(message);
+    setMic("error");
+  }
+
   async function startRecording(options: { handsFree?: boolean } = {}) {
-    if (!session) return;
     unlockAudio();
     setError(null);
     setVoiceNote(null);
+    setMicError(null);
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-      setVoiceNote("Ο browser δεν υποστηρίζει ηχογράφηση. Γράψτε το μήνυμά σας.");
+      micFailed("Αυτός ο browser δεν υποστηρίζει ηχογράφηση. Χρησιμοποιήστε την πληκτρολόγηση.");
       if (options.handsFree) stopHandsFree();
+      return;
+    }
+    setMic("requesting_permission");
+    const current = await ensureSession();
+    if (!current) {
+      setMic("idle");
       return;
     }
     let stream: MediaStream;
@@ -295,12 +379,13 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
       stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
     } catch (e) {
       const denied = e instanceof DOMException && (e.name === "NotAllowedError" || e.name === "SecurityError");
-      setVoiceNote(denied ? "Δεν δόθηκε άδεια για το μικρόφωνο. Επιτρέψτε την από τις ρυθμίσεις του browser ή γράψτε." : "Δεν βρέθηκε μικρόφωνο. Γράψτε το μήνυμά σας.");
+      micFailed(denied ? "Δεν δόθηκε άδεια για το μικρόφωνο. Επιτρέψτε την από το εικονίδιο δίπλα στη διεύθυνση της σελίδας και δοκιμάστε ξανά, ή πληκτρολογήστε." : "Δεν βρέθηκε μικρόφωνο σε αυτή τη συσκευή. Πληκτρολογήστε το μήνυμά σας.");
       if (options.handsFree) stopHandsFree();
       return;
     }
     if (options.handsFree && !handsFreeRef.current) {
       stream.getTracks().forEach((t) => t.stop()); // switched off while the permission prompt was open
+      setMic("idle");
       return;
     }
     const chunks: Blob[] = [];
@@ -312,18 +397,26 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
     recorder.onstop = () => {
       listenerRef.current?.stop();
       listenerRef.current = null;
+      // The microphone is released as soon as the recording ends.
       stream.getTracks().forEach((t) => t.stop());
+      setMicStream(null);
+      if (recTimer.current) clearInterval(recTimer.current);
+      recTimer.current = null;
       if (stopTimer.current) clearTimeout(stopTimer.current);
       if (discardRef.current || (options.handsFree && !heardSpeechRef.current)) {
-        setRecording("idle");
+        setMic("idle");
         if (options.handsFree && !discardRef.current) noteEmptyRound();
         return;
       }
       emptyRounds.current = 0;
-      void transcribeClip(new Blob(chunks, { type: recorder.mimeType || "audio/webm" }), options.handsFree === true);
+      void transcribeClip(current.id, current.language, new Blob(chunks, { type: recorder.mimeType || "audio/webm" }), options.handsFree === true);
     };
     recorder.start();
-    setRecording("recording");
+    setMicStream(stream);
+    setMic("recording");
+    setRecSeconds(0);
+    if (recTimer.current) clearInterval(recTimer.current);
+    recTimer.current = setInterval(() => setRecSeconds((n) => n + 1), 1000);
     stopTimer.current = setTimeout(() => recorder.state === "recording" && recorder.stop(), MAX_RECORDING_SECONDS * 1000);
     if (options.handsFree) {
       try {
@@ -332,7 +425,7 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
           else if (recorder.state === "recording") recorder.stop(); // speech_end, too_long, or nobody spoke
         });
       } catch {
-        setVoiceNote("Ο browser δεν υποστηρίζει συνομιλία χωρίς χέρια. Χρησιμοποιήστε το κουμπί του μικροφώνου.");
+        setVoiceNote("Αυτός ο browser δεν υποστηρίζει τη συνομιλία χωρίς χέρια. Χρησιμοποιήστε το κουμπί του μικροφώνου.");
         discardRef.current = true;
         recorder.stop();
         stopHandsFree();
@@ -345,32 +438,30 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
     if (r && r.state === "recording") r.stop();
   }
 
-  async function transcribeClip(blob: Blob, auto: boolean) {
-    if (!session) return;
+  async function transcribeClip(sessionId: string, language: Language, blob: Blob, auto: boolean) {
     if (blob.size < 1500) {
-      setRecording("idle");
-      if (auto) noteEmptyRound();
-      else setVoiceNote("Η ηχογράφηση ήταν πολύ σύντομη. Πατήστε το μικρόφωνο και μιλήστε.");
+      if (auto) {
+        setMic("idle");
+        noteEmptyRound();
+      } else micFailed("Η ηχογράφηση ήταν πολύ σύντομη. Πατήστε το μικρόφωνο και μιλήστε.");
       return;
     }
-    setRecording("transcribing");
+    setMic("processing");
     try {
       const wav = await recordingToWav(blob);
-      const out = await intakeApi.transcribe(session.id, toBase64(wav), "audio/wav", session.language);
+      const out = await intakeApi.transcribe(sessionId, toBase64(wav), "audio/wav", language);
       // The transcript lands in the editable box. By hand nothing is applied until the agent sends it;
       // in hands-free mode it is sent after a short, visible countdown that any tap or edit cancels.
       setInput((cur) => (cur && !auto ? `${cur} ${out.text}` : out.text));
+      setMic("transcript_ready");
       if (auto && handsFreeRef.current) beginAutoSend(out.text);
     } catch (e) {
-      if (e instanceof IntakeRequestError) setVoiceNote(e.message);
-      else setVoiceNote("Δεν μπόρεσα να διαβάσω την ηχογράφηση. Δοκιμάστε ξανά ή γράψτε.");
+      micFailed(e instanceof IntakeRequestError ? e.message : "Δεν μπόρεσα να διαβάσω την ηχογράφηση. Δοκιμάστε ξανά ή πληκτρολογήστε.");
       if (auto) {
         // A refusal (no key, rate limit) will not fix itself: stop instead of retrying in a loop.
         if (e instanceof IntakeRequestError && e.code !== "no_speech") stopHandsFree();
         else noteEmptyRound();
       }
-    } finally {
-      setRecording("idle");
     }
   }
 
@@ -416,7 +507,7 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
   }
 
   function startHandsFree() {
-    if (!session || handsFreeRef.current) return;
+    if (handsFreeRef.current) return;
     handsFreeRef.current = true;
     emptyRounds.current = 0;
     setHandsFree(true);
@@ -462,28 +553,37 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
       stopHandsFree();
+      if (recTimer.current) clearInterval(recTimer.current);
+      if (recorderRef.current?.state === "recording") {
+        discardRef.current = true;
+        recorderRef.current.stop();
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // --- Conversation ---------------------------------------------------------------
   async function send(text = input) {
-    if (!session || !text.trim() || busy) return;
+    if (!text.trim() || busy || PLACEHOLDER.test(text)) return;
     unlockAudio();
     clearAutoSend();
+    const current = await ensureSession();
+    if (!current) return;
     setBusy(true);
     setError(null);
     try {
-      const out = await intakeApi.turn(session.id, text.trim(), session.revision);
+      const out = await intakeApi.turn(current.id, text.trim(), current.revision);
       setSession(out.session);
+      setSavedAt(new Date());
       setInput("");
-      writeDraft(session.id, "");
+      setMic("idle");
+      writeDraft(current.id, "");
       const played = out.session.muted ? Promise.resolve() : speak(out.session.id);
       if (handsFreeRef.current) void played.then(() => resumeRef.current());
     } catch (e) {
       if (handsFreeRef.current) stopHandsFree(); // never keep sending into an error
       if (e instanceof IntakeRequestError && e.status === 409) {
-        const fresh = await intakeApi.get(session.id).catch(() => null);
+        const fresh = await intakeApi.get(current.id).catch(() => null);
         if (fresh) setSession(fresh.session);
       }
       fail(e);
@@ -500,6 +600,7 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
     setError(null);
     try {
       setSession((await intakeApi.edit(session.id, change, session.revision)).session);
+      setSavedAt(new Date());
       return true;
     } catch (e) {
       if (e instanceof IntakeRequestError && e.status === 409) {
@@ -508,6 +609,55 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
       }
       fail(e);
       return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Without a connection the draft continues on this device: the server values become the baseline (so a
+   * change made elsewhere meanwhile is caught as a conflict, not overwritten), the unsent text is kept as
+   * notes for the assistant, and the photos already kept for this draft stay where they are.
+   */
+  async function draftOnDevice(createWhenSynced: boolean): Promise<OfflineDraft | null> {
+    if (!session) return null;
+    const values = Object.fromEntries(Object.entries(session.fields).map(([k, f]) => [k, f.value]));
+    const location = session.location ? { lat: session.location.lat, lng: session.location.lng, accuracy: session.location.accuracy, source: session.location.source, visibility: session.location.visibility } : null;
+    try {
+      await photoStore.save(session.id, photos);
+      const existing = (await offlineStore.list()).drafts.find((d) => d.sessionId === session.id);
+      const base: OfflineDraft = existing ?? { ...emptyDraft(), sessionId: session.id, base: values, fields: values, baseLocation: location, location };
+      const saved = await offlineStore.save({ ...base, notes: input.trim() ? input : base.notes, createWhenSynced: createWhenSynced || base.createWhenSynced }, photos.length > 0);
+      notifyOffline();
+      return saved;
+    } catch {
+      setError("Ο browser δεν επιτρέπει αποθήκευση σε αυτή τη συσκευή. Μην κλείσετε τη σελίδα μέχρι να επανέλθει η σύνδεση.");
+      return null;
+    }
+  }
+
+  async function continueOffline() {
+    const d = await draftOnDevice(false);
+    if (d) setOfflineDraft(d);
+  }
+
+  async function saveOnDevice() {
+    const d = await draftOnDevice(true);
+    if (!d) return;
+    const { ops } = await offlineStore.get(d.localId);
+    const waiting = ops.filter((o) => o.status !== "done").length;
+    setDeviceNote(`Αποθηκεύτηκε στη συσκευή · ${waiting} ${waiting === 1 ? "ενέργεια εκκρεμεί" : "ενέργειες εκκρεμούν"}. Θα αποθηκευτεί ως πρόχειρο ακίνητο μόλις επανέλθει η σύνδεση.`);
+  }
+
+  /** A settings change on a session that may have been created a moment ago (its state is not yet in React). */
+  async function editOn(target: IntakeSession, change: IntakeEdit) {
+    setBusy(true);
+    setError(null);
+    try {
+      setSession((await intakeApi.edit(target.id, change, target.revision)).session);
+      setSavedAt(new Date());
+    } catch (e) {
+      fail(e);
     } finally {
       setBusy(false);
     }
@@ -580,6 +730,9 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
       setSession(out.session);
       setCreated(out.property);
       setOwnerOutcome(out.owner);
+      setSavedAt(new Date());
+      setSaveFlash(true);
+      setTimeout(() => setSaveFlash(false), 2500);
       setStep(4); // the result (reference, uploads, owner) is shown on the last step, whichever step saved it
       if (photos.length > 0) {
         const result = await runUploads(out.property.id, photos);
@@ -683,51 +836,348 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
   // --- Render ---------------------------------------------------------------------
   if (phase === "loading") return <p className="muted" role="status">Φόρτωση…</p>;
 
-  if (phase === "picker" || !session) {
-    return (
-      <div className="stack" style={{ maxWidth: 640 }}>
-        {error && <p className="notice notice--danger" role="alert">{error}</p>}
-        {!available && (
-          <p className="notice" role="status">
-            Η φωνητική υπηρεσία δεν έχει ρυθμιστεί ακόμη στον server. Μπορείτε να χρησιμοποιήσετε την καταχώριση με πεδία, ή τη{" "}
-            <Link href="/properties/new">κανονική φόρμα</Link>.
-          </p>
-        )}
-        <div className="card" style={{ padding: 18 }}>
-          <h2 style={{ marginTop: 0 }}>Νέο ακίνητο με φωνή ή κείμενο</h2>
-          <p className="muted">
-            Περιγράψτε το ακίνητο μιλώντας ή γράφοντας, στα ελληνικά ή στα αγγλικά. Ο βοηθός συμπληρώνει τα πεδία, ρωτά ό,τι λείπει και
-            δεν δημοσιεύει τίποτα· εσείς ελέγχετε και εγκρίνετε.
-          </p>
-          <p className="hint">Η ηχογράφησή σας αποστέλλεται στην υπηρεσία Gemini της Google για μετατροπή σε κείμενο και δεν αποθηκεύεται από το HOME88.</p>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12 }}>
-            <button type="button" className="btn btn--primary btn--lg" disabled={busy} onClick={() => void begin("auto")}>Νέα καταχώριση</button>
-            <Link href="/properties/new" className="btn btn--outline btn--lg">Κανονική φόρμα</Link>
+  const done = session?.status === "CREATED" || Boolean(created);
+  const locked = busy || done;
+  const micBusy = mic === "recording" || mic === "processing" || mic === "requesting_permission";
+  const hasPlaceholder = PLACEHOLDER.test(input);
+  const lastAgent = session ? [...session.turns].reverse().find((t) => t.role === "agent") : undefined;
+  const lastAssistant = session ? [...session.turns].reverse().find((t) => t.role === "assistant") : undefined;
+
+  function insertText(text: string) {
+    setMode("type");
+    setInput((cur) => (cur.trim() ? `${cur.trimEnd()} ${text}` : text));
+    requestAnimationFrame(() => {
+      const el = textRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    });
+  }
+
+  const pressOrb = () => {
+    if (mic === "recording") return stopRecording();
+    if (handsFree) return;
+    void startRecording();
+  };
+
+  async function goStep(i: StepIndex) {
+    if (i > 0 && !session && !(await ensureSession())) return;
+    if (i === 4) setVisitedReview(true);
+    setStep(i);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  const voiceCard = (
+    <section className="xcard xvoice" aria-labelledby="voice-title">
+      <header className="xvoice__head">
+        <span className="xicon-tile" aria-hidden="true"><Icon name="mic" size={24} /></span>
+        <div>
+          <h2 id="voice-title">Φωνητική καταχώριση</h2>
+          <p>Μιλήστε ή πληκτρολογήστε τις πληροφορίες του ακινήτου σας.</p>
+        </div>
+      </header>
+
+      <div className="xvoice__controls">
+        <Segmented<Language>
+          label="Γλώσσα αναγνώρισης και απαντήσεων"
+          value={session?.language ?? "auto"}
+          disabled={locked || micBusy}
+          onChange={async (l) => {
+            const current = await ensureSession();
+            if (current) await editOn(current, { type: "settings", language: l });
+          }}
+          options={[
+            { value: "auto", label: "Αυτόματα", icon: "sparkle", title: "Ο βοηθός αναγνωρίζει μόνος του ελληνικά ή αγγλικά" },
+            { value: "el", label: "Ελληνικά", icon: "lines", title: "Η αναγνώριση ομιλίας και οι απαντήσεις στα ελληνικά" },
+            { value: "en", label: "English", icon: "globe", title: "Speech recognition and replies in English" },
+          ]}
+        />
+        <Toggle
+          on={!(session?.muted ?? false)}
+          icon="wave"
+          label={<>Φωνή: <strong>{session?.muted ? "Όχι" : "Ναι"}</strong></>}
+          title="Ο βοηθός διαβάζει δυνατά τις απαντήσεις του"
+          disabled={locked}
+          onChange={async (on) => {
+            const current = await ensureSession();
+            if (current) await editOn(current, { type: "settings", muted: !on });
+          }}
+        />
+        <Toggle
+          on={handsFree}
+          icon="hand"
+          label={handsFree ? "Χωρίς χέρια: ενεργό" : "Χωρίς χέρια"}
+          title="Μιλάτε χωρίς να πατάτε κουμπί: ο βοηθός ακούει, απαντά και ξανακούει. Πριν από κάθε αποστολή έχετε 3 δευτερόλεπτα να την ακυρώσετε."
+          disabled={done || !available || (busy && !handsFree)}
+          onChange={(on) => (on ? startHandsFree() : stopHandsFree())}
+        />
+      </div>
+
+      {!available && (
+        <p className="xalert" role="status">
+          <Icon name="info" size={18} />
+          <span>Η φωνή και η αυτόματη συμπλήρωση δεν είναι ρυθμισμένες στον server (λείπει το κλειδί Gemini). Συμπληρώστε τα στοιχεία στο βήμα «Βασικά στοιχεία» ή χρησιμοποιήστε την <Link href="/properties/new">κανονική φόρμα</Link>.</span>
+        </p>
+      )}
+
+      {mode === "voice" && (
+        <VoiceOrb
+          state={mic}
+          stream={micStream}
+          seconds={recSeconds}
+          maxSeconds={MAX_RECORDING_SECONDS}
+          thinking={busy && !done}
+          handsFree={handsFree}
+          disabled={done || !available || busy || (handsFree && mic !== "recording")}
+          errorText={micError}
+          onPress={pressOrb}
+        />
+      )}
+
+      {mic === "error" && mode === "voice" && (
+        <div className="xvoice__retry">
+          <ActionButton variant="secondary" size="sm" icon="mic" onClick={() => void startRecording()} disabled={!available || busy}>Δοκιμάστε ξανά</ActionButton>
+          <ActionButton variant="ghost" size="sm" icon="keyboard" onClick={() => { setMic("idle"); setMode("type"); }}>Πληκτρολόγηση</ActionButton>
+        </div>
+      )}
+
+      {handsFree && autoSend && (
+        <div className="xalert xalert--info xhandsfree" role="status" aria-live="polite">
+          <span>Αποστολή σε <strong>{autoSend.left}</strong>…</span>
+          <span className="xhandsfree__buttons">
+            <ActionButton variant="secondary" size="sm" onClick={() => { clearAutoSend(); stopRecording(); }}>Ακύρωση — θα το διορθώσω</ActionButton>
+            <ActionButton variant="primary" size="sm" onClick={() => void send(autoSend.text)}>Στείλε τώρα</ActionButton>
+          </span>
+        </div>
+      )}
+      {handsFree && !autoSend && mic === "transcript_ready" && !busy && (
+        <div className="xalert xalert--info xhandsfree" role="status">
+          <span>Διορθώστε το κείμενο και πατήστε «Αποστολή στον βοηθό»· μετά την απάντηση θα ακούω ξανά.</span>
+          <ActionButton variant="secondary" size="sm" icon="mic" onClick={() => { setInput(""); setMic("idle"); resumeListening(); }}>Άκου ξανά από την αρχή</ActionButton>
+        </div>
+      )}
+      {handsFree && !autoSend && mic === "idle" && !busy && (
+        <div className="xalert xalert--info xhandsfree" role="status">
+          <span>Συνομιλία χωρίς χέρια ενεργή. Θα ακούσω ξανά μόλις απαντήσω.</span>
+          <ActionButton variant="secondary" size="sm" icon="mic" onClick={() => resumeListening()}>Άκου τώρα</ActionButton>
+        </div>
+      )}
+
+      {(mode === "type" || input.trim() || mic === "transcript_ready") && !done && (
+        <div className="xcomposer">
+          <label htmlFor="intake-text">{mic === "transcript_ready" && mode === "voice" ? "Απομαγνητοφώνηση — ελέγξτε και διορθώστε πριν τη στείλετε" : "Περιγραφή ακινήτου"}</label>
+          <textarea
+            id="intake-text"
+            ref={textRef}
+            rows={5}
+            maxLength={maxChars}
+            value={input}
+            placeholder="Π.χ. Διαμέρισμα 95 τ.μ. στη Γλυφάδα, 3ος όροφος, 2 υπνοδωμάτια, τιμή 350.000 ευρώ."
+            disabled={busy || mic === "processing"}
+            onChange={(e) => { if (autoSend) clearAutoSend(); setInput(e.target.value); if (!e.target.value.trim() && mic === "transcript_ready") setMic("idle"); }}
+            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void send(); }}
+          />
+          {hasPlaceholder && <p className="xfield-note" role="status"><Icon name="alert" size={15} /> Συμπληρώστε τα σημεία σε αγκύλες [ ] με τα πραγματικά στοιχεία πριν την αποστολή.</p>}
+          <div className="xcomposer__foot">
+            <span className="hint">{input.length.toLocaleString("el-GR")} / {maxChars.toLocaleString("el-GR")} χαρακτήρες · Ctrl+Enter για αποστολή</span>
+            <span className="xcomposer__buttons">
+              {input.trim() && <ActionButton variant="ghost" size="sm" disabled={busy} onClick={() => { setInput(""); if (mic === "transcript_ready") setMic("idle"); }}>Καθαρισμός</ActionButton>}
+              {mode === "type" && <ActionButton variant="secondary" size="sm" icon="mic" disabled={!available} onClick={() => setMode("voice")}>Φωνή</ActionButton>}
+              {mode === "voice" && mic === "transcript_ready" && !handsFree && <ActionButton variant="secondary" size="sm" icon="mic" disabled={busy || !available} onClick={() => void startRecording()}>Συνέχεια με φωνή</ActionButton>}
+              <ActionButton variant="primary" size="sm" iconAfter="arrowRight" loading={busy} loadingLabel="Επεξεργασία…" disabled={!input.trim() || !available || hasPlaceholder || mic === "processing"} onClick={() => void send()}>
+                Αποστολή στον βοηθό
+              </ActionButton>
+            </span>
           </div>
         </div>
-        {resumable.length > 0 && (
-          <div className="card" style={{ padding: 18 }}>
-            <h3 style={{ marginTop: 0 }}>Συνέχεια από εκεί που μείνατε</h3>
-            <ul className="intake-resume">
-              {resumable.map((r) => (
-                <li key={r.id}>
-                  <span>{r.summary ?? "Χωρίς περιγραφή ακόμη"} <span className="hint">· {r.fieldCount} πεδία · {new Date(r.updatedAt).toLocaleString("el-GR")}</span></span>
-                  <button type="button" className="btn btn--outline btn--sm" disabled={busy} onClick={() => void resume(r.id)}>Συνέχεια</button>
-                </li>
+      )}
+
+      {mode === "voice" && !done && (
+        <div className="xvoice__actions">
+          <ActionButton variant="secondary" size="lg" icon="keyboard" disabled={micBusy} onClick={() => { setMode("type"); requestAnimationFrame(() => textRef.current?.focus()); }}>
+            Πληκτρολόγηση
+          </ActionButton>
+          {mic === "recording" ? (
+            <ActionButton variant="danger" size="lg" icon="stop" onClick={stopRecording}>Τέλος ηχογράφησης</ActionButton>
+          ) : (
+            <ActionButton
+              variant="primary"
+              size="lg"
+              icon="sparkle"
+              iconAfter="arrowRight"
+              loading={mic === "requesting_permission" || mic === "processing"}
+              loadingLabel={mic === "processing" ? "Επεξεργασία…" : "Αναμονή άδειας…"}
+              disabled={!available || busy || handsFree}
+              onClick={() => void startRecording()}
+            >
+              {session?.turns.some((t) => t.role === "agent") ? "Συνέχεια με φωνή" : "Έναρξη φωνητικής καταχώρισης"}
+            </ActionButton>
+          )}
+        </div>
+      )}
+      {mode === "type" && !done && !input.trim() && (
+        <p className="hint xvoice__typing-hint">Γράψτε ελεύθερα, σε ελληνικά ή αγγλικά. Ο βοηθός συμπληρώνει τα πεδία από όσα γράφετε και ρωτά ό,τι λείπει.</p>
+      )}
+
+      {voiceNote && <p className="xalert" role="status"><Icon name="info" size={18} /><span>{voiceNote}</span></p>}
+
+      {session?.pending.map((p) => (
+        <div key={p.key} className="xalert xalert--warn xconfirm" role="group" aria-label={`Επιβεβαίωση: ${p.label}`}>
+          <span>
+            {p.reason === "conflict" && p.current ? <>{p.label}: <s>{p.current}</s> → <strong>{p.proposed}</strong>;</> : <>{p.label}: <strong>{p.proposed}</strong>. Είναι σωστό;</>}
+          </span>
+          <span className="xconfirm__buttons">
+            <ActionButton variant="primary" size="sm" icon="check" disabled={busy} onClick={() => void edit({ type: "resolve", key: p.key, accept: true })}>Ναι</ActionButton>
+            <ActionButton variant="secondary" size="sm" disabled={busy} onClick={() => void edit({ type: "resolve", key: p.key, accept: false })}>Όχι</ActionButton>
+          </span>
+        </div>
+      ))}
+
+      {session && session.turns.length > 0 && (
+        <div className="xconvo" aria-live="polite">
+          {showLog ? (
+            <div className="intake-log" ref={logRef} aria-label="Όλη η συνομιλία">
+              {session.turns.map((t, i) => (
+                <div key={`${t.at}-${i}`} className={t.role === "agent" ? "intake-msg intake-msg--agent" : "intake-msg"}>
+                  <span className="intake-msg__who">{t.role === "agent" ? "Εσείς" : "Βοηθός"}</span>
+                  <p>{t.text}</p>
+                </div>
               ))}
-            </ul>
+            </div>
+          ) : (
+            <>
+              {lastAgent && (
+                <div className="intake-msg intake-msg--agent">
+                  <span className="intake-msg__who">Εσείς</span>
+                  <p>{lastAgent.text}</p>
+                </div>
+              )}
+              {lastAssistant && (
+                <div className="intake-msg xreply">
+                  <span className="intake-msg__who">Βοηθός</span>
+                  <p>{lastAssistant.text}</p>
+                </div>
+              )}
+            </>
+          )}
+          {busy && !done && <div className="intake-msg intake-msg--thinking" role="status">Ο βοηθός ενημερώνει την καταχώριση…</div>}
+          <div className="xconvo__tools">
+            {lastAssistant && !session.muted && (
+              <>
+                <ActionButton variant={needsTap ? "primary" : "ghost"} size="sm" icon="play" onClick={() => { unlockAudio(); void speak(session.id); }}>Ακούστε</ActionButton>
+                <ActionButton variant="ghost" size="sm" icon="stop" onClick={() => audioRef.current?.pause()}>Διακοπή</ActionButton>
+              </>
+            )}
+            {session.asked && !done && <ActionButton variant="ghost" size="sm" disabled={busy} onClick={() => void edit({ type: "skip", key: session.asked!.key })}>Παράλειψη: {session.asked.label}</ActionButton>}
+            {!done && <ActionButton variant="ghost" size="sm" icon="undo" disabled={busy || !session.canUndo} onClick={() => void edit({ type: "undo" })} title={session.canUndo ? "Επαναφέρει την τελευταία αλλαγή σε στοιχείο" : "Δεν υπάρχει αλλαγή για αναίρεση"}>Αναίρεση τελευταίας αλλαγής</ActionButton>}
+            {session.turns.length > 2 && <ActionButton variant="ghost" size="sm" icon="chat" onClick={() => setShowLog((v) => !v)} aria-expanded={showLog}>{showLog ? "Μόνο τα τελευταία" : `Όλη η συνομιλία (${session.turns.length})`}</ActionButton>}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+
+  const helpCard = (
+    <section className="xcard xhelp" aria-label="Χρήσιμη συμβουλή">
+      <span className="xicon-tile xicon-tile--sm" aria-hidden="true"><Icon name="bulb" size={20} /></span>
+      <div>
+        <h3>Χρήσιμη συμβουλή</h3>
+        <p>Πείτε τύπο, περιοχή, τιμή, εμβαδόν και ό,τι ξεχωρίζει (όροφος, υπνοδωμάτια, θέα). Τηλέφωνα και email ιδιοκτητών μην τα λέτε: ο ιδιοκτήτης επιλέγεται στα «Βασικά στοιχεία».</p>
+      </div>
+      <ActionButton variant="ghost" size="sm" iconAfter="arrowRight" onClick={() => examplesRef.current?.showModal()}>Δείτε παραδείγματα</ActionButton>
+    </section>
+  );
+
+  const examplesDialog = (
+    <dialog ref={examplesRef} className="xdialog" aria-labelledby="examples-title" onClick={(e) => { if (e.target === e.currentTarget) e.currentTarget.close(); }}>
+      <div className="xdialog__body">
+        <h2 id="examples-title">Παραδείγματα περιγραφής</h2>
+        <p className="hint">Πατήστε «Χρήση» για να μπει το πρότυπο στο κείμενο. Συμπληρώστε τα σημεία σε αγκύλες με τα πραγματικά στοιχεία πριν το στείλετε.</p>
+        <ul className="xexamples">
+          {EXAMPLES.map((ex) => (
+            <li key={ex.title}>
+              <strong>{ex.title}</strong>
+              <p>{ex.text}</p>
+              <ActionButton variant="secondary" size="sm" icon="keyboard" onClick={() => { examplesRef.current?.close(); insertText(ex.text); }}>Χρήση</ActionButton>
+            </li>
+          ))}
+        </ul>
+        <div className="xdialog__foot"><ActionButton variant="primary" size="sm" onClick={() => examplesRef.current?.close()}>Κλείσιμο</ActionButton></div>
+      </div>
+    </dialog>
+  );
+
+  // Before the first action there is no server draft yet: the first screen still works, and drafts left half-done can be continued.
+  const drafts = resumable.filter((r) => r.fieldCount > 0);
+  if (!session) {
+    return (
+      <div className="xintake">
+        {error && <p className="xalert xalert--danger" role="alert"><Icon name="alert" size={18} /><span>{error}</span></p>}
+        {drafts.length > 0 && (
+          <div className="xresume">
+            <span className="xresume__lead"><Icon name="clock" size={18} /> {drafts.length === 1 ? "Έχετε μια καταχώριση σε εξέλιξη" : `Έχετε ${drafts.length} καταχωρίσεις σε εξέλιξη`}</span>
+            <span className="xresume__latest">
+              <span>{drafts[0]!.summary ?? "Χωρίς περιγραφή"} <span className="hint">· {drafts[0]!.fieldCount} στοιχεία</span></span>
+              <ActionButton variant="secondary" size="sm" iconAfter="arrowRight" disabled={busy} onClick={() => void resume(drafts[0]!.id)}>Συνέχεια</ActionButton>
+            </span>
+            {drafts.length > 1 && (
+              <details className="xresume__all">
+                <summary>Όλες ({drafts.length})</summary>
+                <ul>
+                  {drafts.slice(1, 8).map((r) => (
+                    <li key={r.id}>
+                      <span>{r.summary ?? "Χωρίς περιγραφή"} <span className="hint">· {r.fieldCount} στοιχεία · {new Date(r.updatedAt).toLocaleString("el-GR", { dateStyle: "short", timeStyle: "short" })}</span></span>
+                      <ActionButton variant="ghost" size="sm" disabled={busy} onClick={() => void resume(r.id)}>Συνέχεια</ActionButton>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
           </div>
         )}
+        <Stepper current={0} states={["todo", "todo", "todo", "todo", "todo"]} onGo={(i) => void goStep(i)} />
+        <div className="xgrid">
+          <div className="xmain">
+            {voiceCard}
+            {helpCard}
+          </div>
+          <CapturePanel session={null} onGo={(i) => void goStep(i)} onShortcut={insertText} disabled={busy} />
+        </div>
+        <div className="xbar" role="group" aria-label="Αποθήκευση και πλοήγηση">
+          <p className="xbar__status"><Icon name="info" size={16} /> Η καταχώριση αποθηκεύεται αυτόματα από την πρώτη σας κίνηση.</p>
+          <span className="xbar__actions">
+            <ActionButton variant="primary" iconAfter="arrowRight" disabled={busy} onClick={() => void goStep(1)}>Συνέχεια</ActionButton>
+          </span>
+        </div>
+        {examplesDialog}
       </div>
     );
   }
 
-  const done = session.status === "CREATED" || Boolean(created);
-  const lastAssistant = [...session.turns].reverse().find((t) => t.role === "assistant");
+  if (offlineDraft) {
+    return (
+      <div className="xintake">
+        <OfflineDraftEditor
+          initial={offlineDraft}
+          online={online && !netDown}
+          onDone={async () => {
+            setOfflineDraft(null);
+            // Back with a connection: show what the server holds now.
+            const fresh = await intakeApi.get(session.id).catch(() => null);
+            if (fresh) {
+              setSession(fresh.session);
+              setSavedAt(new Date());
+            }
+          }}
+        />
+      </div>
+    );
+  }
+
+  const offlineNow = !online || netDown;
   const specOf = (key: string) => session.catalog.find((c) => c.key === key);
   const specsOf = (keys: readonly string[]) => keys.flatMap((k) => (specOf(k) ? [specOf(k)!] : []));
   const photoFailures = photos.filter((p) => progress?.[p.id]?.state === "failed").length;
-  const locked = busy || done;
 
   // What goes where. Step 2 holds what every listing needs; step 3 what this TYPE of property has.
   const TEXT_KEYS = ["titleEl", "titleEn", "descriptionEl", "descriptionEn"];
@@ -747,17 +1197,15 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
   const pickable = session.catalog.filter((c) => !shownKeys.has(c.key) && !session.fields[c.key] && !pickedKeys.includes(c.key));
 
   const filled = (keys: string[]) => keys.some((k) => session.fields[k]);
-  const stepDone = [
-    session.turns.some((t) => t.role === "agent") || Object.keys(session.fields).length > 0,
-    Boolean(session.fields.listingType && session.fields.propertyType) && filled(GROUPS.price) && filled(GROUPS.location) && filled(GROUPS.size),
-    filled([...mainKeys, ...featureKeys]),
-    photos.length > 0 || session.photosLater,
-    done,
+  const unconfirmed = (keys: Iterable<string>) => [...keys].some((k) => session.fields[k] && !session.fields[k]!.confirmed);
+  const stepStates: StepState[] = [
+    session.pending.length > 0 ? "warn" : session.turns.some((t) => t.role === "agent") || Object.keys(session.fields).length > 0 ? "done" : "todo",
+    unconfirmed(basicKeys) ? "warn" : Boolean(session.fields.listingType && session.fields.propertyType) && filled(GROUPS.price) && filled(GROUPS.location) && filled(GROUPS.size) ? "done" : "todo",
+    unconfirmed([...mainKeys, ...featureKeys]) ? "warn" : filled([...mainKeys, ...featureKeys]) ? "done" : "todo",
+    photos.length > 0 || session.photosLater ? "done" : "todo",
+    done ? "done" : visitedReview && session.review.blockers.length > 0 ? "warn" : "todo",
   ];
-  const go = (i: StepIndex) => {
-    setStep(i);
-    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
-  };
+  const go = (i: StepIndex) => void goStep(i);
 
   const setField = async (key: string, value: string | number | boolean | null) =>
     (await edit(value === null ? { type: "clear", key } : { type: "set", key, value })) ?? false;
@@ -765,153 +1213,26 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
   const rows = (keys: readonly string[]) =>
     specsOf(keys).map((spec) => <FieldRow key={spec.key} spec={spec} session={session} disabled={locked} onSet={setField} onConfirm={confirm} />);
 
-  // The summary reads like a listing: what and where first, then price and size, then the rest as said.
-  const FACT_ORDER = ["propertyType", "listingType", "areaName", "city", "price", "monthlyRent", "area", "floor", "bedrooms", "bathrooms"];
-  const rank = (k: string) => (FACT_ORDER.includes(k) ? FACT_ORDER.indexOf(k) : FACT_ORDER.length);
-  const keyFacts = session.review.rows.filter((r) => !TEXT_KEYS.includes(r.key)).sort((a, b) => rank(a.key) - rank(b.key));
-  const textsReady = TEXT_KEYS.filter((k) => session.fields[k]).length;
+  // "Συνέχεια" goes on only when the next step has what it needs; the step bar stays free for going back and forth.
+  const nextBlocked = step === 1 && !layout ? "Δηλώστε είδος αγγελίας και τύπο ακινήτου: τα χαρακτηριστικά εξαρτώνται από αυτόν." : null;
+  const saveBlocked = done ? null : !session.review.ready ? (session.review.blockers[0] ?? "Δηλώστε είδος αγγελίας και τύπο ακινήτου.") : null;
+  const savedLabel = savedAt ? savedAt.toLocaleTimeString("el-GR", { hour: "2-digit", minute: "2-digit" }) : null;
 
-  const conversation = (
-    <section className="card ipanel" aria-label="Συνομιλία με τον βοηθό">
-      <div className="ipanel__head">
-        <h2>Περιγράψτε το ακίνητο</h2>
-        <div className="intake-toolbar" role="group" aria-label="Γλώσσα και ήχος">
-          {(["auto", "el", "en"] as const).map((l) => (
-            <button key={l} type="button" className={session.language === l ? "btn btn--primary btn--sm" : "btn btn--outline btn--sm"} disabled={locked} onClick={() => void edit({ type: "settings", language: l })} aria-pressed={session.language === l} title="Επηρεάζει την αναγνώριση ομιλίας και τη γλώσσα των απαντήσεων">
-              {l === "auto" ? "Αυτόματα" : l === "el" ? "Ελληνικά" : "English"}
-            </button>
-          ))}
-          <button type="button" className="btn btn--outline btn--sm" disabled={locked} onClick={() => void edit({ type: "settings", muted: !session.muted })} aria-pressed={!session.muted}>
-            {session.muted ? "Φωνή: όχι" : "Φωνή: ναι"}
-          </button>
-          <button
-            type="button"
-            className={handsFree ? "btn btn--primary btn--sm" : "btn btn--outline btn--sm"}
-            disabled={done || !available || (busy && !handsFree)}
-            onClick={() => (handsFree ? stopHandsFree() : startHandsFree())}
-            aria-pressed={handsFree}
-            title="Μιλάτε χωρίς να πατάτε κουμπί: ο βοηθός ακούει, απαντά και ξανακούει."
-          >
-            {handsFree ? "Χωρίς χέρια: ενεργό" : "Χωρίς χέρια"}
-          </button>
-        </div>
-      </div>
-
-      {voiceNote && <p className="notice" role="status">{voiceNote}</p>}
-      {handsFree && (
-        <div className="notice intake-handsfree" role="status" aria-live="polite">
-          {autoSend ? (
-            <>
-              <span>Αποστολή σε {autoSend.left}…</span>
-              <span className="intake-pending__buttons">
-                <button type="button" className="btn btn--outline btn--sm" onClick={() => { clearAutoSend(); stopRecording(); }}>Ακύρωση — θα το διορθώσω</button>
-                <button type="button" className="btn btn--primary btn--sm" onClick={() => void send(autoSend.text)}>Στείλε τώρα</button>
-              </span>
-            </>
-          ) : recording === "recording" ? (
-            <span className="istate istate--rec">Ακούω… μιλήστε και σταματήστε όταν τελειώσετε.</span>
-          ) : recording === "transcribing" ? (
-            <span className="istate">Μετατροπή σε κείμενο…</span>
-          ) : busy ? (
-            <span className="istate">Επεξεργασία…</span>
-          ) : input.trim() ? (
-            <>
-              <span>Διορθώστε το κείμενο και πατήστε Αποστολή· μετά την απάντηση θα ακούω ξανά.</span>
-              <button type="button" className="btn btn--outline btn--sm" onClick={() => { setInput(""); resumeListening(); }}>Άκου ξανά από την αρχή</button>
-            </>
-          ) : (
-            <>
-              <span>Συνομιλία χωρίς χέρια ενεργή. Θα ακούσω ξανά μόλις απαντήσω.</span>
-              <button type="button" className="btn btn--outline btn--sm" onClick={() => resumeListening()}>Άκου τώρα</button>
-            </>
-          )}
-        </div>
-      )}
-
-      <div className="intake-log" ref={logRef} aria-label="Συνομιλία" aria-live="polite">
-        {session.turns.map((t, i) => (
-          <div key={`${t.at}-${i}`} className={t.role === "agent" ? "intake-msg intake-msg--agent" : "intake-msg"}>
-            <span className="intake-msg__who">{t.role === "agent" ? "Εσείς" : "Βοηθός"}</span>
-            <p>{t.text}</p>
-            {t.role === "assistant" && t === lastAssistant && !session.muted && (
-              <span className="intake-msg__audio">
-                <button type="button" className={needsTap ? "btn btn--primary btn--sm" : "btn btn--ghost btn--sm"} onClick={() => { unlockAudio(); void speak(session.id); }}>▶ Ακούστε</button>
-                <button type="button" className="btn btn--ghost btn--sm" onClick={() => audioRef.current?.pause()}>■ Διακοπή</button>
-              </span>
-            )}
-          </div>
-        ))}
-        {busy && !done && <div className="intake-msg intake-msg--thinking" role="status">Ο βοηθός ενημερώνει την καταχώριση…</div>}
-      </div>
-
-      {session.pending.map((p) => (
-        <div key={p.key} className="notice intake-pending" role="group" aria-label={`Επιβεβαίωση: ${p.label}`}>
-          <span>
-            {p.reason === "conflict" && p.current ? <>{p.label}: <s>{p.current}</s> → <strong>{p.proposed}</strong>;</> : <>{p.label}: <strong>{p.proposed}</strong>. Είναι σωστό;</>}
-          </span>
-          <span className="intake-pending__buttons">
-            <button type="button" className="btn btn--primary btn--sm" disabled={busy} onClick={() => void edit({ type: "resolve", key: p.key, accept: true })}>Ναι</button>
-            <button type="button" className="btn btn--outline btn--sm" disabled={busy} onClick={() => void edit({ type: "resolve", key: p.key, accept: false })}>Όχι</button>
-          </span>
-        </div>
-      ))}
-
-      {!done && (
-        <div className="intake-composer">
-          <label className="sr-only" htmlFor="intake-text">Μήνυμα ή απομαγνητοφώνηση (μπορείτε να τη διορθώσετε)</label>
-          <textarea
-            id="intake-text"
-            rows={3}
-            value={input}
-            placeholder={recording === "recording" ? "Ηχογράφηση… πατήστε ξανά για να σταματήσει." : recording === "transcribing" ? "Μετατροπή σε κείμενο…" : "π.χ. «Διαμέρισμα 95 τ.μ. στη Γλυφάδα, 3ος όροφος, 2 υπνοδωμάτια, 350.000 ευρώ». Μπορείτε να διορθώσετε το κείμενο πριν το στείλετε."}
-            disabled={busy || recording === "transcribing"}
-            onChange={(e) => { if (autoSend) clearAutoSend(); setInput(e.target.value); }}
-            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void send(); }}
-          />
-          <div className="intake-composer__buttons">
-            <button
-              type="button"
-              className={recording === "recording" ? "btn btn--danger btn--lg" : "btn btn--outline btn--lg"}
-              disabled={busy || recording === "transcribing" || !available || handsFree}
-              onClick={() => (recording === "recording" ? stopRecording() : void startRecording())}
-              aria-pressed={recording === "recording"}
-            >
-              {recording === "recording" ? "■ Τέλος ηχογράφησης" : recording === "transcribing" ? "Μετατροπή…" : "🎤 Μιλήστε"}
-            </button>
-            <button type="button" className="btn btn--primary btn--lg" disabled={busy || !input.trim() || !available} onClick={() => void send()}>{busy ? "Επεξεργασία…" : "Αποστολή"}</button>
-          </div>
-          <div className="intake-quick">
-            {session.asked && <button type="button" className="btn btn--ghost btn--sm" disabled={busy} onClick={() => void edit({ type: "skip", key: session.asked!.key })}>Παράλειψη: {session.asked.label}</button>}
-            <button type="button" className="btn btn--ghost btn--sm" disabled={busy} onClick={() => void edit({ type: "undo" })}>↶ Αναίρεση τελευταίας αλλαγής</button>
-          </div>
-          {!available && <p className="hint">Η φωνή και η αυτόματη συμπλήρωση δεν είναι ρυθμισμένες στον server (λείπει το κλειδί Gemini). Συνεχίστε με τα πεδία στα επόμενα βήματα.</p>}
-        </div>
-      )}
+  const locationCard = (
+    <section className="xcard ipanel" aria-label="Θέση στον χάρτη">
+      <h3>Θέση στον χάρτη</h3>
+      <p className="hint">Για το γραφείο κρατιέται το ακριβές σημείο· εσείς επιλέγετε τι θα δείχνει ο ιστότοπος.</p>
+      <LocationPicker
+        value={session.location ? { lat: session.location.lat, lng: session.location.lng, accuracy: session.location.accuracy, source: session.location.source, visibility: session.location.visibility } : null}
+        disabled={locked}
+        online={online}
+        onChange={(loc) => void edit(loc ? { type: "location", ...loc } : { type: "location", clear: true })}
+      />
     </section>
   );
 
-  const summary = (
-    <aside className="card ipanel isummary" aria-label="Τι έχει καταγραφεί">
-      <h2>Τι έχει καταγραφεί</h2>
-      {keyFacts.length === 0 ? (
-        <p className="muted">Ό,τι πείτε εμφανίζεται εδώ.</p>
-      ) : (
-        <dl className="isummary__list">
-          {keyFacts.map((r) => (
-            <div key={r.key} className={r.needsConfirmation ? "needs" : undefined}>
-              <dt>{r.label}</dt>
-              <dd>{r.display}{r.needsConfirmation && <span className="badge badge--warn"> επιβεβαιώστε</span>}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
-      {session.review.missing.length > 0 && <p className="hint">Λείπουν: {session.review.missing.join(", ")}.</p>}
-      <p className="hint">{textsReady > 0 ? `Τίτλος/περιγραφή: ${textsReady} από 4 προτάσεις έτοιμες για έλεγχο (βήμα 5).` : "Ο τίτλος και η περιγραφή γράφονται αυτόματα μόλις υπάρξουν αρκετά στοιχεία."}</p>
-    </aside>
-  );
-
   const ownerCard = (
-    <section className="card ipanel" aria-label="Ιδιοκτήτης">
+    <section className="xcard ipanel" aria-label="Ιδιοκτήτης">
       <h3>Ιδιοκτήτης</h3>
       <p className="hint">Επιλέξτε μια υπάρχουσα επαφή. Μην υπαγορεύετε τηλέφωνα ή email στον βοηθό· ψάξτε την επαφή εδώ ή δημιουργήστε πρώτα τη νέα επαφή.</p>
       {session.owner ? (
@@ -948,7 +1269,7 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
   );
 
   const photoSection = (
-    <section className="card ipanel" aria-label="Φωτογραφίες">
+    <section className="xcard ipanel" aria-label="Φωτογραφίες">
       <h2>Φωτογραφίες</h2>
       <p className="hint">Φωτογραφίστε τώρα ή προσθέστε τις αργότερα. Παραμένουν ιδιωτικές μέχρι να εγκριθούν και κρατιούνται σε αυτή τη συσκευή μέχρι να ανέβουν.</p>
       {storageNote && <p className="notice" role="status">{storageNote}</p>}
@@ -1006,7 +1327,7 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
   );
 
   const texts = (
-    <section className="card ipanel" aria-label="Τίτλος και περιγραφή">
+    <section className="xcard ipanel" aria-label="Τίτλος και περιγραφή">
       <div className="ipanel__head">
         <h2>Τίτλος και περιγραφή</h2>
         {!done && <button type="button" className="btn btn--outline btn--sm" disabled={busy || !session.fields.propertyType} onClick={() => void suggest()}>Νέα πρόταση</button>}
@@ -1052,7 +1373,7 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
   );
 
   const reviewSection = (
-    <section className="card ipanel" aria-label="Έλεγχος">
+    <section className="xcard ipanel" aria-label="Έλεγχος">
       <h2>Έλεγχος</h2>
       <dl className="ireview">
         {[
@@ -1075,6 +1396,10 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
           <dd>{session.owner ? `${session.owner.label} · ${session.owner.reference}` : <span className="muted">Δεν έχει οριστεί</span>}</dd>
         </div>
         <div>
+          <dt>Θέση στον χάρτη <button type="button" className="btn btn--ghost btn--sm" onClick={() => go(1)}>Αλλαγή</button></dt>
+          <dd>{session.location ? `${session.location.lat.toFixed(5)}, ${session.location.lng.toFixed(5)} · ${session.location.visibility === "exact" ? "ακριβής στον ιστότοπο" : session.location.visibility === "approximate" ? "κατά προσέγγιση στον ιστότοπο" : "μόνο για το γραφείο"}` : <span className="muted">Δεν έχει οριστεί</span>}</dd>
+        </div>
+        <div>
           <dt>Φωτογραφίες <button type="button" className="btn btn--ghost btn--sm" onClick={() => go(3)}>Αλλαγή</button></dt>
           <dd>{photos.length ? `${photos.length} · εξώφυλλο: ${photos[0]!.file.name}` : session.photosLater ? "Αργότερα" : <span className="muted">Καμία</span>}</dd>
         </div>
@@ -1084,7 +1409,7 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
   );
 
   const saveSection = (
-    <section className="card ipanel" aria-label="Αποθήκευση">
+    <section className="xcard ipanel" aria-label="Αποθήκευση">
       {!done ? (
         <>
           <h2>Αποθήκευση πρόχειρου</h2>
@@ -1126,27 +1451,43 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
     </section>
   );
 
+
   return (
-    <div className="intake">
-      <div className="iheader">
-        <span className="badge badge--info">{done ? "Πρόχειρο αποθηκεύτηκε" : "Πρόχειρο"}</span> <span className="hint">Δεν δημοσιεύεται πουθενά</span>
+    <div className="xintake">
+      <div className="xstatusline">
+        <span className={done ? "xpill xpill--ok" : "xpill"}>{done ? "Πρόχειρο ακίνητο αποθηκεύτηκε" : "Σε συμπλήρωση"}</span>
+        <span className="hint">Δεν δημοσιεύεται πουθενά</span>
+        {!online && <span className="xpill xpill--warn"><Icon name="cloudOff" size={14} /> Εκτός σύνδεσης</span>}
       </div>
-      <Stepper current={step} done={stepDone} onGo={go} />
-      {error && <p className="notice notice--danger" role="alert">{error}</p>}
+      <SyncStatus />
+      {offlineNow && !done && (
+        <div className="xalert xalert--warn xoffline" role="status">
+          <Icon name="cloudOff" size={18} />
+          <span>Δεν υπάρχει σύνδεση. Οι φωτογραφίες και το κείμενο που δεν στάλθηκε κρατιούνται στη συσκευή. Συνεχίστε εκτός σύνδεσης· οι αλλαγές στέλνονται μόλις επανέλθει.</span>
+          <ActionButton variant="secondary" size="sm" icon="keyboard" onClick={() => void continueOffline()}>Συνέχεια εκτός σύνδεσης</ActionButton>
+        </div>
+      )}
+      {deviceNote && <p className="xalert xalert--info" role="status"><Icon name="check" size={18} /><span>{deviceNote}</span></p>}
+      <Stepper current={step} states={stepStates} onGo={go} />
+      {error && !offlineNow && <p className="xalert xalert--danger" role="alert"><Icon name="alert" size={18} /><span>{error}</span></p>}
 
       {step === 0 && (
-        <div className="igrid">
-          {conversation}
-          {summary}
+        <div className="xgrid">
+          <div className="xmain">
+            {voiceCard}
+            {helpCard}
+          </div>
+          <CapturePanel session={session} onGo={(i) => go(i)} onShortcut={insertText} disabled={locked} />
         </div>
       )}
 
       {step === 1 && (
         <div className="igrid igrid--even">
-          <section className="card ipanel" aria-label="Είδος και τύπος"><h3>Είδος & τύπος ακινήτου</h3>{rows(GROUPS.type)}</section>
-          <section className="card ipanel" aria-label="Τιμή"><h3>Τιμή</h3>{rows(GROUPS.price)}</section>
-          <section className="card ipanel" aria-label="Τοποθεσία"><h3>Τοποθεσία</h3>{rows(GROUPS.location)}</section>
-          <section className="card ipanel" aria-label="Εμβαδόν"><h3>Εμβαδόν & κατάσταση</h3>{rows(GROUPS.size)}</section>
+          <section className="xcard ipanel" aria-label="Είδος και τύπος"><h3>Είδος & τύπος ακινήτου</h3>{rows(GROUPS.type)}</section>
+          <section className="xcard ipanel" aria-label="Τιμή"><h3>Τιμή</h3>{rows(GROUPS.price)}</section>
+          <section className="xcard ipanel" aria-label="Τοποθεσία"><h3>Τοποθεσία</h3>{rows(GROUPS.location)}</section>
+          <section className="xcard ipanel" aria-label="Εμβαδόν"><h3>Εμβαδόν & κατάσταση</h3>{rows(GROUPS.size)}</section>
+          {locationCard}
           {ownerCard}
         </div>
       )}
@@ -1154,21 +1495,21 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
       {step === 2 && (
         <div className="stack">
           {!layout ? (
-            <p className="notice">Δηλώστε πρώτα τον τύπο ακινήτου (βήμα 2): τα χαρακτηριστικά εξαρτώνται από αυτόν.</p>
+            <p className="xalert" role="status"><Icon name="info" size={18} /><span>Δηλώστε πρώτα τον τύπο ακινήτου στα «Βασικά στοιχεία»: τα χαρακτηριστικά εξαρτώνται από αυτόν.</span></p>
           ) : (
             <>
-              <section className="card ipanel" aria-label={layout.title}>
+              <section className="xcard ipanel" aria-label={layout.title}>
                 <h2>{layout.title}</h2>
                 <div className="ifields">{rows(mainKeys)}</div>
               </section>
               {featureKeys.length > 0 && (
-                <section className="card ipanel" aria-label="Παροχές">
+                <section className="xcard ipanel" aria-label="Παροχές">
                   <h3>Παροχές</h3>
                   <p className="hint">Πατήστε όσα υπάρχουν.</p>
                   <FeatureChips specs={specsOf(featureKeys)} session={session} disabled={locked} onSet={setField} />
                 </section>
               )}
-              <section className="card ipanel" aria-label="Περισσότερα χαρακτηριστικά">
+              <section className="xcard ipanel" aria-label="Περισσότερα χαρακτηριστικά">
                 <h3>Περισσότερα χαρακτηριστικά</h3>
                 {extraShown.length > 0 && <div className="ifields">{extraShown.map((spec) => <FieldRow key={spec.key} spec={spec} session={session} disabled={locked} onSet={setField} onConfirm={confirm} />)}</div>}
                 {!done && <FieldPicker specs={pickable} onPick={(key) => setPickedKeys((cur) => [...cur, key])} />}
@@ -1185,20 +1526,64 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
           {reviewSection}
           {!done && texts}
           {saveSection}
+          {done && created && (
+            <section className="xcard ipanel" aria-labelledby="file-title">
+              <div className="ipanel__head">
+                <div>
+                  <h2 id="file-title">Φάκελος ακινήτου</h2>
+                  <p className="hint">Τα έγγραφα και η εντολή ανάθεσης του ακινήτου. Συμπληρώνονται τώρα ή αργότερα από την καρτέλα του.</p>
+                </div>
+                <span className="row">
+                  <ActionLink variant="primary" size="sm" icon="mandate" href={created.reference ? `/mandates/new?property=${encodeURIComponent(created.reference)}` : `/properties/${created.id}#mandate`}>Νέα εντολή ανάθεσης</ActionLink>
+                  <ActionLink variant="secondary" size="sm" icon="building" href={`/properties/${created.id}`}>Καρτέλα ακινήτου</ActionLink>
+                </span>
+              </div>
+              <DocumentChecklist propertyId={created.id} />
+            </section>
+          )}
         </div>
       )}
 
-      <div className="iactions" role="group" aria-label="Πλοήγηση και αποθήκευση">
-        <button type="button" className="btn btn--outline" disabled={step === 0} onClick={() => go((step - 1) as StepIndex)}>← Πίσω</button>
-        {step < 4 && <button type="button" className="btn btn--outline" onClick={() => go((step + 1) as StepIndex)}>Συνέχεια →</button>}
-        {!done ? (
-          <button type="button" className="btn btn--primary" disabled={busy || !session.review.ready} onClick={() => void saveDraft()} title={session.review.ready ? undefined : session.review.blockers.join(" ")}>
-            {busy ? "Αποθήκευση…" : "Αποθήκευση πρόχειρου"}
-          </button>
-        ) : (
-          created && <Link className="btn btn--primary" href={`/properties/${created.id}`}>Μετάβαση στο ακίνητο</Link>
-        )}
+      <div className="xbar" role="group" aria-label="Αποθήκευση και πλοήγηση">
+        <span className="xbar__back">
+          {step > 0 && <ActionButton variant="ghost" icon="arrowLeft" onClick={() => go((step - 1) as StepIndex)}>Πίσω</ActionButton>}
+        </span>
+        <p className="xbar__status" role="status" aria-live="polite">
+          <span className="xbar__saved">
+            {busy ? <><span className="xbtn__spinner xbtn__spinner--dark" aria-hidden="true" /> Αποθήκευση…</> : savedLabel ? <><Icon name="check" size={15} /> Αποθηκεύτηκε αυτόματα · {savedLabel}</> : null}
+          </span>
+          {(nextBlocked || saveBlocked) && !busy && <span className="xbar__why">{nextBlocked ?? `Για αποθήκευση ως πρόχειρο ακίνητο: ${saveBlocked}`}</span>}
+        </p>
+        <span className="xbar__actions">
+          {!done && offlineNow ? (
+            <ActionButton variant={step === 4 ? "primary" : "secondary"} icon="save" onClick={() => void saveOnDevice()} title="Κρατιέται στη συσκευή και αποθηκεύεται ως πρόχειρο ακίνητο μόλις επανέλθει η σύνδεση">
+              Αποθήκευση στη συσκευή
+            </ActionButton>
+          ) : !done ? (
+            <ActionButton
+              variant={step === 4 ? "primary" : "secondary"}
+              icon="save"
+              loading={busy && step === 4}
+              loadingLabel="Αποθήκευση…"
+              done={saveFlash}
+              doneLabel="Αποθηκεύτηκε"
+              disabled={busy || Boolean(saveBlocked)}
+              onClick={() => void saveDraft()}
+              title={saveBlocked ?? "Δημιουργεί το ακίνητο ως πρόχειρο, χωρίς δημοσίευση"}
+            >
+              Αποθήκευση πρόχειρου
+            </ActionButton>
+          ) : (
+            created && <ActionLink variant="secondary" icon="building" href={`/properties/${created.id}`}>Καρτέλα ακινήτου</ActionLink>
+          )}
+          {step < 4 && (
+            <ActionButton variant="primary" iconAfter="arrowRight" disabled={Boolean(nextBlocked)} onClick={() => go((step + 1) as StepIndex)} title={nextBlocked ?? undefined}>
+              Συνέχεια
+            </ActionButton>
+          )}
+        </span>
       </div>
+      {examplesDialog}
     </div>
   );
 }
