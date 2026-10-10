@@ -71,3 +71,26 @@ describe("photos kept across a closed tab", () => {
     assert.deepEqual(await createPhotoStore(brokenFactory).load("s1"), []);
   });
 });
+
+describe("photos of drafts saved for offline sync", () => {
+  it("move with the draft when it gets its server id, in order", async () => {
+    const store = createPhotoStore(new IDBFactory());
+    await store.save("local:abc", [photo("a"), photo("b")]);
+    await store.move("local:abc", "s7");
+    assert.deepEqual((await store.load("s7")).map((p) => p.id), ["a", "b"]);
+    assert.equal((await store.load("local:abc")).length, 0);
+    assert.deepEqual(await store.counts(), { s7: 2 });
+  });
+
+  it("are not forgotten after a week while they wait to sync, and are wiped at logout", async () => {
+    const store = createPhotoStore(new IDBFactory());
+    await store.save("local:abc", [photo("a")]);
+    await store.save("s8", [photo("b")]);
+    await store.save("s9", [photo("c")]);
+    const later = Date.now() + 8 * 24 * 60 * 60 * 1000;
+    assert.equal(await store.purgeStale(later, (id) => id === "s8"), 1);
+    assert.deepEqual(Object.keys(await store.counts()).sort(), ["local:abc", "s8"]);
+    await store.wipe();
+    assert.deepEqual(await store.counts(), {});
+  });
+});

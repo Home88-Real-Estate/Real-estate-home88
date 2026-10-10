@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { Icon, type IconName } from "../Icon";
+import { SyncStatus } from "../offline/OfflineWorkspace";
 
 export type IntakeDraft = { id: string; updatedAt: string; fieldCount: number; summary: string | null };
 
@@ -45,6 +46,7 @@ export function QuickActions({ drafts, children }: { drafts: IntakeDraft[]; chil
         ))}
       </ul>
       {children}
+      <SyncStatus />
       {drafts.length > 0 && (
         <div className="quick__drafts">
           <h2>Συνέχεια καταχώρισης</h2>

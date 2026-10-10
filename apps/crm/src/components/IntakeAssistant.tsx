@@ -7,6 +7,8 @@ import { Icon } from "@/components/Icon";
 import { CapturePanel } from "@/components/intake/CapturePanel";
 import { FeatureChips, FieldPicker, FieldRow, ORIGIN_LABEL } from "@/components/intake/fields";
 import { LocationPicker } from "@/components/intake/LocationPicker";
+import { OfflineDraftEditor } from "@/components/offline/OfflineDraftEditor";
+import { SyncStatus } from "@/components/offline/OfflineWorkspace";
 import { Stepper, type StepIndex, type StepState } from "@/components/intake/steps";
 import { VoiceOrb, type MicState } from "@/components/intake/VoiceOrb";
 import { ActionButton, ActionLink, Segmented, Toggle } from "@/components/ui/ActionButton";
@@ -16,6 +18,8 @@ import { listenForSpeech, type Listener } from "@/lib/hands-free";
 import {
   intakeApi, IntakeRequestError, type IntakeEdit, type IntakeSession, type OwnerCandidate,
 } from "@/lib/intake-client";
+import { emptyDraft, offlineStore, type OfflineDraft } from "@/lib/offline-store";
+import { notifyOffline } from "@/lib/offline-runtime";
 import { photoStore } from "@/lib/pending-photos";
 import { altUpdates, isLabelCode, PHOTO_LABELS, type PhotoLabel } from "@/lib/photo-labels";
 import { uploadAll, type UploadUpdate } from "@/lib/upload-queue";
@@ -112,6 +116,9 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
   const [online, setOnline] = useState(true);
   const [showLog, setShowLog] = useState(false);
   const [visitedReview, setVisitedReview] = useState(false);
+  const [netDown, setNetDown] = useState(false);
+  const [offlineDraft, setOfflineDraft] = useState<OfflineDraft | null>(null);
+  const [deviceNote, setDeviceNote] = useState<string | null>(null);
   const [voiceNote, setVoiceNote] = useState<string | null>(null);
   const [needsTap, setNeedsTap] = useState(false);
   const [photos, setPhotos] = useState<PendingFile[]>([]);
@@ -151,7 +158,14 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
   const examplesRef = useRef<HTMLDialogElement>(null);
   const startingRef = useRef<Promise<IntakeSession | null> | null>(null);
 
-  const fail = useCallback((e: unknown) => setError(e instanceof IntakeRequestError ? e.message : "Κάτι πήγε στραβά. Δοκιμάστε ξανά."), []);
+  const fail = useCallback((e: unknown) => {
+    if (e instanceof IntakeRequestError && e.status === 0) setNetDown(true);
+    setError(e instanceof IntakeRequestError ? e.message : "Κάτι πήγε στραβά. Δοκιμάστε ξανά.");
+  }, []);
+  // Any answer from the server means the connection is back.
+  useEffect(() => {
+    if (savedAt) setNetDown(false);
+  }, [savedAt]);
 
   // --- Loading and resuming ----------------------------------------------------
   useEffect(() => {
@@ -597,6 +611,41 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
     } finally {
       setBusy(false);
     }
+  }
+
+  /**
+   * Without a connection the draft continues on this device: the server values become the baseline (so a
+   * change made elsewhere meanwhile is caught as a conflict, not overwritten), the unsent text is kept as
+   * notes for the assistant, and the photos already kept for this draft stay where they are.
+   */
+  async function draftOnDevice(createWhenSynced: boolean): Promise<OfflineDraft | null> {
+    if (!session) return null;
+    const values = Object.fromEntries(Object.entries(session.fields).map(([k, f]) => [k, f.value]));
+    const location = session.location ? { lat: session.location.lat, lng: session.location.lng, accuracy: session.location.accuracy, source: session.location.source, visibility: session.location.visibility } : null;
+    try {
+      await photoStore.save(session.id, photos);
+      const existing = (await offlineStore.list()).drafts.find((d) => d.sessionId === session.id);
+      const base: OfflineDraft = existing ?? { ...emptyDraft(), sessionId: session.id, base: values, fields: values, baseLocation: location, location };
+      const saved = await offlineStore.save({ ...base, notes: input.trim() ? input : base.notes, createWhenSynced: createWhenSynced || base.createWhenSynced }, photos.length > 0);
+      notifyOffline();
+      return saved;
+    } catch {
+      setError("Ο browser δεν επιτρέπει αποθήκευση σε αυτή τη συσκευή. Μην κλείσετε τη σελίδα μέχρι να επανέλθει η σύνδεση.");
+      return null;
+    }
+  }
+
+  async function continueOffline() {
+    const d = await draftOnDevice(false);
+    if (d) setOfflineDraft(d);
+  }
+
+  async function saveOnDevice() {
+    const d = await draftOnDevice(true);
+    if (!d) return;
+    const { ops } = await offlineStore.get(d.localId);
+    const waiting = ops.filter((o) => o.status !== "done").length;
+    setDeviceNote(`Αποθηκεύτηκε στη συσκευή · ${waiting} ${waiting === 1 ? "ενέργεια εκκρεμεί" : "ενέργειες εκκρεμούν"}. Θα αποθηκευτεί ως πρόχειρο ακίνητο μόλις επανέλθει η σύνδεση.`);
   }
 
   /** A settings change on a session that may have been created a moment ago (its state is not yet in React). */
@@ -1104,6 +1153,27 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
     );
   }
 
+  if (offlineDraft) {
+    return (
+      <div className="xintake">
+        <OfflineDraftEditor
+          initial={offlineDraft}
+          online={online && !netDown}
+          onDone={async () => {
+            setOfflineDraft(null);
+            // Back with a connection: show what the server holds now.
+            const fresh = await intakeApi.get(session.id).catch(() => null);
+            if (fresh) {
+              setSession(fresh.session);
+              setSavedAt(new Date());
+            }
+          }}
+        />
+      </div>
+    );
+  }
+
+  const offlineNow = !online || netDown;
   const specOf = (key: string) => session.catalog.find((c) => c.key === key);
   const specsOf = (keys: readonly string[]) => keys.flatMap((k) => (specOf(k) ? [specOf(k)!] : []));
   const photoFailures = photos.filter((p) => progress?.[p.id]?.state === "failed").length;
@@ -1388,8 +1458,17 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
         <span className="hint">Δεν δημοσιεύεται πουθενά</span>
         {!online && <span className="xpill xpill--warn"><Icon name="cloudOff" size={14} /> Εκτός σύνδεσης</span>}
       </div>
+      <SyncStatus />
+      {offlineNow && !done && (
+        <div className="xalert xalert--warn xoffline" role="status">
+          <Icon name="cloudOff" size={18} />
+          <span>Δεν υπάρχει σύνδεση. Οι φωτογραφίες και το κείμενο που δεν στάλθηκε κρατιούνται στη συσκευή. Συνεχίστε εκτός σύνδεσης· οι αλλαγές στέλνονται μόλις επανέλθει.</span>
+          <ActionButton variant="secondary" size="sm" icon="keyboard" onClick={() => void continueOffline()}>Συνέχεια εκτός σύνδεσης</ActionButton>
+        </div>
+      )}
+      {deviceNote && <p className="xalert xalert--info" role="status"><Icon name="check" size={18} /><span>{deviceNote}</span></p>}
       <Stepper current={step} states={stepStates} onGo={go} />
-      {error && <p className="xalert xalert--danger" role="alert"><Icon name="alert" size={18} /><span>{error}</span></p>}
+      {error && !offlineNow && <p className="xalert xalert--danger" role="alert"><Icon name="alert" size={18} /><span>{error}</span></p>}
 
       {step === 0 && (
         <div className="xgrid">
@@ -1460,7 +1539,11 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
           {(nextBlocked || saveBlocked) && !busy && <span className="xbar__why">{nextBlocked ?? `Για αποθήκευση ως πρόχειρο ακίνητο: ${saveBlocked}`}</span>}
         </p>
         <span className="xbar__actions">
-          {!done ? (
+          {!done && offlineNow ? (
+            <ActionButton variant={step === 4 ? "primary" : "secondary"} icon="save" onClick={() => void saveOnDevice()} title="Κρατιέται στη συσκευή και αποθηκεύεται ως πρόχειρο ακίνητο μόλις επανέλθει η σύνδεση">
+              Αποθήκευση στη συσκευή
+            </ActionButton>
+          ) : !done ? (
             <ActionButton
               variant={step === 4 ? "primary" : "secondary"}
               icon="save"
