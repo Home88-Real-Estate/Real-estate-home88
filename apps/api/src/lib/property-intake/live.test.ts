@@ -5,11 +5,11 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 
-import { IntakeAiError } from "./ai";
+import { googleReason, IntakeAiError } from "./ai";
 import { intakeAiConfig } from "./config";
 import { parseExtraction } from "./extraction";
 import { allowedFields, LISTING_TYPES, PROPERTY_TYPES } from "./fields";
-import { createLiveToken, LIVE_COMMANDS, LIVE_TOOL, liveConfig, liveSystemPrompt, liveToolDeclaration, wireSetup } from "./live";
+import { createLiveToken, diagnoseLive, LIVE_COMMANDS, safeProviderMessage, LIVE_TOOL, liveConfig, liveSystemPrompt, liveToolDeclaration, wireSetup } from "./live";
 import { confirmQuestion, questionFor } from "./replies";
 import { emptyState } from "./state";
 import { runExtraction } from "./service";
@@ -90,8 +90,10 @@ describe("live configuration", () => {
     assert.equal(call.headers.get("x-goog-api-key"), KEY, "the permanent key goes to Google only, in a header");
     assert.equal(call.body.uses, 1);
     assert.deepEqual(call.body.bidiGenerateContentSetup, wireSetup(cfg.live.model, config), "the browser's setup message is what the token locks");
-    const mask = String(call.body.fieldMask).split(",");
-    for (const f of ["systemInstruction", "tools", "generationConfig.speechConfig", "generationConfig.responseModalities"]) assert.ok(mask.some((m) => m === f || m.startsWith(`${f}.`) || f.startsWith(`${m}.`) || m === f.split(".")[0]), `locked: ${f} (mask ${call.body.fieldMask})`);
+    // No field mask: Google then locks every field of the constrained setup. (A mask built from a setup with tools
+    // would contain "tools.0", an indexed path a field mask cannot express.)
+    assert.equal(call.body.fieldMask, undefined);
+    assert.ok(!JSON.stringify(call.body).includes('"tools.0"'));
   });
 
   it("passes a reconnection's resumption handle into the locked setup", () => {
@@ -117,6 +119,37 @@ describe("live configuration", () => {
     })) as typeof fetch;
     await assert.rejects(createLiveToken(cfg, config, AbortSignal.timeout(50)), (e: unknown) => e instanceof IntakeAiError && e.category === "timeout");
     await assert.rejects(createLiveToken({ ...cfg, apiKey: null }, config, AbortSignal.timeout(50)), (e: unknown) => e instanceof IntakeAiError && e.category === "not_configured");
+  });
+});
+
+describe("live diagnostics", () => {
+  it("names the kind of refusal (Google's status) without its words, and redacts keys and tokens from an admin's view", () => {
+    assert.equal(googleReason(new Error('{"error":{"code":400,"message":"Invalid field","status":"INVALID_ARGUMENT"}}')), "INVALID_ARGUMENT");
+    assert.equal(googleReason(new Error("got status: 404 NOT_FOUND")), "NOT_FOUND");
+    assert.equal(googleReason(new Error("plain")), undefined);
+    const msg = safeProviderMessage(new Error('{"error":{"message":"API key AIzaSyA1234567890abcdefXYZ not valid for auth_tokens/abc123def","status":"INVALID_ARGUMENT"}}'));
+    assert.equal(msg, "API key [key] not valid for auth_tokens/[token]");
+  });
+
+  it("tells which step Google refuses: key, model or configuration", async () => {
+    const config = liveConfig({ cfg, system: "S", keys: ["price"] });
+    let n = 0;
+    const calls = stubGoogle(() => {
+      n++;
+      if (n === 1) return json(200, { name: "auth_tokens/a" });
+      if (n === 2) return json(200, { name: "auth_tokens/b" });
+      return json(400, { error: { code: 400, message: "Invalid value at 'bidi_generate_content_setup' for key AIzaSyA1234567890abcdefXYZ", status: "INVALID_ARGUMENT" } });
+    });
+    const steps = await diagnoseLive(cfg, config, 5000);
+    assert.deepEqual(steps.map((s) => [s.step, s.ok]), [["key", true], ["model", true], ["config", false]]);
+    assert.equal(steps[2]!.status, 400);
+    assert.equal(steps[2]!.reason, "INVALID_ARGUMENT");
+    assert.match(steps[2]!.message!, /Invalid value at 'bidi_generate_content_setup'/);
+    assert.ok(!steps[2]!.message!.includes("AIza"), "never a key, even one Google echoes");
+    assert.equal(calls[0]!.body.bidiGenerateContentSetup, undefined, "step 1: no constraints");
+    assert.deepEqual(Object.keys(calls[1]!.body.bidiGenerateContentSetup), ["model"], "step 2: model only");
+    assert.ok(calls[2]!.body.bidiGenerateContentSetup.tools, "step 3: the full setup");
+    assert.ok(!JSON.stringify(steps).includes("auth_tokens/"), "no token is returned");
   });
 });
 

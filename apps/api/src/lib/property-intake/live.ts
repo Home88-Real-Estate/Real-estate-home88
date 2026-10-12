@@ -170,8 +170,13 @@ export function wireSetup(model: string, config: LiveConnectConfig): Record<stri
 
 export type LiveToken = { token: string; expiresAt: string; newSessionExpiresAt: string };
 
-/** Asks Google for a single-use token bound to this exact configuration. The permanent key stays here. */
-export async function createLiveToken(cfg: Pick<IntakeAiConfig, "apiKey" | "live">, config: LiveConnectConfig, signal: AbortSignal, now: Date = new Date()): Promise<LiveToken> {
+/**
+ * Asks Google for a single-use token. `constraints` binds it to an exact model and configuration; with no
+ * `lockAdditionalFields`, the SDK sends no field mask and Google locks EVERY field of that configuration (the
+ * strictest mode). An explicit empty list would make the SDK build a field mask from the setup, which for a
+ * setup with tools contains an indexed path ("tools.0") that a field mask cannot express.
+ */
+async function requestToken(cfg: Pick<IntakeAiConfig, "apiKey" | "live">, constraints: { model: string; config?: LiveConnectConfig } | null, signal: AbortSignal, now: Date): Promise<LiveToken> {
   if (!cfg.apiKey) throw new IntakeAiError("not_configured");
   const expiresAt = new Date(now.getTime() + cfg.live.sessionMinutes * 60_000).toISOString();
   const newSessionExpiresAt = new Date(now.getTime() + 2 * 60_000).toISOString();
@@ -183,15 +188,13 @@ export async function createLiveToken(cfg: Pick<IntakeAiConfig, "apiKey" | "live
         uses: 1,
         expireTime: expiresAt,
         newSessionExpireTime: newSessionExpiresAt,
-        liveConnectConstraints: { model: cfg.live.model, config },
-        // Empty list: lock every field set above, so the browser cannot change instructions, tools or voice.
-        lockAdditionalFields: [],
+        ...(constraints ? { liveConnectConstraints: constraints } : {}),
         httpOptions: { apiVersion: "v1alpha" },
         abortSignal: signal,
       },
     });
   } catch (error) {
-    return providerFailure(signal, error, cfg.live.model);
+    return providerFailure(signal, error, constraints?.model ?? cfg.live.model);
   }
   const name = typeof created?.name === "string" ? created.name : "";
   if (!name.startsWith("auth_tokens/")) {
@@ -200,6 +203,50 @@ export async function createLiveToken(cfg: Pick<IntakeAiConfig, "apiKey" | "live
     throw e;
   }
   return { token: name, expiresAt, newSessionExpiresAt };
+}
+
+/** A single-use token bound to this exact configuration. The permanent key stays here. */
+export async function createLiveToken(cfg: Pick<IntakeAiConfig, "apiKey" | "live">, config: LiveConnectConfig, signal: AbortSignal, now: Date = new Date()): Promise<LiveToken> {
+  return requestToken(cfg, { model: cfg.live.model, config }, signal, now);
+}
+
+export type LiveDiagnosticStep = { step: "key" | "model" | "config"; ok: boolean; status?: number; reason?: string; message?: string };
+
+/** Google's own explanation, for an administrator: key-like strings and tokens removed, shortened. */
+export function safeProviderMessage(error: unknown): string | undefined {
+  const raw = error instanceof IntakeAiError ? error.cause : error;
+  const text = raw instanceof Error ? raw.message : typeof raw === "string" ? raw : "";
+  if (!text) return undefined;
+  const inner = /"message"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(text)?.[1] ?? text;
+  return inner
+    .replace(/AIza[0-9A-Za-z_\-]{8,}/g, "[key]")
+    .replace(/auth_tokens\/[^\s"',]+/g, "auth_tokens/[token]")
+    .replace(/\s+/g, " ")
+    .slice(0, 300);
+}
+
+/**
+ * For an administrator: which step of starting a live conversation Google refuses. Three single-use tokens are
+ * requested (none is returned or used): with no constraints (is the key accepted, are tokens enabled), bound to
+ * the model only (is the model available to this key), and bound to the full configuration (is the setup valid).
+ */
+export async function diagnoseLive(cfg: Pick<IntakeAiConfig, "apiKey" | "live">, config: LiveConnectConfig, timeoutMs: number): Promise<LiveDiagnosticStep[]> {
+  const steps: Array<[LiveDiagnosticStep["step"], { model: string; config?: LiveConnectConfig } | null]> = [
+    ["key", null],
+    ["model", { model: cfg.live.model }],
+    ["config", { model: cfg.live.model, config }],
+  ];
+  const out: LiveDiagnosticStep[] = [];
+  for (const [step, constraints] of steps) {
+    try {
+      await requestToken(cfg, constraints, AbortSignal.timeout(timeoutMs), new Date());
+      out.push({ step, ok: true });
+    } catch (error) {
+      const e = error instanceof IntakeAiError ? error : new IntakeAiError("provider", error);
+      out.push({ step, ok: false, status: e.detail.status, reason: e.category === "provider" ? e.detail.reason : e.category, message: safeProviderMessage(e) });
+    }
+  }
+  return out;
 }
 
 /** The WebSocket address for a constrained (token) connection. The token itself is added by the browser. */

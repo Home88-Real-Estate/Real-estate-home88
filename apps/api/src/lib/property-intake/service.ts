@@ -779,6 +779,11 @@ export async function prepareLive(db: Db, userId: string, id: string): Promise<{
   };
 }
 
+/** The instructions and fields a live conversation starts with on an empty draft (for the administrator's check). */
+export function liveDiagnosticPrompt(): { system: string; keys: string[] } {
+  return { system: liveSystemPrompt({ state: emptyState(), specs: ALL_SPECS, preference: "auto", nextQuestion: null }), keys: ALL_SPECS.map((s) => s.key) };
+}
+
 /**
  * One update from a live conversation: transcript lines to keep, and (when the model called its tool) the facts
  * it reported. The facts are untrusted: they go through `runExtraction` like a typed turn, checked against the
