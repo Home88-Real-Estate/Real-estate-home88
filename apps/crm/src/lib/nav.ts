@@ -59,6 +59,16 @@ export const NAV_SECTIONS: NavSection[] = [
       },
       { href: "/requests", label: "Ζητήσεις", icon: "search" },
       {
+        key: "distribution",
+        label: "Πύλες & Διανομή",
+        icon: "plug",
+        children: [
+          { href: "/distribution", label: "Επισκόπηση", icon: "chart" },
+          { href: "/distribution/portals", label: "Πύλες & Συνδέσεις", icon: "plug", min: "AGENT" },
+          { href: "/settings/portals", label: "Ρυθμίσεις διανομής", icon: "sliders", settings: true },
+        ],
+      },
+      {
         key: "assignments",
         label: "Αναθέσεις",
         icon: "table",
