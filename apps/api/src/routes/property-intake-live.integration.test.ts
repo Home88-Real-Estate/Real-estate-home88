@@ -87,10 +87,23 @@ test("property intake live: tokens, validated facts, transcript, no property wit
     r = await call("POST", `${base}/token`, {});
     assert.equal(r.status, 503);
     assert.equal(r.body.error.code, "intake_ai_key");
-    google = () => new Response(JSON.stringify({ error: { code: 404, message: "models/gemini-3.8-live is not found" } }), { status: 404, headers: { "content-type": "application/json" } });
+    google = () => new Response(JSON.stringify({ error: { code: 404, message: "models/gemini-3.8-live is not found for API version v1alpha", status: "NOT_FOUND" } }), { status: 404, headers: { "content-type": "application/json" } });
     r = await call("POST", `${base}/token`, {});
     assert.equal(r.status, 502);
     assert.equal(r.body.error.code, "intake_live_unavailable");
+    assert.match(r.body.error.message, /\(κωδικός: 404 NOT_FOUND\)$/, "the kind of refusal, to report it");
+    assert.ok(!/is not found/.test(r.text), "never Google's own words");
+
+    // Administrators can see which step Google refuses; agents cannot.
+    assert.equal((await call("GET", "/property-intake/live/diagnose")).status, 403);
+    const admin = await db().user.create({ data: { email: `liveadmin-${run}@test.invalid`, firstName: "A", lastName: "Test", role: "ADMIN" as never, passwordHash: hashPassword(password, 10) } });
+    const adminCookie = await login(admin.email);
+    const diag = await call("GET", "/property-intake/live/diagnose", undefined, adminCookie);
+    assert.equal(diag.status, 200, diag.text);
+    assert.equal(diag.headers.get("cache-control"), "no-store");
+    assert.deepEqual(diag.body.steps.map((x: any) => [x.step, x.ok, x.reason]), [["key", false, "NOT_FOUND"], ["model", false, "NOT_FOUND"], ["config", false, "NOT_FOUND"]]);
+    assert.match(diag.body.steps[1].message, /is not found/, "the administrator sees Google's explanation");
+    assert.ok(!diag.text.includes(KEY));
     google = () => new Response(JSON.stringify({ name: `auth_tokens/${randomBytes(6).toString("hex")}` }), { status: 200, headers: { "content-type": "application/json" } });
     assert.equal((await call("POST", `${base}/token`, { resumeHandle: "bad handle with spaces" })).status, 422);
 

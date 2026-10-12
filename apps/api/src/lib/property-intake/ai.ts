@@ -20,7 +20,7 @@ export type IntakeFailure = "not_configured" | "timeout" | "provider" | "empty" 
 /** Any failure of the AI side. The cause is kept for the server log only. */
 export class IntakeAiError extends Error {
   /** Safe to log: the provider's HTTP status and the model id, never the request or the provider's words. */
-  detail: { status?: number; model?: string; finishReason?: string } = {};
+  detail: { status?: number; model?: string; finishReason?: string; reason?: string } = {};
   constructor(readonly category: IntakeFailure, cause?: unknown) {
     super(`Property intake AI failed (${category}).`);
     this.name = "IntakeAiError";
@@ -118,9 +118,19 @@ async function withRetry<T>(signal: AbortSignal, run: () => Promise<T>): Promise
   }
 }
 
+/**
+ * Google's error status name ("INVALID_ARGUMENT", "NOT_FOUND", "PERMISSION_DENIED"…): a fixed code that says
+ * what kind of refusal it was, safe to log and to show. Never the provider's message itself.
+ */
+export function googleReason(error: unknown): string | undefined {
+  const text = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  const m = /"status"\s*:\s*"([A-Z][A-Z_]{2,40})"/.exec(text) ?? /\b(INVALID_ARGUMENT|FAILED_PRECONDITION|NOT_FOUND|PERMISSION_DENIED|UNAUTHENTICATED|RESOURCE_EXHAUSTED|UNAVAILABLE|INTERNAL|DEADLINE_EXCEEDED|API_KEY_INVALID)\b/.exec(text);
+  return m?.[1];
+}
+
 function fail(signal: AbortSignal, error: unknown, model?: string): never {
   const e = new IntakeAiError(signal.aborted ? "timeout" : "provider", error);
-  e.detail = { status: statusOf(error), model };
+  e.detail = { status: statusOf(error), model, reason: googleReason(error) };
   throw e;
 }
 

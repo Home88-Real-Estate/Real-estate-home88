@@ -18,12 +18,12 @@ import { IntakeAiError, intakeAi, intakeAiAvailable } from "../lib/property-inta
 import { sniffAudio } from "../lib/property-intake/audio";
 import { CLIENT_REF } from "../lib/property-intake/state";
 import { intakeAiConfig } from "../lib/property-intake/config";
-import { createLiveToken, LIVE_AUDIO, LIVE_KICKOFF, LIVE_RESUME, liveConfig, liveSocketUrl, wireSetup } from "../lib/property-intake/live";
+import { createLiveToken, diagnoseLive, LIVE_AUDIO, LIVE_KICKOFF, LIVE_RESUME, liveConfig, liveSocketUrl, wireSetup } from "../lib/property-intake/live";
 import { writeAudit } from "../lib/audit";
 import { MAX_LABEL_IMAGE_BYTES, MAX_LABEL_IMAGES, parseLabels, sniffImage } from "../lib/property-intake/photo-labels";
 import { imageDimensions } from "../lib/image-size";
 import {
-  abandonSession, applyEdit, createProperty, getSession, lastAssistantText, listResumable, liveSync, normalizeAudioType,
+  abandonSession, applyEdit, createProperty, getSession, lastAssistantText, listResumable, liveDiagnosticPrompt, liveSync, normalizeAudioType,
   prepareLive, searchOwnerCandidates, startSession, suggestTexts, takeTurn, transcribe, type Edit,
 } from "../lib/property-intake/service";
 import { requireRole } from "../plugins/auth";
@@ -98,7 +98,7 @@ function providerStatus(error: IntakeAiError): number | undefined {
 function aiHttpError(error: unknown, log: (o: object, m: string) => void, op: string): never {
   if (error instanceof IntakeAiError) {
     const status = providerStatus(error);
-    log({ op, category: error.category, status, model: error.detail.model, finishReason: error.detail.finishReason }, "property intake AI failure");
+    log({ op, category: error.category, status, reason: error.detail.reason, model: error.detail.model, finishReason: error.detail.finishReason }, "property intake AI failure");
     if (error.category === "not_configured") throw new HttpError(503, "intake_ai_unavailable", SPEECH_FAILURE);
     if (error.category === "timeout") throw new HttpError(504, "intake_ai_timeout", "Η υπηρεσία άργησε να απαντήσει. Δοκιμάστε ξανά ή συνεχίστε γράφοντας.");
     if (error.category === "empty" && op === "transcribe") throw new HttpError(422, "no_speech", "Δεν ακούστηκε ομιλία. Δοκιμάστε ξανά ή γράψτε το μήνυμά σας.");
@@ -106,7 +106,9 @@ function aiHttpError(error: unknown, log: (o: object, m: string) => void, op: st
     if (op === "live") {
       if (status === 401 || status === 403 || (status === 400 && /API_KEY_INVALID|API key not valid/i.test(error.cause instanceof Error ? error.cause.message : ""))) throw new HttpError(503, "intake_ai_key", AI_KEY);
       if (status === 429) throw new HttpError(503, "intake_ai_busy", AI_BUSY);
-      throw new HttpError(502, "intake_live_unavailable", LIVE_DOWN);
+      // The refusal's kind (HTTP status and Google's status name), never Google's words: enough to report it.
+      const code = [status, error.detail.reason ?? (error.category !== "provider" ? error.category : undefined)].filter(Boolean).join(" ");
+      throw new HttpError(502, "intake_live_unavailable", code ? `${LIVE_DOWN} (κωδικός: ${code})` : LIVE_DOWN);
     }
     if (error.category === "empty" || error.category === "invalid") throw new HttpError(502, "intake_ai_bad_answer", AI_BAD_ANSWER);
     if (status === 401 || status === 403 || (status === 400 && /API_KEY_INVALID|API key not valid/i.test(error.cause instanceof Error ? error.cause.message : ""))) throw new HttpError(503, "intake_ai_key", AI_KEY);
@@ -279,6 +281,21 @@ export async function propertyIntakeRoutes(app: FastifyInstance): Promise<void> 
     } catch (error) {
       return aiHttpError(error, (o, m) => request.log.warn(o, m), "live");
     }
+  });
+
+  /**
+   * Administrators only: which step of starting a live conversation Google refuses (key, model, configuration),
+   * with Google's explanation (keys and tokens removed). No token is returned; nothing about a session is sent.
+   */
+  app.get("/property-intake/live/diagnose", { preHandler: requireRole("ADMIN") }, async (request, reply) => {
+    const user = request.auth!.user;
+    const cfg = intakeAiConfig();
+    reply.header("cache-control", "no-store");
+    if (!cfg.apiKey) return { configured: false, enabled: false, model: cfg.live.model, steps: [] };
+    limit(user.id, "live");
+    const prompt = liveDiagnosticPrompt();
+    const steps = await diagnoseLive(cfg, liveConfig({ cfg, system: prompt.system, keys: prompt.keys }), Math.min(cfg.timeoutMs, 15_000));
+    return { configured: true, enabled: cfg.live.enabled, model: cfg.live.model, steps };
   });
 
   /** Transcript lines and the live model's reported facts. Validated like a typed turn; never creates a property. */
