@@ -309,8 +309,9 @@ export async function takeTurn(db: Db, ai: IntakeAiPort, userId: string, id: str
 
   const specsForAi = specsFor(state);
   let extraction;
+  let raw: unknown;
   try {
-    const raw = await ai.extract(
+    raw = await ai.extract(
       {
         system: extractionSystemPrompt(specsForAi),
         user: extractionUserPrompt({ utterance: text, state, specs: specsForAi, expectedKey: state.asked, history: turns.map((t) => ({ role: t.role, text: t.text })) }),
@@ -318,10 +319,15 @@ export async function takeTurn(db: Db, ai: IntakeAiPort, userId: string, id: str
       },
       AbortSignal.timeout(cfg.timeoutMs),
     );
-    extraction = parseExtraction(raw, new Set(ALL_SPECS.map((s) => s.key)));
   } catch (error) {
     if (error instanceof IntakeAiError) throw error;
     throw new IntakeAiError("provider", error);
+  }
+  try {
+    extraction = parseExtraction(raw, new Set(ALL_SPECS.map((s) => s.key)));
+  } catch (error) {
+    // The model answered, but not in the agreed shape: that is a bad answer, not an unreachable provider.
+    throw new IntakeAiError("invalid", error);
   }
 
   const lang = pickLanguage(pref, extraction.language ?? input.detectedLanguage ?? null, state.lang);

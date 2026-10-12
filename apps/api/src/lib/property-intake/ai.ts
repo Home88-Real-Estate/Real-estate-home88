@@ -19,11 +19,35 @@ export type IntakeFailure = "not_configured" | "timeout" | "provider" | "empty" 
 
 /** Any failure of the AI side. The cause is kept for the server log only. */
 export class IntakeAiError extends Error {
+  /** Safe to log: the provider's HTTP status and the model id, never the request or the provider's words. */
+  detail: { status?: number; model?: string; finishReason?: string } = {};
   constructor(readonly category: IntakeFailure, cause?: unknown) {
     super(`Property intake AI failed (${category}).`);
     this.name = "IntakeAiError";
     if (cause !== undefined) this.cause = cause;
   }
+}
+
+/**
+ * Room for the answer. Current Flash models think before answering and the thinking counts against
+ * maxOutputTokens, so a tight cap can cut the JSON off half-way (which then reads as an invalid answer).
+ */
+const MIN_OUTPUT_TOKENS = 8192;
+
+/**
+ * Sampling settings per model. Google's Gemini 3 guide asks to keep temperature at its default (1.0): lower
+ * values can make these models loop until the output limit, which comes back as an empty or cut-off answer.
+ * Older models keep temperature 0 for steady JSON.
+ */
+export function samplingFor(model: string): { temperature?: number } {
+  return /^gemini-([3-9]|\d{2,})/.test(model) ? {} : { temperature: 0 };
+}
+
+/** Gemini answers 400 (not 401) for a malformed or revoked key; that is never a reason to try another model. */
+function isKeyProblem(error: unknown): boolean {
+  const status = statusOf(error instanceof IntakeAiError ? error.cause : error);
+  const text = error instanceof IntakeAiError && error.cause instanceof Error ? error.cause.message : "";
+  return status === 401 || status === 403 || /API_KEY_INVALID|API key not valid|PERMISSION_DENIED/i.test(text);
 }
 
 export type LanguagePreference = "auto" | Lang;
@@ -94,21 +118,25 @@ async function withRetry<T>(signal: AbortSignal, run: () => Promise<T>): Promise
   }
 }
 
-function fail(signal: AbortSignal, error: unknown): never {
-  throw new IntakeAiError(signal.aborted ? "timeout" : "provider", error);
+function fail(signal: AbortSignal, error: unknown, model?: string): never {
+  const e = new IntakeAiError(signal.aborted ? "timeout" : "provider", error);
+  e.detail = { status: statusOf(error), model };
+  throw e;
 }
 
-function jsonOf(text: string): unknown {
+function jsonOf(text: string, model?: string): unknown {
   try {
     return JSON.parse(text);
   } catch {
-    throw new IntakeAiError("invalid");
+    const e = new IntakeAiError("invalid");
+    e.detail = { model };
+    throw e;
   }
 }
 
 /** A refusal that a different model may not share: unknown model id, or an option this model does not support. */
 function isModelRefusal(error: unknown): boolean {
-  if (!(error instanceof IntakeAiError) || error.category !== "provider") return false;
+  if (!(error instanceof IntakeAiError) || error.category !== "provider" || isKeyProblem(error)) return false;
   const status = statusOf(error.cause);
   return status === 400 || status === 404;
 }
@@ -124,15 +152,46 @@ export function createGeminiIntakeAi(config: Pick<IntakeAiConfig, "apiKey" | "tr
         response = await client.models.generateContent({
           model,
           contents: request,
-          config: { systemInstruction: system, responseMimeType: "application/json", responseJsonSchema: schema, temperature: 0, maxOutputTokens, abortSignal: signal },
+          config: { systemInstruction: system, responseMimeType: "application/json", responseJsonSchema: schema, ...samplingFor(model), maxOutputTokens: Math.max(maxOutputTokens, MIN_OUTPUT_TOKENS), abortSignal: signal },
         });
       } catch (error) {
-        return fail(signal, error);
+        return fail(signal, error, model);
       }
-      const out = (response.candidates?.[0]?.content?.parts ?? []).flatMap((p) => (typeof p.text === "string" && !p.thought ? [p.text] : [])).join("").trim();
-      if (!out) throw new IntakeAiError("empty");
+      const candidate = response.candidates?.[0];
+      const finishReason = candidate?.finishReason ? String(candidate.finishReason) : undefined;
+      const out = (candidate?.content?.parts ?? []).flatMap((p) => (typeof p.text === "string" && !p.thought ? [p.text] : [])).join("").trim();
+      // Stopped at the output limit: whatever text there is is a cut-off answer, even if it happens to parse.
+      if (finishReason === "MAX_TOKENS") {
+        const e = new IntakeAiError("invalid");
+        e.detail = { model, finishReason };
+        throw e;
+      }
+      if (!out) {
+        const e = new IntakeAiError("empty");
+        e.detail = { model, finishReason: candidate?.finishReason ? String(candidate.finishReason) : undefined };
+        throw e;
+      }
       return out;
     });
+  }
+
+  /**
+   * A JSON answer from the text model, or, if that model is refused (unknown id, unsupported option) or answers
+   * with nothing usable, from the speech model, which this key is already known to reach. One retry, no loop.
+   */
+  async function json(signal: AbortSignal, request: Parameters<typeof client.models.generateContent>[0]["contents"], system: string | undefined, schema: unknown, maxOutputTokens: number): Promise<unknown> {
+    const models = [...new Set([config.extractModel, config.transcribeModel])];
+    let last: unknown;
+    for (const model of models) {
+      try {
+        return jsonOf(await text(model, signal, request, system, schema, maxOutputTokens), model);
+      } catch (error) {
+        last = error;
+        const recoverable = error instanceof IntakeAiError && (isModelRefusal(error) || error.category === "empty" || error.category === "invalid");
+        if (!recoverable || signal.aborted) throw error;
+      }
+    }
+    throw last;
   }
 
   return {
@@ -190,12 +249,11 @@ export function createGeminiIntakeAi(config: Pick<IntakeAiConfig, "apiKey" | "tr
     },
 
     async extract({ system, user, schema }, signal) {
-      return jsonOf(await text(config.extractModel, signal, [{ role: "user", parts: [{ text: user }] }], system, schema, 1500));
+      return json(signal, [{ role: "user", parts: [{ text: user }] }], system, schema, 1500);
     },
 
     async suggestTexts({ facts }, signal) {
-      const raw = await text(
-        config.extractModel,
+      const p = (await json(
         signal,
         [{ role: "user", parts: [{ text: `Facts:\n${facts.map((f) => `- ${f.label}: ${f.value}`).join("\n")}` }] }],
         SUGGEST_SYSTEM,
@@ -205,8 +263,7 @@ export function createGeminiIntakeAi(config: Pick<IntakeAiConfig, "apiKey" | "tr
           required: ["titleEl", "titleEn", "descriptionEl", "descriptionEn"],
         },
         1200,
-      );
-      const p = jsonOf(raw) as Record<string, unknown>;
+      )) as Record<string, unknown>;
       const pick = (k: string, max: number) => (typeof p[k] === "string" && p[k]!.toString().trim() ? p[k]!.toString().trim().slice(0, max) : undefined);
       return { titleEl: pick("titleEl", 200), titleEn: pick("titleEn", 200), descriptionEl: pick("descriptionEl", 5000), descriptionEn: pick("descriptionEn", 5000) };
     },
@@ -214,7 +271,7 @@ export function createGeminiIntakeAi(config: Pick<IntakeAiConfig, "apiKey" | "tr
     async labelPhotos({ images }, signal) {
       const parts = images.flatMap((img) => [{ text: `Image id: ${img.id}` }, { inlineData: { mimeType: img.mimeType, data: img.data.toString("base64") } }]);
       parts.push({ text: "Label each image. Reply as JSON." });
-      return jsonOf(await text(config.extractModel, signal, [{ role: "user", parts }], LABEL_SYSTEM, labelJsonSchema(), 1500));
+      return json(signal, [{ role: "user", parts }], LABEL_SYSTEM, labelJsonSchema(), 1500);
     },
 
     async speak({ text: spoken }, signal) {
