@@ -19,17 +19,18 @@ import { toLatin } from "./translit";
 import { decryptField } from "../pii";
 import { HttpError, notFound } from "../errors";
 import { intakeAiConfig } from "./config";
-import { extractionJsonSchema, extractionSystemPrompt, extractionUserPrompt, parseExtraction } from "./extraction";
+import { extractionJsonSchema, extractionSystemPrompt, extractionUserPrompt, parseExtraction, type Extraction } from "./extraction";
 import { allowedFields, LISTING_TYPES, PROPERTY_TYPES, ROOT_SPECS, specByKey, type FieldSpec } from "./fields";
 import { questionOrder } from "./flow";
 import { publicCoordinates, validCoordinates, type IntakeLocation, type LocationSource, type LocationVisibility } from "./location";
 import { IntakeAiError, type IntakeAiPort, type LanguagePreference } from "./ai";
+import { LIVE_COMMANDS, liveSystemPrompt, liveToolResult, type LiveToolResult } from "./live";
 import {
   acknowledge, composeReply, confirmQuestion, label, pickLanguage, questionFor, reply, skippedNote, valueText,
 } from "./replies";
 import {
   applyProposals, clearField, confirmField, emptyState, nextStep, readState, resolvePending, setDerived, setManual,
-  skipField, undoLast, type IntakeState, type Lang, type Origin, type Value,
+  skipField, undoLast, type IntakeState, type Lang, type NextStep, type Origin, type Value,
 } from "./state";
 
 type Db = PrismaClient;
@@ -289,49 +290,33 @@ export async function transcribe(ai: IntakeAiPort, input: { audio: Buffer; mimeT
   return ai.transcribe(input, timeout);
 }
 
-// --- A turn -------------------------------------------------------------------
+// --- Applying what the model understood ----------------------------------------
 
-export type TurnResult = { session: SessionDto; reply: string; changed: boolean };
+export type ExtractionOutcome = {
+  state: IntakeState;
+  applied: Array<{ key: string; value: Value; previous?: Value }>;
+  /** Values held for the agent's yes/no in this update. */
+  pending: IntakeState["pending"];
+  rejected: Array<{ key: string; reason: string }>;
+  notes: string[];
+  changed: boolean;
+  newPref: LanguagePreference;
+  lang: Lang;
+  /** What the assistant says back: what was understood, then the one next question. */
+  message: string;
+  step: NextStep;
+};
 
-export async function takeTurn(db: Db, ai: IntakeAiPort, userId: string, id: string, input: { text: string; detectedLanguage?: Lang | null; revision?: number }): Promise<TurnResult> {
-  const cfg = intakeAiConfig();
-  const row = await loadOwn(db, userId, id);
-  if (row.status !== "ACTIVE") throw new HttpError(409, "intake_closed", "Η συνεδρία έχει ολοκληρωθεί.");
-  if (input.revision !== undefined && input.revision !== row.revision) throw new HttpError(409, "intake_conflict", "Η συνεδρία άλλαξε σε άλλη συσκευή. Ανανεώστε και δοκιμάστε ξανά.");
-
-  const text = input.text.trim().slice(0, cfg.maxUtteranceChars);
-  if (!text) throw new HttpError(422, "empty_utterance", "Δεν υπάρχει κείμενο.");
-
-  const pref: LanguagePreference = row.language === "el" || row.language === "en" ? row.language : "auto";
-  let state = readState(row.state);
-  const turns = turnsOf(row.turns);
-  const now = new Date();
-
-  const specsForAi = specsFor(state);
-  let extraction;
-  let raw: unknown;
-  try {
-    raw = await ai.extract(
-      {
-        system: extractionSystemPrompt(specsForAi),
-        user: extractionUserPrompt({ utterance: text, state, specs: specsForAi, expectedKey: state.asked, history: turns.map((t) => ({ role: t.role, text: t.text })) }),
-        schema: extractionJsonSchema(specsForAi.map((s) => s.key)),
-      },
-      AbortSignal.timeout(cfg.timeoutMs),
-    );
-  } catch (error) {
-    if (error instanceof IntakeAiError) throw error;
-    throw new IntakeAiError("provider", error);
-  }
-  try {
-    extraction = parseExtraction(raw, new Set(ALL_SPECS.map((s) => s.key)));
-  } catch (error) {
-    // The model answered, but not in the agreed shape: that is a bad answer, not an unreachable provider.
-    throw new IntakeAiError("invalid", error);
-  }
-
-  const lang = pickLanguage(pref, extraction.language ?? input.detectedLanguage ?? null, state.lang);
-  state.lang = pickLanguage("auto", extraction.language ?? input.detectedLanguage ?? null, state.lang);
+/**
+ * Applies one extraction (from a typed or recorded turn, or from a live conversation's tool call) to a copy of
+ * the state. Every proposal is checked by `applyProposals` against the allowlist, the field rules and the words
+ * in `utterance`; commands only do what the agent can also do by touch. Writes nothing.
+ */
+export function runExtraction(before: IntakeState, extraction: Extraction, utterance: string, pref: LanguagePreference, detectedLanguage: Lang | null, now: Date = new Date()): ExtractionOutcome {
+  const text = utterance;
+  let state: IntakeState = structuredClone(before);
+  const lang = pickLanguage(pref, extraction.language ?? detectedLanguage, state.lang);
+  state.lang = pickLanguage("auto", extraction.language ?? detectedLanguage, state.lang);
 
   // 1) The two facts everything else depends on, then the rest against the fields that now apply.
   const rootKeys = new Set(ROOT_SPECS.map((s) => s.key));
@@ -340,6 +325,7 @@ export async function takeTurn(db: Db, ai: IntakeAiPort, userId: string, id: str
   const second = applyProposals(state, extraction.proposals.filter((p) => !rootKeys.has(p.key)), text, specsFor(state), now);
   state = second.state;
   const applied = [...first.applied, ...second.applied];
+  const rejected = [...first.rejected, ...second.rejected];
   const notes: string[] = [];
   let newPref = pref;
   let changed = applied.length > 0 || first.pending.length + second.pending.length > 0;
@@ -443,6 +429,55 @@ export async function takeTurn(db: Db, ai: IntakeAiPort, userId: string, id: str
   }
   const nothing = !changed && notes.length === 0 ? reply("noChange", lang) : null;
   const message = composeReply([ack, ...notes, nothing, ask]);
+  return { state, applied, pending: [...first.pending, ...second.pending], rejected, notes, changed, newPref, lang, message, step };
+
+}
+
+// --- A turn -------------------------------------------------------------------
+
+export type TurnResult = { session: SessionDto; reply: string; changed: boolean };
+
+export async function takeTurn(db: Db, ai: IntakeAiPort, userId: string, id: string, input: { text: string; detectedLanguage?: Lang | null; revision?: number }): Promise<TurnResult> {
+  const cfg = intakeAiConfig();
+  const row = await loadOwn(db, userId, id);
+  if (row.status !== "ACTIVE") throw new HttpError(409, "intake_closed", "Η συνεδρία έχει ολοκληρωθεί.");
+  if (input.revision !== undefined && input.revision !== row.revision) throw new HttpError(409, "intake_conflict", "Η συνεδρία άλλαξε σε άλλη συσκευή. Ανανεώστε και δοκιμάστε ξανά.");
+
+  const text = input.text.trim().slice(0, cfg.maxUtteranceChars);
+  if (!text) throw new HttpError(422, "empty_utterance", "Δεν υπάρχει κείμενο.");
+
+  const pref: LanguagePreference = row.language === "el" || row.language === "en" ? row.language : "auto";
+  let state = readState(row.state);
+  const turns = turnsOf(row.turns);
+  const now = new Date();
+
+  const specsForAi = specsFor(state);
+  let extraction;
+  let raw: unknown;
+  try {
+    raw = await ai.extract(
+      {
+        system: extractionSystemPrompt(specsForAi),
+        user: extractionUserPrompt({ utterance: text, state, specs: specsForAi, expectedKey: state.asked, history: turns.map((t) => ({ role: t.role, text: t.text })) }),
+        schema: extractionJsonSchema(specsForAi.map((s) => s.key)),
+      },
+      AbortSignal.timeout(cfg.timeoutMs),
+    );
+  } catch (error) {
+    if (error instanceof IntakeAiError) throw error;
+    throw new IntakeAiError("provider", error);
+  }
+  try {
+    extraction = parseExtraction(raw, new Set(ALL_SPECS.map((s) => s.key)));
+  } catch (error) {
+    // The model answered, but not in the agreed shape: that is a bad answer, not an unreachable provider.
+    throw new IntakeAiError("invalid", error);
+  }
+
+  const out = runExtraction(state, extraction, text, pref, input.detectedLanguage ?? null, now);
+  state = out.state;
+  const { lang, changed } = out;
+  const message = out.message;
 
   // The listing texts follow the facts: after every turn that changed them, the four suggestions are refreshed
   // (never over anything the agent wrote or approved), so they do not sit empty until a button is pressed.
@@ -450,7 +485,7 @@ export async function takeTurn(db: Db, ai: IntakeAiPort, userId: string, id: str
 
   turns.push({ role: "agent", text, at: now.toISOString(), lang });
   turns.push({ role: "assistant", text: message, at: now.toISOString(), lang });
-  const saved = await save(db, row, { state, turns, language: newPref !== pref ? newPref : undefined });
+  const saved = await save(db, row, { state, turns, language: out.newPref !== pref ? out.newPref : undefined });
   return { session: toDto(saved), reply: message, changed };
 }
 
@@ -700,4 +735,88 @@ export async function lastAssistantText(db: Db, userId: string, id: string): Pro
   const last = [...turnsOf(row.turns)].reverse().find((t) => t.role === "assistant");
   if (!last) throw new HttpError(404, "no_reply", "Δεν υπάρχει απάντηση για εκφώνηση.");
   return { text: last.text, lang: last.lang ?? state.lang, muted: state.muted };
+}
+
+// --- Live conversation ----------------------------------------------------------
+
+export type LiveLine = { role: "agent" | "assistant"; text: string };
+const MAX_LIVE_LINES = 12;
+const MAX_LIVE_LINE_CHARS = 1500;
+
+function cleanLines(lines: LiveLine[]): LiveLine[] {
+  return lines
+    .map((l) => ({ role: l.role, text: l.text.replace(/\s+/g, " ").trim().slice(0, MAX_LIVE_LINE_CHARS) }))
+    .filter((l) => l.text.length > 0)
+    .slice(-MAX_LIVE_LINES);
+}
+
+function nextQuestionText(state: IntakeState, lang: Lang): string | null {
+  const specs = specsFor(state);
+  const step = nextStep(state, specs, questionOrder(stated(state, "listingType"), stated(state, "propertyType")));
+  if (step.type === "ask") return questionFor(specByKey(specs, step.key)!, lang);
+  if (step.type === "confirm") {
+    const spec = ALL_SPECS.find((s) => s.key === step.pending.key);
+    return spec ? confirmQuestion(step.pending, spec, lang) : null;
+  }
+  return null;
+}
+
+/**
+ * What the live model is told when a conversation starts or reconnects: its rules, every field it may record,
+ * and what this session already holds. Checks that the session is the agent's own and still open.
+ */
+export async function prepareLive(db: Db, userId: string, id: string): Promise<{ system: string; keys: string[]; preference: LanguagePreference; resumed: boolean }> {
+  const row = await loadOwn(db, userId, id);
+  if (row.status !== "ACTIVE") throw new HttpError(409, "intake_closed", "Η συνεδρία έχει ολοκληρωθεί.");
+  const state = readState(row.state);
+  const preference: LanguagePreference = row.language === "el" || row.language === "en" ? row.language : "auto";
+  const lang: Lang = preference === "auto" ? state.lang : preference;
+  return {
+    system: liveSystemPrompt({ state, specs: ALL_SPECS, preference, nextQuestion: nextQuestionText(state, lang) }),
+    keys: ALL_SPECS.map((s) => s.key),
+    preference,
+    resumed: Object.keys(state.fields).length > 0 || turnsOf(row.turns).some((t) => t.role === "agent"),
+  };
+}
+
+/**
+ * One update from a live conversation: transcript lines to keep, and (when the model called its tool) the facts
+ * it reported. The facts are untrusted: they go through `runExtraction` like a typed turn, checked against the
+ * agent's own transcribed words, and only accepted values change the draft. Nothing here creates a property.
+ */
+export async function liveSync(db: Db, userId: string, id: string, input: { lines: LiveLine[]; facts?: unknown }): Promise<{ session: SessionDto; result: LiveToolResult | null }> {
+  const row = await loadOwn(db, userId, id);
+  if (row.status !== "ACTIVE") throw new HttpError(409, "intake_closed", "Η συνεδρία έχει ολοκληρωθεί.");
+  const lines = cleanLines(input.lines);
+  if (lines.length === 0 && input.facts === undefined) return { session: toDto(row), result: null };
+
+  const pref: LanguagePreference = row.language === "el" || row.language === "en" ? row.language : "auto";
+  let state = readState(row.state);
+  const turns = turnsOf(row.turns);
+  const now = new Date();
+  const at = now.toISOString();
+  let result: LiveToolResult | null = null;
+
+  if (input.facts !== undefined) {
+    const parsed = parseExtraction(input.facts, new Set(ALL_SPECS.map((s) => s.key)));
+    const extraction: Extraction = { ...parsed, commands: parsed.commands.filter((c) => (LIVE_COMMANDS as readonly string[]).includes(c.type)) };
+    // The evidence must be in what the agent said: this update's lines and the agent's last few saved lines
+    // (a transcript line can be saved a moment before the model reports the facts in it).
+    const earlier = turns.filter((t) => t.role === "agent").slice(-3).map((t) => t.text);
+    const utterance = [...earlier, ...lines.filter((l) => l.role === "agent").map((l) => l.text)].join("\n");
+    const out = runExtraction(state, extraction, utterance, pref, null, now);
+    state = out.state;
+    if (out.changed) state = await refreshTexts(state, null, { force: false });
+    const review = buildReview(state, out.lang);
+    result = liveToolResult({
+      state, specs: specsFor(state), allSpecs: ALL_SPECS, lang: out.lang, applied: out.applied, rejected: out.rejected, notes: out.notes,
+      step: out.step, message: out.message, review,
+      confirmQuestion: (p, spec) => confirmQuestion(p, spec, out.lang),
+      askQuestion: (spec) => questionFor(spec, out.lang),
+    });
+  }
+
+  for (const line of lines) turns.push({ role: line.role, text: line.text, at, lang: state.lang });
+  const saved = await save(db, row, { state, turns });
+  return { session: toDto(saved), result };
 }

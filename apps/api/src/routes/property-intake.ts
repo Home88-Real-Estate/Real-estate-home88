@@ -18,11 +18,13 @@ import { IntakeAiError, intakeAi, intakeAiAvailable } from "../lib/property-inta
 import { sniffAudio } from "../lib/property-intake/audio";
 import { CLIENT_REF } from "../lib/property-intake/state";
 import { intakeAiConfig } from "../lib/property-intake/config";
+import { createLiveToken, LIVE_AUDIO, LIVE_KICKOFF, LIVE_RESUME, liveConfig, liveSocketUrl, wireSetup } from "../lib/property-intake/live";
+import { writeAudit } from "../lib/audit";
 import { MAX_LABEL_IMAGE_BYTES, MAX_LABEL_IMAGES, parseLabels, sniffImage } from "../lib/property-intake/photo-labels";
 import { imageDimensions } from "../lib/image-size";
 import {
-  abandonSession, applyEdit, createProperty, getSession, lastAssistantText, listResumable, normalizeAudioType,
-  searchOwnerCandidates, startSession, suggestTexts, takeTurn, transcribe, type Edit,
+  abandonSession, applyEdit, createProperty, getSession, lastAssistantText, listResumable, liveSync, normalizeAudioType,
+  prepareLive, searchOwnerCandidates, startSession, suggestTexts, takeTurn, transcribe, type Edit,
 } from "../lib/property-intake/service";
 import { requireRole } from "../plugins/auth";
 
@@ -58,6 +60,13 @@ const labelSchema = z.object({
   images: z.array(z.object({ id: z.string().min(1).max(120), mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]), data: z.string().min(100).max(600_000) })).min(1).max(MAX_LABEL_IMAGES),
 });
 const revisionOnly = z.object({ revision }).default({});
+/** A Live API session-resumption handle: an opaque token from Google, passed back as is. */
+const liveTokenSchema = z.object({ resumeHandle: z.string().min(1).max(4096).regex(/^[A-Za-z0-9_\-./+=:]+$/).optional() }).default({});
+const liveSyncSchema = z.object({
+  lines: z.array(z.object({ role: z.enum(["agent", "assistant"]), text: z.string().max(4000) })).max(40).default([]),
+  /** The live model's tool arguments, forwarded untouched: validated field by field on the server. */
+  facts: z.record(z.unknown()).optional(),
+});
 
 /** A location edit either clears the point or gives all of it. */
 function toEdit(edit: z.infer<typeof editSchema>["edit"]): Edit {
@@ -72,6 +81,7 @@ const SPEECH_FAILURE = "Η φωνητική λειτουργία δεν είνα
 const AI_KEY = "Η υπηρεσία AI δεν δέχεται το κλειδί του server. Ενημερώστε τον διαχειριστή· μέχρι τότε συμπληρώστε τα στοιχεία στα «Βασικά στοιχεία».";
 const AI_BUSY = "Η υπηρεσία AI έχει πολλά αιτήματα αυτή τη στιγμή. Δοκιμάστε ξανά σε ένα λεπτό· το κείμενό σας κρατήθηκε.";
 const AI_BAD_ANSWER = "Ο βοηθός δεν έδωσε έγκυρη απάντηση αυτή τη φορά. Το κείμενό σας κρατήθηκε: πατήστε ξανά «Αποστολή στον βοηθό» ή συμπληρώστε τα στοιχεία στα «Βασικά στοιχεία».";
+const LIVE_DOWN = "Η ζωντανή συνομιλία δεν είναι διαθέσιμη αυτή τη στιγμή. Συνεχίστε με ηχογράφηση ή πληκτρολόγηση· ό,τι έχει καταγραφεί κρατήθηκε.";
 const AI_DOWN = "Η υπηρεσία AI δεν απάντησε. Το κείμενό σας κρατήθηκε: δοκιμάστε ξανά σε λίγο ή συμπληρώστε τα στοιχεία στα «Βασικά στοιχεία».";
 
 function providerStatus(error: IntakeAiError): number | undefined {
@@ -93,6 +103,11 @@ function aiHttpError(error: unknown, log: (o: object, m: string) => void, op: st
     if (error.category === "timeout") throw new HttpError(504, "intake_ai_timeout", "Η υπηρεσία άργησε να απαντήσει. Δοκιμάστε ξανά ή συνεχίστε γράφοντας.");
     if (error.category === "empty" && op === "transcribe") throw new HttpError(422, "no_speech", "Δεν ακούστηκε ομιλία. Δοκιμάστε ξανά ή γράψτε το μήνυμά σας.");
     if (op === "transcribe") throw new HttpError(502, "intake_ai_error", SPEECH_FAILURE);
+    if (op === "live") {
+      if (status === 401 || status === 403 || (status === 400 && /API_KEY_INVALID|API key not valid/i.test(error.cause instanceof Error ? error.cause.message : ""))) throw new HttpError(503, "intake_ai_key", AI_KEY);
+      if (status === 429) throw new HttpError(503, "intake_ai_busy", AI_BUSY);
+      throw new HttpError(502, "intake_live_unavailable", LIVE_DOWN);
+    }
     if (error.category === "empty" || error.category === "invalid") throw new HttpError(502, "intake_ai_bad_answer", AI_BAD_ANSWER);
     if (status === 401 || status === 403 || (status === 400 && /API_KEY_INVALID|API key not valid/i.test(error.cause instanceof Error ? error.cause.message : ""))) throw new HttpError(503, "intake_ai_key", AI_KEY);
     if (status === 429) throw new HttpError(503, "intake_ai_busy", AI_BUSY);
@@ -110,14 +125,14 @@ function requireAi() {
 export async function propertyIntakeRoutes(app: FastifyInstance): Promise<void> {
   const agent = { preHandler: requireRole("AGENT") };
   const meta = (request: Parameters<typeof clientIp>[0]) => ({ ipAddress: clientIp(request), userAgent: userAgent(request) });
-  const limit = (userId: string, kind: "turn" | "transcribe" | "speak" | "photos") => {
+  const limit = (userId: string, kind: "turn" | "transcribe" | "speak" | "photos" | "live" | "liveSync") => {
     const rule = intakeAiConfig().rate[kind];
     if (!consume(`intake:${kind}:${userId}`, rule).allowed) throw tooManyRequests("Πάρα πολλά αιτήματα. Περιμένετε λίγο και δοκιμάστε ξανά.");
   };
 
   app.get("/property-intake/status", agent, async () => {
     const cfg = intakeAiConfig();
-    return { available: intakeAiAvailable(), maxAudioBytes: cfg.maxAudioBytes, maxUtteranceChars: cfg.maxUtteranceChars };
+    return { available: intakeAiAvailable(), maxAudioBytes: cfg.maxAudioBytes, maxUtteranceChars: cfg.maxUtteranceChars, live: { available: cfg.live.enabled, model: cfg.live.enabled ? cfg.live.model : null } };
   });
 
   /** Existing contacts matching a name, company, reference, phone or email the agent types. Names and the last four digits only. */
@@ -233,6 +248,46 @@ export async function propertyIntakeRoutes(app: FastifyInstance): Promise<void> 
     } catch (error) {
       return aiHttpError(error, (o, m) => request.log.warn(o, m), "speak");
     }
+  });
+
+  /**
+   * Starts (or reconnects) a real-time conversation: a single-use token for Google's Live API, bound to this
+   * session's instructions and tool and valid for a few minutes to connect. The permanent key never leaves the
+   * server, and the token is never logged or stored.
+   */
+  app.post("/property-intake/sessions/:id/live/token", agent, async (request, reply) => {
+    const user = request.auth!.user;
+    const { id } = request.params as { id: string };
+    const input = parseInput(liveTokenSchema, request.body ?? {});
+    const prepared = await prepareLive(db(), user.id, id);
+    const cfg = intakeAiConfig();
+    if (!cfg.live.enabled) throw new HttpError(503, "intake_live_unavailable", LIVE_DOWN);
+    limit(user.id, "live");
+    const config = liveConfig({ cfg, system: prepared.system, keys: prepared.keys, resumeHandle: input.resumeHandle });
+    try {
+      const token = await createLiveToken(cfg, config, AbortSignal.timeout(Math.min(cfg.timeoutMs, 15_000)));
+      await writeAudit({ entity: "PROPERTY_INTAKE", entityId: id, action: input.resumeHandle ? "live_resume" : "live_start", actorId: user.id, ipAddress: meta(request).ipAddress, userAgent: meta(request).userAgent, changes: { model: cfg.live.model } });
+      reply.header("cache-control", "no-store");
+      return {
+        ...token,
+        url: liveSocketUrl(),
+        model: cfg.live.model,
+        setup: wireSetup(cfg.live.model, config),
+        kickoff: prepared.resumed || input.resumeHandle ? LIVE_RESUME : LIVE_KICKOFF,
+        audio: LIVE_AUDIO,
+      };
+    } catch (error) {
+      return aiHttpError(error, (o, m) => request.log.warn(o, m), "live");
+    }
+  });
+
+  /** Transcript lines and the live model's reported facts. Validated like a typed turn; never creates a property. */
+  app.post("/property-intake/sessions/:id/live/sync", agent, async (request) => {
+    const user = request.auth!.user;
+    const { id } = request.params as { id: string };
+    const input = parseInput(liveSyncSchema, request.body ?? {});
+    limit(user.id, "liveSync");
+    return liveSync(db(), user.id, id, { lines: input.lines, facts: input.facts });
   });
 
   app.post("/property-intake/sessions/:id/create", agent, async (request, reply) => {

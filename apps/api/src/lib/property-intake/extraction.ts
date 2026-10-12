@@ -104,7 +104,7 @@ export function extractionJsonSchema(keys: string[]): Record<string, unknown> {
   };
 }
 
-function describeSpec(s: FieldSpec): string {
+export function describeSpec(s: FieldSpec): string {
   const bits = [`${s.key} — ${s.labelEl} / ${s.labelEn} (${s.kind}${s.unit ? `, ${s.unit}` : ""}`];
   if (s.min != null || s.max != null) bits[0] += `, ${s.min ?? ""}..${s.max ?? ""}`;
   bits[0] += ")";
