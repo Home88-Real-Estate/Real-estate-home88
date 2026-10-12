@@ -289,6 +289,54 @@ function withoutUndefined(input: Record<string, unknown>): Record<string, unknow
   return out;
 }
 
+/**
+ * The property list's filter, in one place: the CRM list and the bulk
+ * distribution workspace resolve "everything matching these filters" through it,
+ * so a selection means exactly what the table showed.
+ */
+export function buildPropertyWhere(q: PropertySearchInput, userId: string): Prisma.PropertyWhereInput {
+  const where: Prisma.PropertyWhereInput = {};
+  const and: Prisma.PropertyWhereInput[] = [];
+  if (q.listingType) where.listingType = q.listingType;
+  if (q.propertyType) where.propertyType = q.propertyType;
+  if (q.category) {
+    and.push({ propertyType: { in: [...CATEGORY_PROPERTY_TYPES[q.category]] as PropertyTypeValue[] } });
+  }
+  if (q.status) where.status = q.status;
+  // The bin is a separate folder: deleted rows stay out of the ordinary
+  // list until DELETED is asked for explicitly.
+  if (q.statusGroup === "DELETED") and.push({ status: "DELETED" });
+  else if (q.statusGroup === "CURRENT") and.push({ status: { notIn: ["ARCHIVED", "DELETED"] } });
+  else if (q.statusGroup === "PUBLIC") and.push({ status: { in: [...PUBLIC_PROPERTY_STATUSES] } });
+  else if (!q.status) and.push({ status: { not: "DELETED" } });
+  if (q.mine) {
+    const me = userId;
+    and.push({ OR: [{ agentId: me }, { createdById: me }] });
+  }
+  if (q.city) where.city = { contains: q.city, mode: "insensitive" };
+  if (q.neighborhood) where.neighborhood = { contains: q.neighborhood, mode: "insensitive" };
+  if (q.region) where.region = { contains: q.region, mode: "insensitive" };
+  if (q.minPrice != null || q.maxPrice != null) {
+    where.price = {
+      ...(q.minPrice != null ? { gte: q.minPrice } : {}),
+      ...(q.maxPrice != null ? { lte: q.maxPrice } : {}),
+    };
+  }
+  if (q.bedrooms != null) where.bedrooms = { gte: q.bedrooms };
+  if (q.q) {
+    where.OR = [
+      { titleEl: { contains: q.q, mode: "insensitive" } },
+      { reference: { contains: q.q.toUpperCase() } },
+      { city: { contains: q.q, mode: "insensitive" } },
+      { areaName: { contains: q.q, mode: "insensitive" } },
+      { neighborhood: { contains: q.q, mode: "insensitive" } },
+      { address: { contains: q.q, mode: "insensitive" } },
+    ];
+  }
+  if (and.length > 0) where.AND = and;
+  return where;
+}
+
 function orderBy(sort: PropertySearchInput["sort"]): Prisma.PropertyOrderByWithRelationInput {
   switch (sort) {
     case "price_asc":
@@ -338,45 +386,7 @@ const LIST_SELECT = {
 export async function propertyRoutes(app: FastifyInstance): Promise<void> {
   app.get("/properties", { preHandler: requireRole("AGENT") }, async (request) => {
     const q = parseInput(propertySearchSchema, request.query);
-    const where: Prisma.PropertyWhereInput = {};
-    const and: Prisma.PropertyWhereInput[] = [];
-    if (q.listingType) where.listingType = q.listingType;
-    if (q.propertyType) where.propertyType = q.propertyType;
-    if (q.category) {
-      and.push({ propertyType: { in: [...CATEGORY_PROPERTY_TYPES[q.category]] as PropertyTypeValue[] } });
-    }
-    if (q.status) where.status = q.status;
-    // The bin is a separate folder: deleted rows stay out of the ordinary
-    // list until DELETED is asked for explicitly.
-    if (q.statusGroup === "DELETED") and.push({ status: "DELETED" });
-    else if (q.statusGroup === "CURRENT") and.push({ status: { notIn: ["ARCHIVED", "DELETED"] } });
-    else if (q.statusGroup === "PUBLIC") and.push({ status: { in: [...PUBLIC_PROPERTY_STATUSES] } });
-    else if (!q.status) and.push({ status: { not: "DELETED" } });
-    if (q.mine) {
-      const me = request.auth!.user.id;
-      and.push({ OR: [{ agentId: me }, { createdById: me }] });
-    }
-    if (q.city) where.city = { contains: q.city, mode: "insensitive" };
-    if (q.neighborhood) where.neighborhood = { contains: q.neighborhood, mode: "insensitive" };
-    if (q.region) where.region = { contains: q.region, mode: "insensitive" };
-    if (q.minPrice != null || q.maxPrice != null) {
-      where.price = {
-        ...(q.minPrice != null ? { gte: q.minPrice } : {}),
-        ...(q.maxPrice != null ? { lte: q.maxPrice } : {}),
-      };
-    }
-    if (q.bedrooms != null) where.bedrooms = { gte: q.bedrooms };
-    if (q.q) {
-      where.OR = [
-        { titleEl: { contains: q.q, mode: "insensitive" } },
-        { reference: { contains: q.q.toUpperCase() } },
-        { city: { contains: q.q, mode: "insensitive" } },
-        { areaName: { contains: q.q, mode: "insensitive" } },
-        { neighborhood: { contains: q.q, mode: "insensitive" } },
-        { address: { contains: q.q, mode: "insensitive" } },
-      ];
-    }
-    if (and.length > 0) where.AND = and;
+    const where = buildPropertyWhere(q, request.auth!.user.id);
 
     const [total, data] = await db().$transaction([
       db().property.count({ where }),
