@@ -2040,3 +2040,8 @@ td.actions .btn { margin: 2px 4px 2px 0; }
 @media (max-width: 1180px) { .pboard { grid-template-columns: repeat(3, minmax(0, 1fr)); } .pinterest { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 720px) { .pboard { grid-template-columns: repeat(2, minmax(0, 1fr)); } .pnav { border-radius: var(--radius); width: 100%; flex-wrap: nowrap; } }
 @media (max-width: 380px) { .pboard { grid-template-columns: minmax(0, 1fr); } }
+
+/* Directory filters: a wrapping row on desktop, stacked on phones. */
+.filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.filters .input { flex: 1 1 260px; }
+.filters .select { flex: 0 1 220px; }
