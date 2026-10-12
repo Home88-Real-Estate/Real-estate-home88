@@ -34,6 +34,22 @@ export class IntakeAiError extends Error {
  */
 const MIN_OUTPUT_TOKENS = 8192;
 
+/**
+ * Sampling settings per model. Google's Gemini 3 guide asks to keep temperature at its default (1.0): lower
+ * values can make these models loop until the output limit, which comes back as an empty or cut-off answer.
+ * Older models keep temperature 0 for steady JSON.
+ */
+export function samplingFor(model: string): { temperature?: number } {
+  return /^gemini-([3-9]|\d{2,})/.test(model) ? {} : { temperature: 0 };
+}
+
+/** Gemini answers 400 (not 401) for a malformed or revoked key; that is never a reason to try another model. */
+function isKeyProblem(error: unknown): boolean {
+  const status = statusOf(error instanceof IntakeAiError ? error.cause : error);
+  const text = error instanceof IntakeAiError && error.cause instanceof Error ? error.cause.message : "";
+  return status === 401 || status === 403 || /API_KEY_INVALID|API key not valid|PERMISSION_DENIED/i.test(text);
+}
+
 export type LanguagePreference = "auto" | Lang;
 
 export type SuggestedTexts = { titleEl?: string; titleEn?: string; descriptionEl?: string; descriptionEn?: string };
@@ -120,7 +136,7 @@ function jsonOf(text: string, model?: string): unknown {
 
 /** A refusal that a different model may not share: unknown model id, or an option this model does not support. */
 function isModelRefusal(error: unknown): boolean {
-  if (!(error instanceof IntakeAiError) || error.category !== "provider") return false;
+  if (!(error instanceof IntakeAiError) || error.category !== "provider" || isKeyProblem(error)) return false;
   const status = statusOf(error.cause);
   return status === 400 || status === 404;
 }
@@ -136,13 +152,20 @@ export function createGeminiIntakeAi(config: Pick<IntakeAiConfig, "apiKey" | "tr
         response = await client.models.generateContent({
           model,
           contents: request,
-          config: { systemInstruction: system, responseMimeType: "application/json", responseJsonSchema: schema, temperature: 0, maxOutputTokens: Math.max(maxOutputTokens, MIN_OUTPUT_TOKENS), abortSignal: signal },
+          config: { systemInstruction: system, responseMimeType: "application/json", responseJsonSchema: schema, ...samplingFor(model), maxOutputTokens: Math.max(maxOutputTokens, MIN_OUTPUT_TOKENS), abortSignal: signal },
         });
       } catch (error) {
         return fail(signal, error, model);
       }
       const candidate = response.candidates?.[0];
+      const finishReason = candidate?.finishReason ? String(candidate.finishReason) : undefined;
       const out = (candidate?.content?.parts ?? []).flatMap((p) => (typeof p.text === "string" && !p.thought ? [p.text] : [])).join("").trim();
+      // Stopped at the output limit: whatever text there is is a cut-off answer, even if it happens to parse.
+      if (finishReason === "MAX_TOKENS") {
+        const e = new IntakeAiError("invalid");
+        e.detail = { model, finishReason };
+        throw e;
+      }
       if (!out) {
         const e = new IntakeAiError("empty");
         e.detail = { model, finishReason: candidate?.finishReason ? String(candidate.finishReason) : undefined };

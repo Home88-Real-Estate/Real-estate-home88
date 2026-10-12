@@ -69,15 +69,34 @@ function toEdit(edit: z.infer<typeof editSchema>["edit"]): Edit {
 
 const SPEECH_FAILURE = "Η φωνητική λειτουργία δεν είναι διαθέσιμη αυτή τη στιγμή. Συνεχίστε γράφοντας ή με τα πεδία.";
 
-/** Provider trouble becomes a calm, safe message; the category is logged, the provider's words never are. */
+const AI_KEY = "Η υπηρεσία AI δεν δέχεται το κλειδί του server. Ενημερώστε τον διαχειριστή· μέχρι τότε συμπληρώστε τα στοιχεία στα «Βασικά στοιχεία».";
+const AI_BUSY = "Η υπηρεσία AI έχει πολλά αιτήματα αυτή τη στιγμή. Δοκιμάστε ξανά σε ένα λεπτό· το κείμενό σας κρατήθηκε.";
+const AI_BAD_ANSWER = "Ο βοηθός δεν έδωσε έγκυρη απάντηση αυτή τη φορά. Το κείμενό σας κρατήθηκε: πατήστε ξανά «Αποστολή στον βοηθό» ή συμπληρώστε τα στοιχεία στα «Βασικά στοιχεία».";
+const AI_DOWN = "Η υπηρεσία AI δεν απάντησε. Το κείμενό σας κρατήθηκε: δοκιμάστε ξανά σε λίγο ή συμπληρώστε τα στοιχεία στα «Βασικά στοιχεία».";
+
+function providerStatus(error: IntakeAiError): number | undefined {
+  if (error.detail.status) return error.detail.status;
+  const c = error.cause as { status?: unknown } | undefined;
+  return typeof c?.status === "number" ? c.status : undefined;
+}
+
+/**
+ * Provider trouble becomes a calm, safe message that says what the agent can do; the text they wrote stays in
+ * the box (the screen only clears it after a successful send). Logged: the category, the provider's HTTP
+ * status, the model id and the finish reason. Never the request, the transcript or the provider's words.
+ */
 function aiHttpError(error: unknown, log: (o: object, m: string) => void, op: string): never {
   if (error instanceof IntakeAiError) {
-    // Status, model and finish reason only: enough to tell a refused model from a cut-off answer, nothing the agent said.
-    log({ op, category: error.category, status: error.detail.status, model: error.detail.model, finishReason: error.detail.finishReason }, "property intake AI failure");
+    const status = providerStatus(error);
+    log({ op, category: error.category, status, model: error.detail.model, finishReason: error.detail.finishReason }, "property intake AI failure");
     if (error.category === "not_configured") throw new HttpError(503, "intake_ai_unavailable", SPEECH_FAILURE);
     if (error.category === "timeout") throw new HttpError(504, "intake_ai_timeout", "Η υπηρεσία άργησε να απαντήσει. Δοκιμάστε ξανά ή συνεχίστε γράφοντας.");
     if (error.category === "empty" && op === "transcribe") throw new HttpError(422, "no_speech", "Δεν ακούστηκε ομιλία. Δοκιμάστε ξανά ή γράψτε το μήνυμά σας.");
-    throw new HttpError(502, "intake_ai_error", SPEECH_FAILURE);
+    if (op === "transcribe") throw new HttpError(502, "intake_ai_error", SPEECH_FAILURE);
+    if (error.category === "empty" || error.category === "invalid") throw new HttpError(502, "intake_ai_bad_answer", AI_BAD_ANSWER);
+    if (status === 401 || status === 403 || (status === 400 && /API_KEY_INVALID|API key not valid/i.test(error.cause instanceof Error ? error.cause.message : ""))) throw new HttpError(503, "intake_ai_key", AI_KEY);
+    if (status === 429) throw new HttpError(503, "intake_ai_busy", AI_BUSY);
+    throw new HttpError(502, "intake_ai_error", AI_DOWN);
   }
   throw error;
 }
