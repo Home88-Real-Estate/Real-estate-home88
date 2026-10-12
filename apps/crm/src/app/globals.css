@@ -1724,6 +1724,52 @@ td.actions .btn { margin: 2px 4px 2px 0; }
 .vorb[data-state="recording"] .vorb__title::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #e5484d; margin-right: 8px; vertical-align: middle; animation: ipulse 1.2s ease-in-out infinite; }
 .vorb[data-state="error"] .vorb__sub { color: var(--x-danger); }
 
+/* The live conversation: the same orb, a running transcript, and the controls that end or mute it. */
+.xvoice__modes { display: flex; justify-content: center; }
+.vorb[data-state="speaking"] .vorb__core { background: radial-gradient(circle at 35% 28%, #b9a6ff 0%, #6f5cff 45%, #3d2fd1 100%); box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.6), 0 0 36px color-mix(in srgb, #7c6cff 55%, transparent); }
+.vorb[data-state="speaking"] .vorb__ring--outer { animation: xpulse 1.4s ease-out infinite; border-color: color-mix(in srgb, #7c6cff 55%, transparent); }
+.xlive { display: grid; gap: 14px; }
+/* The live status has its own dot; the recording orb's red dot would double it. */
+.xlive .vorb[data-state] .vorb__title::before { content: none; }
+.xlive__dot { display: none; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px; vertical-align: middle; background: var(--x-muted); }
+.xlive[data-active] .xlive__dot { display: inline-block; background: #e5484d; animation: ipulse 1.2s ease-in-out infinite; }
+.xlive[data-state="speaking"] .xlive__dot { background: #6f5cff; }
+.xlive[data-state="thinking"] .xlive__dot, .xlive[data-state="connecting"] .xlive__dot, .xlive[data-state="reconnecting"] .xlive__dot { background: var(--x-blue); }
+.xlive[data-muted] .xlive__dot { background: var(--x-muted); animation: none; }
+.xlive__start { justify-self: center; min-width: min(100%, 320px); }
+.xlive__privacy { display: flex; gap: 6px; align-items: flex-start; margin: 0; max-width: 62ch; justify-self: center; text-align: left; }
+.xlive__privacy .icon { flex: none; margin-top: 3px; }
+.xlive__recorded { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0; padding: 8px 12px; border-radius: 12px; font-size: 0.9rem; color: var(--x-ink); background: color-mix(in srgb, var(--x-ok) 10%, var(--x-surface)); border: 1px solid color-mix(in srgb, var(--x-ok) 30%, transparent); }
+.xlive__recorded .icon { color: var(--x-ok); flex: none; }
+.xlive__log { display: flex; flex-direction: column; gap: 8px; max-height: min(46vh, 420px); overflow-y: auto; padding: 4px 2px; overscroll-behavior: contain; }
+.xlive__log .intake-msg { background: var(--x-surface-2); border-color: var(--x-line); color: var(--x-ink); }
+.xlive__log .intake-msg--agent { background: color-mix(in srgb, var(--x-electric) 9%, var(--x-surface)); border-color: color-mix(in srgb, var(--x-electric) 22%, transparent); }
+.xlive__interim p { opacity: 0.72; font-style: italic; }
+.xlive__type { display: flex; gap: 8px; align-items: center; }
+.xlive__type .input { flex: 1; min-width: 0; min-height: 44px; }
+.xlive__alt { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.xlive__review { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.xlive__bar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 10px; }
+.xlive__bar .xbtn { width: 100%; min-height: 48px; white-space: normal; line-height: 1.15; text-align: center; padding-inline: 10px; }
+@media (max-width: 900px) {
+  /* On a phone the conversation's own controls take the bottom bar's place, above the app's tab bar. */
+  .xlive__bar {
+    position: sticky; bottom: calc(76px + env(safe-area-inset-bottom)); z-index: 7; padding: 8px;
+    border-radius: var(--x-radius); border: 1px solid var(--x-line);
+    background: color-mix(in srgb, var(--x-surface) 92%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 10px 30px rgba(9, 43, 91, 0.12);
+  }
+  .xintake:has(.xlive[data-active]) .xbar { display: none; }
+  /* While typing, the keyboard needs the room: the bar goes back into the flow. */
+  .xlive__type:focus-within ~ .xlive__bar { position: static; box-shadow: none; }
+  .xlive .vorb__stage { height: 160px; }
+  .xlive .vorb__orb { width: 128px; height: 128px; }
+  .xlive .vorb__core { width: 80px; height: 80px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vorb[data-state="speaking"] .vorb__ring--outer, .xlive[data-active] .xlive__dot { animation: none; }
+}
+
 /* Typing, and the transcript to check before sending. */
 .xcomposer { display: grid; gap: 8px; }
 .xcomposer label { font-weight: 700; font-size: 0.9rem; color: var(--x-ink); }
@@ -1880,6 +1926,8 @@ td.actions .btn { margin: 2px 4px 2px 0; }
   .xvoice__controls { justify-content: stretch; }
   .xvoice__controls .xseg { width: 100%; }
   .xvoice__controls .xseg__opt { flex: 1 1 0; justify-content: center; padding: 0 6px; }
+  .xvoice__modes .xseg { width: 100%; }
+  .xvoice__modes .xseg__opt { flex: 1 1 0; justify-content: center; padding: 0 6px; min-width: 0; }
   .xvoice__controls .xtoggle { flex: 1 1 0; justify-content: center; }
   .vorb__stage { height: 160px; }
   .vorb__orb { width: 132px; height: 132px; }
@@ -1888,6 +1936,7 @@ td.actions .btn { margin: 2px 4px 2px 0; }
   .xvoice__actions .xbtn--primary { order: -1; }
   .xhelp { flex-wrap: wrap; }
   .xhelp > .xbtn { margin-left: auto; white-space: normal; }
+  .xhelp > div { flex: 1 1 calc(100% - 64px); }
   .xcapture { padding: 14px; }
   .xcount { white-space: normal; text-align: center; }
   .xbar { padding: 8px; gap: 6px; }

@@ -34,4 +34,12 @@ describe("CRM security headers", async () => {
     assert.match(csp, /frame-ancestors 'none'/);
     assert.match(csp, /default-src 'self'/);
   });
+
+  it("lets the live conversation reach Google's Live API over wss only, and no other host", () => {
+    const connect = /connect-src ([^;]+)/.exec(header("Content-Security-Policy"))?.[1] ?? "";
+    assert.match(connect, /(^|\s)wss:\/\/generativelanguage\.googleapis\.com(\s|$)/);
+    assert.ok(!/https:\/\/generativelanguage/.test(connect), "no HTTPS calls to Gemini from the browser: those go through the API with the server's key");
+    assert.ok(!/(^|\s)(\*|wss:|https:)(\s|$)/.test(connect), "no wildcard or scheme-wide source");
+    assert.match(/script-src ([^;]+)/.exec(header("Content-Security-Policy"))?.[1] ?? "", /'self'/, "the microphone worklet is served from the CRM itself");
+  });
 });

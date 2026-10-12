@@ -68,6 +68,11 @@ for (const origin of new Set([mediaOrigin, uploadOrigin])) {
   mediaSrc.push(origin);
 }
 if (uploadOrigin) connectSrc.push(uploadOrigin);
+/**
+ * The live voice conversation: the browser opens a WebSocket straight to Google's Gemini Live API with a
+ * single-use token from our API (the permanent key never reaches the browser). Only that host, only wss.
+ */
+connectSrc.push("wss://generativelanguage.googleapis.com");
 if (isDev) {
   // Local MinIO is plain HTTP; production never needs it.
   imgSrc.push("http:");
