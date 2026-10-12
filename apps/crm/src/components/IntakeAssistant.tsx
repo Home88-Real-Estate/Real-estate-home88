@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { CapturePanel } from "@/components/intake/CapturePanel";
 import { FeatureChips, FieldPicker, FieldRow, ORIGIN_LABEL } from "@/components/intake/fields";
+import { LiveConversation, LiveStore } from "@/components/intake/LiveConversation";
 import { LocationPicker } from "@/components/intake/LocationPicker";
 import { OfflineDraftEditor } from "@/components/offline/OfflineDraftEditor";
 import { DocumentChecklist } from "@/components/property/DocumentChecklist";
@@ -110,7 +111,16 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
   const [micError, setMicError] = useState<string | null>(null);
   const [micStream, setMicStream] = useState<MediaStream | null>(null);
   const [recSeconds, setRecSeconds] = useState(0);
-  const [mode, setMode] = useState<"voice" | "type">("voice");
+  /** live = spoken two-way conversation; voice = record, check the text, send; type = writing. */
+  const [mode, setMode] = useState<"live" | "voice" | "type">("voice");
+  const [liveAvailable, setLiveAvailable] = useState(false);
+  /** The live conversation outlives re-layouts of the page; it ends when the agent ends it or leaves. */
+  const [liveStore] = useState(() => new LiveStore());
+  useEffect(() => () => liveStore.dispose(), [liveStore]);
+  // Leaving the conversation for recording or typing ends it: the microphone is never left open in the background.
+  useEffect(() => {
+    if (mode !== "live") void liveStore.stop();
+  }, [mode, liveStore]);
   const [maxChars, setMaxChars] = useState(4000);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [saveFlash, setSaveFlash] = useState(false);
@@ -176,6 +186,9 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
         const [status, list] = await Promise.all([intakeApi.status(), intakeApi.list()]);
         if (!alive) return;
         setAvailable(status.available);
+        // The conversation is the default where the server offers it; recording and typing stay one tap away.
+        setLiveAvailable(Boolean(status.live?.available));
+        if (status.live?.available) setMode("live");
         setMaxChars(status.maxUtteranceChars);
         setResumable(list.sessions);
         if (resumeId) {
@@ -663,6 +676,20 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
     }
   }
 
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+  /** After a live conversation: draft the listing texts from what was recorded (quietly; the button can do it later). */
+  async function suggestAfterLive() {
+    const s = sessionRef.current;
+    if (!s || s.status !== "ACTIVE" || !s.fields.propertyType || s.fields.descriptionEl) return;
+    try {
+      setSession((await intakeApi.suggest(s.id)).session);
+      setSavedAt(new Date());
+    } catch {
+      // Not needed to continue: the review step has «Πρόταση» and the fields can be written by hand.
+    }
+  }
+
   async function suggest() {
     if (!session) return;
     setBusy(true);
@@ -877,6 +904,22 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
         </div>
       </header>
 
+      {liveAvailable && !done && (
+        <div className="xvoice__modes">
+          <Segmented<"live" | "voice" | "type">
+            label="Τρόπος καταχώρισης"
+            value={mode}
+            disabled={micBusy || busy}
+            onChange={(m) => setMode(m)}
+            options={[
+              { value: "live", label: "Συνομιλία", icon: "chat", title: "Μιλάτε με τον βοηθό σε πραγματικό χρόνο· σας απαντά φωνητικά" },
+              { value: "voice", label: "Ηχογράφηση", icon: "mic", title: "Ηχογραφείτε, ελέγχετε το κείμενο και το στέλνετε" },
+              { value: "type", label: "Γραπτά", icon: "keyboard", title: "Γράφετε την περιγραφή" },
+            ]}
+          />
+        </div>
+      )}
+
       <div className="xvoice__controls">
         <Segmented<Language>
           label="Γλώσσα αναγνώρισης και απαντήσεων"
@@ -892,7 +935,7 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
             { value: "en", label: "English", icon: "globe", title: "Speech recognition and replies in English" },
           ]}
         />
-        <Toggle
+        {mode !== "live" && <Toggle
           on={!(session?.muted ?? false)}
           icon="wave"
           label={<>Φωνή: <strong>{session?.muted ? "Όχι" : "Ναι"}</strong></>}
@@ -902,15 +945,15 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
             const current = await ensureSession();
             if (current) await editOn(current, { type: "settings", muted: !on });
           }}
-        />
-        <Toggle
+        />}
+        {mode !== "live" && <Toggle
           on={handsFree}
           icon="hand"
           label={handsFree ? "Χωρίς χέρια: ενεργό" : "Χωρίς χέρια"}
           title="Μιλάτε χωρίς να πατάτε κουμπί: ο βοηθός ακούει, απαντά και ξανακούει. Πριν από κάθε αποστολή έχετε 3 δευτερόλεπτα να την ακυρώσετε."
           disabled={done || !available || (busy && !handsFree)}
           onChange={(on) => (on ? startHandsFree() : stopHandsFree())}
-        />
+        />}
       </div>
 
       {!available && (
@@ -918,6 +961,19 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
           <Icon name="info" size={18} />
           <span>Η φωνή και η αυτόματη συμπλήρωση δεν είναι ρυθμισμένες στον server (λείπει το κλειδί Gemini). Συμπληρώστε τα στοιχεία στο βήμα «Βασικά στοιχεία» ή χρησιμοποιήστε την <Link href="/properties/new">κανονική φόρμα</Link>.</span>
         </p>
+      )}
+
+      {mode === "live" && !done && (
+        <LiveConversation
+          store={liveStore}
+          ensureSession={ensureSession}
+          onSession={(next) => { setSession(next); setSavedAt(new Date()); }}
+          onUseRecorder={() => setMode("voice")}
+          onUseText={() => { setMode("type"); requestAnimationFrame(() => textRef.current?.focus()); }}
+          onReview={() => void goStep(4)}
+          onEnded={() => void suggestAfterLive()}
+          disabled={!available}
+        />
       )}
 
       {mode === "voice" && (
@@ -963,7 +1019,7 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
         </div>
       )}
 
-      {(mode === "type" || input.trim() || mic === "transcript_ready") && !done && (
+      {mode !== "live" && (mode === "type" || input.trim() || mic === "transcript_ready") && !done && (
         <div className="xcomposer">
           <label htmlFor="intake-text">{mic === "transcript_ready" && mode === "voice" ? "Απομαγνητοφώνηση — ελέγξτε και διορθώστε πριν τη στείλετε" : "Περιγραφή ακινήτου"}</label>
           <textarea
@@ -1033,7 +1089,7 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
         </div>
       ))}
 
-      {session && session.turns.length > 0 && (
+      {mode !== "live" && session && session.turns.length > 0 && (
         <div className="xconvo" aria-live="polite">
           {showLog ? (
             <div className="intake-log" ref={logRef} aria-label="Όλη η συνομιλία">

@@ -23,7 +23,7 @@ const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2,
  * sent); otherwise they rest as a faint, still curve. Drawn on a canvas, outside React state, so the page does
  * not re-render on every frame; with reduced motion the drawing runs at a calm ten frames a second.
  */
-function Waveform({ stream, active }: { stream: MediaStream | null; active: boolean }) {
+export function Waveform({ stream, active }: { stream: MediaStream | null; active: boolean }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const levelTarget = useRef<HTMLElement | null>(null);
 
