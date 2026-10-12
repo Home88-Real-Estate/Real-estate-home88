@@ -18,6 +18,12 @@ export const DEFAULT_TEXT_MODEL = "gemini-3.5-flash-lite";
 export const DEFAULT_TRANSCRIBE_MODEL = "gemini-3.5-flash";
 export const DEFAULT_TTS_MODEL = "gemini-3.8-flash-tts";
 export const DEFAULT_TTS_VOICE = "Kore";
+/**
+ * The real-time conversation model (Gemini Live API). `gemini-3.8-live` is the current default voice-agent model
+ * in Google's own Live API guidance; the 2.5 / 3.1 Live models are legacy. Configurable, because Google renames
+ * and retires these.
+ */
+export const DEFAULT_LIVE_MODEL = "gemini-3.8-live";
 
 export type IntakeAiConfig = {
   /** Null when the key is not configured: the assistant reports itself unavailable. */
@@ -30,6 +36,14 @@ export type IntakeAiConfig = {
   extractModel: string;
   ttsModel: string;
   ttsVoice: string;
+  /** The real-time conversation. Off when GEMINI_INTAKE_LIVE=off, or when there is no key. */
+  live: {
+    enabled: boolean;
+    model: string;
+    voice: string;
+    /** How long the browser may keep talking on one connection token (Google's maximum is 20 hours; default 30 minutes). */
+    sessionMinutes: number;
+  };
   /** A voice clip is short; this also keeps the request under the serverless body limit. */
   maxAudioBytes: number;
   maxUtteranceChars: number;
@@ -40,6 +54,10 @@ export type IntakeAiConfig = {
     transcribe: { points: number; durationSeconds: number };
     speak: { points: number; durationSeconds: number };
     photos: { points: number; durationSeconds: number };
+    /** Connection tokens for the real-time conversation (one per start or reconnection). */
+    live: { points: number; durationSeconds: number };
+    /** Validated updates sent from a real-time conversation (one per fact the model reports, plus transcript saves). */
+    liveSync: { points: number; durationSeconds: number };
   };
 };
 
@@ -61,6 +79,12 @@ export function intakeAiConfig(env: Record<string, string | undefined> = process
     extractModel: text,
     ttsModel: env.GEMINI_INTAKE_TTS_MODEL?.trim() || DEFAULT_TTS_MODEL,
     ttsVoice: env.GEMINI_INTAKE_TTS_VOICE?.trim() || DEFAULT_TTS_VOICE,
+    live: {
+      enabled: Boolean(key) && env.GEMINI_INTAKE_LIVE?.trim().toLowerCase() !== "off",
+      model: env.GEMINI_INTAKE_LIVE_MODEL?.trim() || DEFAULT_LIVE_MODEL,
+      voice: env.GEMINI_INTAKE_LIVE_VOICE?.trim() || env.GEMINI_INTAKE_TTS_VOICE?.trim() || DEFAULT_TTS_VOICE,
+      sessionMinutes: int(env.INTAKE_LIVE_SESSION_MINUTES, 30, 5, 120),
+    },
     maxAudioBytes: int(env.INTAKE_MAX_AUDIO_BYTES, 3 * 1024 * 1024, 20_000, 3_300_000),
     maxUtteranceChars: int(env.INTAKE_MAX_UTTERANCE_CHARS, 1500, 50, 4000),
     timeoutMs: int(env.INTAKE_AI_TIMEOUT_MS, 25_000, 2_000, 55_000),
@@ -69,6 +93,8 @@ export function intakeAiConfig(env: Record<string, string | undefined> = process
       transcribe: { points: int(env.INTAKE_RATE_TRANSCRIBE, 40, 1, 1000), durationSeconds: 600 },
       speak: { points: int(env.INTAKE_RATE_SPEAK, 60, 1, 1000), durationSeconds: 600 },
       photos: { points: int(env.INTAKE_RATE_PHOTOS, 15, 1, 1000), durationSeconds: 600 },
+      live: { points: int(env.INTAKE_RATE_LIVE, 20, 1, 1000), durationSeconds: 600 },
+      liveSync: { points: int(env.INTAKE_RATE_LIVE_SYNC, 300, 10, 5000), durationSeconds: 600 },
     },
   };
 }

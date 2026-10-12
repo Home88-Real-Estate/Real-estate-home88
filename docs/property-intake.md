@@ -53,6 +53,8 @@ returns the same property.
 | `GEMINI_INTAKE_TRANSCRIBE_MODEL`, `GEMINI_INTAKE_TRANSCRIBE_MODE` | Transcription. Default `gemini-3.5-flash` (an audio prompt to the full Flash model, with language codes and vocabulary). `asr` mode uses a dedicated recogniser through `audioTranscriptionConfig`; see "Release 2.1". A refused model falls back to the text model. |
 | `GEMINI_INTAKE_TTS_MODEL` / `GEMINI_INTAKE_TTS_VOICE` | Speech. Default `gemini-3.8-flash-tts` (listed by the installed SDK) and voice `Kore`. |
 | `INTAKE_MAX_AUDIO_BYTES`, `INTAKE_MAX_UTTERANCE_CHARS`, `INTAKE_AI_TIMEOUT_MS`, `INTAKE_RATE_TURNS/TRANSCRIBE/SPEAK/PHOTOS` | Limits (per signed-in user per 10 minutes). |
+| `GEMINI_INTAKE_LIVE`, `GEMINI_INTAKE_LIVE_MODEL`, `GEMINI_INTAKE_LIVE_VOICE` | The live conversation. On whenever a key is set (`off` disables it). Default model `gemini-3.8-live`, voice as TTS. |
+| `INTAKE_LIVE_SESSION_MINUTES`, `INTAKE_RATE_LIVE`, `INTAKE_RATE_LIVE_SYNC` | How long one live connection token may be used (default 30), live starts/reconnections and live updates per user per 10 minutes. |
 
 Without a key the screen still works by touch (fields, review, save); voice, text understanding and spoken replies report
 themselves unavailable.
@@ -175,6 +177,62 @@ documents, mandate, publication, interest (leads, matching requests, viewings, o
 nothing else changes). Apply it with the usual procedure (`npm run prisma:deploy` with the direct database
 URL) before deploying this release. Until it is applied, the checklist shows a clear message instead of
 failing, and the rest of the property page works.
+
+## Release 4: live voice conversation (Gemini Live API)
+
+The default way in is now a spoken, two-way conversation: the agent taps «Έναρξη συνομιλίας», the assistant
+greets, listens, answers aloud, asks one question at a time and accepts corrections, while the summary fills in.
+Recording-and-send and typing remain one tap away, and are where the page falls back when the live service is
+unavailable.
+
+**How it is built.**
+- The browser talks to Google directly over a WebSocket (`BidiGenerateContentConstrained`), so audio never
+  passes through our serverless functions.
+- It connects with a single-use, short-lived token from `POST /property-intake/sessions/:id/live/token`, issued
+  after the usual ownership checks. The token locks the whole setup: model, voice, instructions and the one tool.
+  The page cannot change what the model is told or allowed to do.
+- The permanent key stays on the server. The token is not logged or stored, the response is `no-store`, and
+  starting or resuming a conversation is audited.
+- The CSP allows only `wss://generativelanguage.googleapis.com` beyond the CRM itself.
+
+**What the model may do.** It has no database access and one tool, `record_property_facts`.
+- The page forwards the tool's arguments to `POST …/live/sync`.
+- There they go through the same `runExtraction` as a typed turn:
+  - the allowlist;
+  - each field's rules;
+  - the agent's own transcribed words as evidence.
+  An unsaid or doubtful value becomes a yes/no question, never a fact.
+- The tool's answer lists what was recorded, what needs confirmation, what was refused and the one next question.
+- The model is instructed to say something is saved only when that answer lists it. The summary shows only
+  server-accepted values.
+- The commands it may send are what the agent can do by touch: skip, undo, show missing, review, photos later,
+  accept/decline. Language and mute are not among them.
+
+**Lifecycle.**
+- **Text only.** The conversation's text is saved as the session's transcript. No audio is stored.
+- **Lost connection.** The page reconnects with a new token and Google's resumption handle. A reconnection
+  never creates a second draft.
+- **"Review" does not save.** It only shows the summary. The property is created only by the existing
+  «Αποθήκευση» on the review step, as a DRAFT that is never published.
+- **After the conversation.** The listing description is suggested from the confirmed facts.
+
+**Audio.**
+- Input: 16 kHz PCM from an AudioWorklet (`public/live-capture-worklet.js`), with the browser's echo
+  cancellation, noise suppression and gain control.
+- Echo gate: while the assistant speaks, quiet input (its own voice from the speaker) is replaced by silence.
+  Speaking up still interrupts it.
+- Output: 24 kHz PCM, scheduled gaplessly and stopped at once on interruption.
+
+**Tested here** with mocks only:
+- unit tests of the protocol controller and PCM conversion;
+- API integration tests with Google's token endpoint stubbed;
+- a real Chromium driven by Playwright playing the Live API over a routed WebSocket, with a fake microphone file.
+
+**Not yet tested:**
+- a real conversation with Gemini Live;
+- a real phone, iOS Safari, Bluetooth headsets and speaker echo in a real room.
+
+See the verification plan in the pull request.
 
 ## Not in this release
 

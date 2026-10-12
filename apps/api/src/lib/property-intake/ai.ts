@@ -319,3 +319,6 @@ export function intakeAi(): IntakeAiPort | null {
 export function intakeAiAvailable(): boolean {
   return Boolean(override) || Boolean(intakeAiConfig().apiKey);
 }
+
+/** For other Gemini calls of this feature (the live token): the same error shape, status and model only. */
+export const providerFailure = fail;

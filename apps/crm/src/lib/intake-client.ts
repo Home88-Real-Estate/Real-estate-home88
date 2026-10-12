@@ -1,6 +1,7 @@
 "use client";
 
 import { CRM_BASE_PATH } from "@/lib/paths";
+import type { LiveTokenResponse, LiveToolResult } from "@/lib/live-session";
 
 /** What the property intake API returns for a session (see apps/api/src/lib/property-intake/service.ts). */
 export type IntakeOrigin = "AGENT_STATED" | "AGENT_MANUAL" | "SYSTEM_DERIVED" | "AI_SUGGESTED";
@@ -79,7 +80,11 @@ async function request<T>(path: string, init?: { method?: string; body?: unknown
 }
 
 export const intakeApi = {
-  status: () => request<{ available: boolean; maxAudioBytes: number; maxUtteranceChars: number }>("/status"),
+  status: () => request<{ available: boolean; maxAudioBytes: number; maxUtteranceChars: number; live?: { available: boolean; model: string | null } }>("/status"),
+  /** A single-use token for the live conversation (never stored or logged). */
+  liveToken: (id: string, resumeHandle?: string) => request<LiveTokenResponse>(`/sessions/${id}/live/token`, { body: resumeHandle ? { resumeHandle } : {} }),
+  liveSync: (id: string, body: { lines: Array<{ role: "agent" | "assistant"; text: string }>; facts?: Record<string, unknown> }) =>
+    request<{ session: IntakeSession; result: LiveToolResult | null }>(`/sessions/${id}/live/sync`, { body }),
   list: () => request<{ sessions: Array<{ id: string; updatedAt: string; fieldCount: number; summary: string | null }> }>("/sessions"),
   start: (language: "auto" | "el" | "en", clientRef?: string) => request<{ session: IntakeSession }>("/sessions", { body: { language, clientRef } }),
   get: (id: string) => request<{ session: IntakeSession }>(`/sessions/${id}`),
