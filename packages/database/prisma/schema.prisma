@@ -773,6 +773,7 @@ model Property {
   updatedAt                   DateTime                     @updatedAt
   ViewingRequest              ViewingRequest[]
   valuationRequestComparables ValuationRequestComparable[]
+  documentItems               PropertyDocumentItem[]
 
   @@index([status])
   @@index([listingType])
@@ -788,8 +789,6 @@ model Property {
   @@index([ownerId])
   @@index([createdAt])
   @@index([updatedAt])
-  documentItems PropertyDocumentItem[]
-
   @@map("properties")
 }
 
@@ -1227,11 +1226,11 @@ model Document {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  transactionId   String?
-  transaction     Transaction?               @relation(fields: [transactionId], references: [id], onDelete: SetNull)
-  checklistItems  TransactionChecklistItem[]
-  mandatePdfOf    Mandate?                   @relation("MandatePdf")
-  mandateSignedOf Mandate?                   @relation("MandateSignedCopy")
+  transactionId          String?
+  transaction            Transaction?               @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  checklistItems         TransactionChecklistItem[]
+  mandatePdfOf           Mandate?                   @relation("MandatePdf")
+  mandateSignedOf        Mandate?                   @relation("MandateSignedCopy")
   propertyChecklistItems PropertyDocumentItem[]
 
   @@index([propertyId])
@@ -3926,4 +3925,61 @@ model PropertyIntakeSession {
 
   @@index([userId, status, updatedAt])
   @@map("property_intake_sessions")
+}
+
+/// A bulk portal operation over many properties and portals. The batch and its
+/// items are durable: a worker interruption loses nothing, and items are claimed
+/// one at a time so a retry never repeats work that already succeeded. Each item
+/// runs through the same per-portal action service as the single-property
+/// buttons; nothing here talks to a portal by itself.
+model PortalDistributionBatch {
+  id             String    @id @default(cuid())
+  /// PUBLISH | UPDATE | UNPUBLISH
+  operation      String
+  /// QUEUED | RUNNING | COMPLETED | CANCELLED
+  status         String    @default("QUEUED")
+  createdById    String
+  requestId      String?
+  /// Same key = same batch: a double click or a retried request creates one job.
+  idempotencyKey String?   @unique
+  /// The selection as the person saw it (filter or id count, portals), for audit.
+  selection      Json?
+  createdAt      DateTime  @default(now())
+  finishedAt     DateTime?
+  cancelledAt    DateTime?
+
+  items PortalDistributionItem[]
+
+  @@index([createdById, createdAt])
+  @@index([status, createdAt])
+  @@map("portal_distribution_batches")
+}
+
+model PortalDistributionItem {
+  id              String                  @id @default(cuid())
+  batchId         String
+  batch           PortalDistributionBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  propertyId      String
+  portalCode      String
+  portalAccountId String?
+  environment     String                  @default("TEST")
+  /// QUEUED | RUNNING | SUCCEEDED | FAILED | BLOCKED | CANCELLED
+  status          String                  @default("QUEUED")
+  attempts        Int                     @default(0)
+  /// Set when claimed; a stale lock means the worker died and the item is reclaimed.
+  lockedAt        DateTime?
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  /// The channel result status (PUBLISHED, UPDATED, UNCHANGED, FAILED, ...).
+  resultStatus    String?
+  errorCode       String?
+  message         String?
+  externalId      String?
+  mock            Boolean                 @default(false)
+  blockers        Json?
+
+  @@unique([batchId, propertyId, portalCode])
+  @@index([batchId, status])
+  @@index([propertyId])
+  @@map("portal_distribution_items")
 }

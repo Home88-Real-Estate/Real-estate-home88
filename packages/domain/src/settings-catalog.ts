@@ -704,7 +704,7 @@ export const PORTAL_PERMISSIONS: readonly PermissionDef[] = [
   { code: "portals.configure", label: "Portals: λογαριασμοί και ρυθμίσεις", group: "Portals" },
   { code: "portals.test_connection", label: "Portals: έλεγχος σύνδεσης", group: "Portals" },
   { code: "portals.manage_credentials", label: "Portals: διαχείριση διαπιστευτηρίων", group: "Portals" },
-  { code: "portals.bulk_publish", label: "Portals: μαζική δημοσίευση (δεν είναι ακόμη ενεργή)", group: "Portals" },
+  { code: "portals.bulk_publish", label: "Portals: μαζική δημοσίευση, ενημέρωση και απόσυρση (ανά ακίνητο ισχύουν τα δικαιώματά σας)", group: "Portals" },
   { code: "portals.activate_production", label: "Portals: λογαριασμοί παραγωγής (μόνο Super Admin)", group: "Portals" },
 ] as const;
 
@@ -746,7 +746,7 @@ const ADMIN_MANAGE: SettingsSectionKey[] = [
  * granted to no role by default: it also needs the user to be marked a legal
  * approver, which only a Super Admin can do.
  */
-const AGENT_PORTALS = ["portals.view", "portals.preview", "portals.publish", "portals.update", "portals.retry", "portals.view_sync_history"];
+const AGENT_PORTALS = ["portals.view", "portals.preview", "portals.publish", "portals.update", "portals.retry", "portals.view_sync_history", "portals.bulk_publish"];
 const MANAGER_PORTALS = [...AGENT_PORTALS, "portals.unpublish", "portals.view_sensitive_errors"];
 const AGENT_DOCUMENTS = [
   ...AGENT_PORTALS,
@@ -763,7 +763,7 @@ const MANAGER_DOCUMENTS = [
   "mandates.override_conflict",
   "contacts.export", "contacts.bulk_assign", "contacts.bulk_update",
 ];
-const ADMIN_DOCUMENTS = [...MANAGER_DOCUMENTS, "portals.configure", "portals.test_connection", "portals.manage_credentials", "portals.bulk_publish", "contacts.export_sensitive", "templates.create_draft", "templates.submit_for_legal_review", "templates.activate"];
+const ADMIN_DOCUMENTS = [...MANAGER_DOCUMENTS, "portals.configure", "portals.test_connection", "portals.manage_credentials", "contacts.export_sensitive", "templates.create_draft", "templates.submit_for_legal_review", "templates.activate"];
 
 /** Defaults per role; SUPER_ADMIN always holds every permission. Overrides live in role_permissions. */
 export const DEFAULT_SETTINGS_GRANTS: Readonly<Record<string, readonly string[]>> = {

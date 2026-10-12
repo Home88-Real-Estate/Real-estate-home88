@@ -201,6 +201,15 @@ export async function loadPublications(propertyId: string, viewer: Viewer): Prom
   };
 }
 
+/** Just the portal channels of a property, with the viewer's permissions applied: what the bulk planner needs. */
+export async function loadPortalChannels(propertyId: string, viewer: Viewer): Promise<{ reference: string; channels: ChannelView[]; mayEdit: boolean } | null> {
+  const property = await db().property.findUnique({ where: { id: propertyId }, select: { reference: true, agentId: true, createdById: true } });
+  if (!property) return null;
+  const overview = await loadPortalOverview(propertyId, viewer.role);
+  const mayEdit = can(viewer, PERMISSIONS.PROPERTY_UPDATE, property);
+  return { reference: property.reference, channels: overview.portals.map((row) => portalChannelView(row, overview.permissions as Record<string, boolean>, mayEdit)), mayEdit };
+}
+
 // --- Operating ----------------------------------------------------------------------------------------------------------------
 
 const OPERATION_TO_PORTAL: Record<Exclude<ChannelOperation, "validate">, PortalOperation> = {

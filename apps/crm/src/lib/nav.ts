@@ -64,6 +64,7 @@ export const NAV_SECTIONS: NavSection[] = [
         icon: "plug",
         children: [
           { href: "/distribution", label: "Επισκόπηση", icon: "chart" },
+          { href: "/distribution/properties", label: "Διανομή ακινήτων", icon: "building", min: "AGENT" },
           { href: "/distribution/portals", label: "Πύλες & Συνδέσεις", icon: "plug", min: "AGENT" },
           { href: "/settings/portals", label: "Ρυθμίσεις διανομής", icon: "sliders", settings: true },
         ],
