@@ -685,7 +685,16 @@ export async function createProperty(db: Db, userId: string, id: string, meta: C
   if (!review.ready) throw new HttpError(422, "intake_not_ready", "Η καταχώριση δεν είναι έτοιμη.", { review: review.blockers });
   const { payload } = buildPayload(state, specs);
   // Only what the chosen visibility allows reaches the property (and so the website); the exact point stays in this session.
-  const parsed = propertyUpsertSchema.parse({ ...payload, ...(publicCoordinates(state.location) ?? {}), agentId: userId });
+  const checked = propertyUpsertSchema.safeParse({ ...payload, ...(publicCoordinates(state.location) ?? {}), agentId: userId });
+  if (!checked.success) {
+    // Say which field, so the agent can correct it on the review step (never a bare "invalid data").
+    const fields: Record<string, string[]> = {};
+    for (const issue of checked.error.issues) (fields[issue.path.join(".") || "_"] ??= []).push(issue.message);
+    const first = checked.error.issues[0];
+    const name = first ? (ALL_SPECS.find((x) => x.key === String(first.path[0]))?.labelEl ?? String(first.path[0] ?? "")) : "";
+    throw new HttpError(422, "intake_invalid", `Δεν αποθηκεύτηκε: ${name ? `${name} — ` : ""}${first?.message ?? "μη έγκυρη τιμή"}. Διορθώστε το και δοκιμάστε ξανά.`, fields);
+  }
+  const parsed = checked.data;
 
   try {
     const created = await db.$transaction(

@@ -96,6 +96,12 @@ const yearSchema = z
   .nullable()
   .transform((v) => (v == null ? null : v));
 
+/**
+ * A database row id. Most ids are CUIDs, but accounts created outside the app (e.g. an administrator added
+ * directly in the database) have UUIDs, so the format is not assumed; the foreign key checks that it exists.
+ */
+const recordId = z.string().trim().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/, "Μη έγκυρο αναγνωριστικό.");
+
 const latitudeSchema = z.coerce.number().min(-90).max(90).optional().nullable();
 const longitudeSchema = z.coerce.number().min(-180).max(180).optional().nullable();
 
@@ -398,8 +404,8 @@ const propertyUpsertBaseSchema = z.object({
 
     featured: z.boolean().optional().default(false),
 
-    agentId: z.string().cuid().optional().nullable(),
-    ownerId: z.string().cuid().optional().nullable(),
+    agentId: recordId.optional().nullable(),
+    ownerId: recordId.optional().nullable(),
 
     commissionRatePct: z.coerce.number().min(0).max(100).optional().nullable(),
     agentCommissionPct: z.coerce.number().min(0).max(100).optional().nullable(),
