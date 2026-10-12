@@ -72,7 +72,8 @@ const SPEECH_FAILURE = "Η φωνητική λειτουργία δεν είνα
 /** Provider trouble becomes a calm, safe message; the category is logged, the provider's words never are. */
 function aiHttpError(error: unknown, log: (o: object, m: string) => void, op: string): never {
   if (error instanceof IntakeAiError) {
-    log({ op, category: error.category }, "property intake AI failure");
+    // Status, model and finish reason only: enough to tell a refused model from a cut-off answer, nothing the agent said.
+    log({ op, category: error.category, status: error.detail.status, model: error.detail.model, finishReason: error.detail.finishReason }, "property intake AI failure");
     if (error.category === "not_configured") throw new HttpError(503, "intake_ai_unavailable", SPEECH_FAILURE);
     if (error.category === "timeout") throw new HttpError(504, "intake_ai_timeout", "Η υπηρεσία άργησε να απαντήσει. Δοκιμάστε ξανά ή συνεχίστε γράφοντας.");
     if (error.category === "empty" && op === "transcribe") throw new HttpError(422, "no_speech", "Δεν ακούστηκε ομιλία. Δοκιμάστε ξανά ή γράψτε το μήνυμά σας.");
