@@ -21,6 +21,7 @@ import { LISTING_TYPE_LABELS, PROPERTY_TYPE_LABELS, label } from "@home88/types"
 
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { PropertyPublicationPanel } from "@/components/PropertyPublicationPanel";
+import { PropertyRecommendations } from "@/components/PropertyRecommendations";
 import { PropertyTagsPanel } from "@/components/PropertyTagsPanel";
 import { DocumentChecklist } from "@/components/property/DocumentChecklist";
 import { ActivityPanel, InterestPanel, LocationPanel, MandatePanel, OwnersPanel, ReadinessBoard, SectionNav, type PassportData } from "@/components/property/Passport";
@@ -288,6 +289,8 @@ export default async function PropertyDetailPage({
 
       <div id="publication">
         <PropertyPublicationPanel propertyId={id} />
+
+      <PropertyRecommendations propertyId={id} />
         <PropertyTagsPanel propertyId={id} canManage={hasRole(user.role, "MANAGER")} />
       </div>
 

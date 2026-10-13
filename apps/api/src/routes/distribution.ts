@@ -8,7 +8,7 @@
  * no credential or feed token is part of the response.
  */
 
-import { DISTRIBUTION_STATUSES, PORTAL_DIRECTORY, countByStatus, distributionStatus, filterDirectory, type DirectoryRow } from "@home88/domain";
+import { DISTRIBUTION_STATUSES, countByFit, recommendFor, sortRecommendations, type FrameworkVerdict, PORTAL_DIRECTORY, countByStatus, distributionStatus, filterDirectory, type DirectoryRow } from "@home88/domain";
 import { getAdapter } from "@home88/portals";
 import { propertySearchSchema } from "@home88/validation";
 import type { Prisma } from "@prisma/client";
@@ -32,6 +32,8 @@ import {
   type PortalSelection,
 } from "../lib/distribution-batches";
 import { resolvePortalProvider } from "../lib/portal-accounts";
+import { loadPortalChannels } from "../lib/publications";
+import { notFound } from "../lib/errors";
 import { db } from "../lib/prisma";
 import { requireRole } from "../plugins/auth";
 import { buildPropertyWhere } from "./properties";
@@ -78,20 +80,26 @@ async function resolveSelection(selection: z.infer<typeof selectionSchema>, user
   return { ids: rows.map((r) => r.id).filter((id) => !exclude.has(id)), matched };
 }
 
+/** The directory with live status from the portal framework (adapter, account, last sync). */
+async function loadDirectoryRows(): Promise<DirectoryRow[]> {
+  const rows: DirectoryRow[] = [];
+  for (const entry of PORTAL_DIRECTORY) {
+    let live: DirectoryRow["live"] = null;
+    let status = distributionStatus(entry, null);
+    if (entry.catalogCode) {
+      const view = await portalView(entry.catalogCode, false);
+      status = distributionStatus(entry, { hasAdapter: Boolean(getAdapter(entry.catalogCode)), status: view.integrationStatus });
+      live = { lastSuccessAt: view.lastSuccessAt, lastError: view.lastError, enabled: view.enabled };
+    }
+    rows.push({ ...entry, status, live });
+  }
+  return rows;
+}
+
 export async function distributionRoutes(app: FastifyInstance): Promise<void> {
   app.get("/distribution/portals", { preHandler: requireRole("AGENT") }, async (request) => {
     const query = request.query as Record<string, string | undefined>;
-    const rows: DirectoryRow[] = [];
-    for (const entry of PORTAL_DIRECTORY) {
-      let live: DirectoryRow["live"] = null;
-      let status = distributionStatus(entry, null);
-      if (entry.catalogCode) {
-        const view = await portalView(entry.catalogCode, false);
-        status = distributionStatus(entry, { hasAdapter: Boolean(getAdapter(entry.catalogCode)), status: view.integrationStatus });
-        live = { lastSuccessAt: view.lastSuccessAt, lastError: view.lastError, enabled: view.enabled };
-      }
-      rows.push({ ...entry, status, live });
-    }
+    const rows = await loadDirectoryRows();
     const filtered = filterDirectory(rows, {
       q: query.q,
       country: query.country,
@@ -232,5 +240,38 @@ export async function distributionRoutes(app: FastifyInstance): Promise<void> {
       }))
       .filter((p) => p.accounts.length > 0);
     return { data };
+  });
+
+  /**
+   * Where this property fits, by rules over verified facts only. Suitability is
+   * not performance: no portal results are held yet, and that is stated per row.
+   */
+  app.get("/properties/:id/recommendations", { preHandler: requireRole("AGENT") }, async (request) => {
+    const { id } = request.params as { id: string };
+    const user = request.auth!.user;
+    const property = await db().property.findUnique({
+      where: { id },
+      select: { id: true, reference: true, listingType: true, titleEl: true, titleEn: true, descriptionEl: true, descriptionEn: true, price: true, priceOnRequest: true, area: true },
+    });
+    if (!property) throw notFound("Το ακίνητο δεν βρέθηκε.");
+    const photoCount = await db().propertyMedia.count({ where: { propertyId: id, kind: "PHOTO", status: { in: ["approved", "published"] } } });
+    const text = (v: string | null) => Boolean(v && v.trim().length > 0);
+    const facts = {
+      listingType: property.listingType,
+      hasGreekTitle: text(property.titleEl),
+      hasGreekDescription: text(property.descriptionEl),
+      hasEnglishTitle: text(property.titleEn),
+      hasEnglishDescription: text(property.descriptionEn),
+      hasPrice: property.price != null || property.priceOnRequest,
+      hasArea: property.area != null,
+      photoCount,
+    };
+    const [rows, channels] = await Promise.all([loadDirectoryRows(), loadPortalChannels(id, { id: user.id, role: user.role })]);
+    const verdictOf = (code?: string): FrameworkVerdict | null => {
+      const ch = code ? channels?.channels.find((c) => c.code === code) : undefined;
+      return ch ? { readiness: ch.readiness, blockers: ch.blockers } : null;
+    };
+    const recs = sortRecommendations(rows.map((r) => recommendFor(r, r.status, facts, verdictOf(r.catalogCode))));
+    return { property: { id: property.id, reference: property.reference }, data: recs, counts: countByFit(recs), basis: "RULES", performance: "UNAVAILABLE" };
   });
 }
