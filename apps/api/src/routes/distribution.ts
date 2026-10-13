@@ -32,13 +32,13 @@ import {
   type PortalSelection,
 } from "../lib/distribution-batches";
 import { resolvePortalProvider } from "../lib/portal-accounts";
-import { loadPerformance, loadQueues, missingWhere } from "../lib/distribution-insights";
+import { isMissingTable, loadPerformance, loadQueues, missingWhere } from "../lib/distribution-insights";
 import { loadPortalChannels } from "../lib/publications";
 import { notFound } from "../lib/errors";
 import { db } from "../lib/prisma";
 import { requireRole } from "../plugins/auth";
 import { buildPropertyWhere } from "./properties";
-import { portalView } from "./settings";
+import { loadPortalViewData, portalView } from "./settings";
 
 const portalSchema = z.object({ code: z.string().trim().min(1).max(40), accountId: z.string().trim().min(1).max(40), environment: z.enum(["TEST", "PRODUCTION"]) }).strict();
 
@@ -84,13 +84,14 @@ async function resolveSelection(selection: z.infer<typeof selectionSchema>, user
 /** The directory with live status from the portal framework (adapter, account, last sync). */
 async function loadDirectoryRows(): Promise<DirectoryRow[]> {
   const rows: DirectoryRow[] = [];
+  const shared = await loadPortalViewData();
   for (const entry of PORTAL_DIRECTORY) {
     let live: DirectoryRow["live"] = null;
     let status = distributionStatus(entry, null);
     if (entry.catalogCode) {
-      const view = await portalView(entry.catalogCode, false);
+      const view = await portalView(entry.catalogCode, false, shared);
       status = distributionStatus(entry, { hasAdapter: Boolean(getAdapter(entry.catalogCode)), status: view.integrationStatus });
-      live = { lastSuccessAt: view.lastSuccessAt, lastError: view.lastError, enabled: view.enabled };
+      live = { lastSuccessAt: view.lastSuccessAt, lastError: view.lastError, enabled: view.enabled, configured: view.hasRow && view.missing.length === 0 };
     }
     rows.push({ ...entry, status, live });
   }
@@ -98,6 +99,16 @@ async function loadDirectoryRows(): Promise<DirectoryRow[]> {
 }
 
 export async function distributionRoutes(app: FastifyInstance): Promise<void> {
+  // Until the batch tables are migrated, say so plainly instead of failing with a database error.
+  const parentHandler = app.errorHandler;
+  app.setErrorHandler((error, request, reply) => {
+    if (isMissingTable(error) && request.url.includes("/distribution/batches")) {
+      reply.code(503).send({ error: { code: "migration_pending", message: "Η μαζική διανομή δεν είναι διαθέσιμη ακόμη: η βάση δεδομένων δεν έχει ενημερωθεί (migration portal_distribution_batches)." } });
+      return;
+    }
+    return parentHandler(error, request, reply);
+  });
+
   app.get("/distribution/portals", { preHandler: requireRole("AGENT") }, async (request) => {
     const query = request.query as Record<string, string | undefined>;
     const rows = await loadDirectoryRows();

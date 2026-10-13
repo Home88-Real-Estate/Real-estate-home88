@@ -21,7 +21,7 @@
 
 import type { ChannelRequest, ChannelView } from "@home88/domain";
 import { guardConfigFromSettings, guardPublicationChange } from "@home88/portals";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
 import { loadConfig } from "../config";
 import { forbidden, notFound, badRequest } from "./errors";
@@ -207,7 +207,9 @@ export async function createBatch(input: {
   const accountOf = new Map(input.portals.map((p) => [p.code.toUpperCase(), p]));
   const readyCount = input.plan.items.filter((i) => i.ready).length;
   if (readyCount === 0) throw badRequest("Καμία ενέργεια δεν είναι έτοιμη να εκτελεστεί. Διορθώστε τα εμπόδια ή αλλάξτε την επιλογή.");
-  const batch = await db().$transaction(async (tx) => {
+  let batch: { id: string; status: string };
+  try {
+    batch = await db().$transaction(async (tx) => {
     const created = await tx.portalDistributionBatch.create({
       data: {
         operation: input.operation,
@@ -244,7 +246,15 @@ export async function createBatch(input: {
       tx,
     );
     return created;
-  });
+    });
+  } catch (error) {
+    // Two requests with the same key raced: the loser returns the winner's batch instead of failing.
+    if (input.idempotencyKey && error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      const winner = await db().portalDistributionBatch.findUnique({ where: { idempotencyKey: input.idempotencyKey }, select: { id: true, status: true, createdById: true } });
+      if (winner && winner.createdById === input.viewer.id) return { id: winner.id, status: winner.status, reused: true };
+    }
+    throw error;
+  }
   return { id: batch.id, status: batch.status, reused: false };
 }
 

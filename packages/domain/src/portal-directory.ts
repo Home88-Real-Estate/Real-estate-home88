@@ -86,8 +86,8 @@ export type DirectoryEntry = {
 
 type Seed = Omit<DirectoryEntry, "key" | "specification" | "greece" | "delivery" | "publication"> & Partial<Pick<DirectoryEntry, "specification" | "greece" | "delivery" | "publication">>;
 
-const gr = (key: string, s: Seed): DirectoryEntry => ({ key, specification: "UNVERIFIED", greece: "YES", delivery: "UNKNOWN", publication: "UNKNOWN", ...s });
-const intl = (key: string, s: Seed): DirectoryEntry => ({ key, specification: "UNVERIFIED", greece: "UNKNOWN", delivery: "UNKNOWN", publication: "UNKNOWN", ...s });
+const gr = (key: string, s: Seed): DirectoryEntry => ({ key, catalogCode: key, specification: "UNVERIFIED", greece: "YES", delivery: "UNKNOWN", publication: "UNKNOWN", ...s });
+const intl = (key: string, s: Seed): DirectoryEntry => ({ key, catalogCode: key, specification: "UNVERIFIED", greece: "UNKNOWN", delivery: "UNKNOWN", publication: "UNKNOWN", ...s });
 
 const INDOMIO = "Indomio Group";
 
@@ -192,7 +192,7 @@ export type DirectoryFilter = {
   group?: string;
 };
 
-export type DirectoryRow = DirectoryEntry & { status: DistributionStatus; live: { lastSuccessAt: string | null; lastError: string | null; enabled: boolean } | null };
+export type DirectoryRow = DirectoryEntry & { status: DistributionStatus; live: { lastSuccessAt: string | null; lastError: string | null; enabled: boolean; /** Account details have been recorded (they wait for the integration when none exists). */ configured: boolean } | null };
 
 const norm = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
 

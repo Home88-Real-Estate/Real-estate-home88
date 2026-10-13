@@ -6,6 +6,17 @@ import { PORTAL_DIRECTORY, countByStatus, distributionStatus, filterDirectory, t
 
 const rows = (): DirectoryRow[] => PORTAL_DIRECTORY.map((e) => ({ ...e, status: distributionStatus(e, null), live: null }));
 
+test("every destination can be set up: it has a catalogue entry with account fields", () => {
+  for (const e of PORTAL_DIRECTORY) {
+    const c = PORTAL_CATALOG.find((p) => p.code === e.key);
+    assert.ok(c, `${e.key} is not in the catalogue`);
+    assert.ok(c!.fields.length > 0, `${e.key} has no fields to set up`);
+    assert.ok(c!.fields.some((f) => !f.optional), `${e.key} needs at least one required field`);
+  }
+  // Generic entries keep secrets as secrets.
+  assert.ok(PORTAL_CATALOG.find((p) => p.code === "RIGHTMOVE")!.fields.filter((f) => f.type === "secret").every((f) => f.key === "apiKey" || f.key === "password"));
+});
+
 test("keys are unique and every catalogue link points at a real framework portal (no duplicates)", () => {
   const keys = PORTAL_DIRECTORY.map((e) => e.key);
   assert.equal(new Set(keys).size, keys.length);
@@ -30,9 +41,10 @@ test("nothing is connected without a framework link and a successful connection"
   assert.equal(distributionStatus(spito, { hasAdapter: true, status: "CONNECTED" }), "CONNECTED");
   assert.equal(distributionStatus(spito, { hasAdapter: true, status: "ERROR" }), "SYNC_ERROR");
   assert.equal(distributionStatus(spito, { hasAdapter: true, status: "DISABLED" }), "PAUSED");
-  // A research candidate cannot be connected even if a status were passed.
+  // A destination with no adapter cannot be connected, whatever its stored status or credentials say.
   const rightmove = PORTAL_DIRECTORY.find((e) => e.key === "RIGHTMOVE")!;
-  assert.equal(distributionStatus(rightmove, { hasAdapter: true, status: "CONNECTED" }), "NEEDS_SPECIFICATION");
+  assert.equal(distributionStatus(rightmove, { hasAdapter: false, status: "CONFIGURED" }), "NEEDS_SPECIFICATION");
+  assert.equal(distributionStatus(rightmove, null), "NEEDS_SPECIFICATION");
   // Documented spec but no adapter: catalogue only, not "ready".
   const kyero = PORTAL_DIRECTORY.find((e) => e.key === "KYERO")!;
   assert.equal(distributionStatus(kyero, null), "CATALOG_ONLY");

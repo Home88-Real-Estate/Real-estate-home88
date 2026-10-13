@@ -97,11 +97,30 @@ function assertTemplateFields(body: string) {
 export const portalScope = (code: string) => `portal:${code}`;
 
 /** A portal's settings view: catalogue entry, stored values, secret presence (never values) and status. */
-export async function portalView(code: string, includeFeedUrl: boolean) {
+type PortalRow = NonNullable<Awaited<ReturnType<typeof loadPortalRows>>[number]>;
+type CredentialMeta = { scope: string; field: string; updatedAt: Date };
+
+/** Every stored portal and credential marker in two queries, for views that list many portals. */
+async function loadPortalRows() {
+  return db().portal.findMany({ include: { publicationRule: true } });
+}
+export type PortalViewData = { rows: Map<string, PortalRow>; meta: CredentialMeta[] };
+export async function loadPortalViewData(): Promise<PortalViewData> {
+  const [rows, meta] = await Promise.all([loadPortalRows(), db().providerCredential.findMany({ where: { scope: { startsWith: "portal:" } }, select: { scope: true, field: true, updatedAt: true } })]);
+  return { rows: new Map(rows.map((r) => [r.code, r])), meta };
+}
+
+/**
+ * One portal's setup view. Listing screens pass `data` (from loadPortalViewData) so sixty-odd
+ * destinations cost two queries instead of two each; a single portal loads its own.
+ */
+export async function portalView(code: string, includeFeedUrl: boolean, data?: PortalViewData) {
   const entry = portalCatalogEntry(code);
   if (!entry) throw notFound("Το portal δεν υποστηρίζεται.");
-  const row = await db().portal.findUnique({ where: { code: entry.code }, include: { publicationRule: true } });
-  const meta = await db().providerCredential.findMany({ where: { scope: portalScope(entry.code) }, select: { field: true, updatedAt: true } });
+  const row = data ? (data.rows.get(entry.code) ?? null) : await db().portal.findUnique({ where: { code: entry.code }, include: { publicationRule: true } });
+  const meta = data
+    ? data.meta.filter((m) => m.scope === portalScope(entry.code))
+    : await db().providerCredential.findMany({ where: { scope: portalScope(entry.code) }, select: { field: true, updatedAt: true } });
   const stored = ((row?.settings ?? {}) as Record<string, unknown>) ?? {};
   const values: Record<string, unknown> = {};
   for (const f of entry.fields) if (f.type !== "secret") values[f.key] = typeof stored[f.key] === "string" ? stored[f.key] : null;
@@ -140,6 +159,7 @@ export async function portalView(code: string, includeFeedUrl: boolean) {
     secrets,
     missing,
     hasAdapter: provider.hasAdapter,
+    hasRow: Boolean(row),
     feedUrl,
     status,
     lastSyncAt: row?.lastSyncAt?.toISOString() ?? null,
@@ -506,9 +526,10 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   app.get("/settings/portals", async (request) => {
     await requireView(request, "portals");
     const data = [];
+    const shared = await loadPortalViewData();
     for (const p of PORTAL_CATALOG) {
-      const v = await portalView(p.code, false);
-      data.push({ code: v.code, name: v.name, transport: v.transport, enabled: v.enabled, status: v.integrationStatus, hasAdapter: v.hasAdapter, lastSuccessAt: v.lastSuccessAt, lastError: v.lastError });
+      const v = await portalView(p.code, false, shared);
+      data.push({ code: v.code, name: v.name, transport: v.transport, enabled: v.enabled, status: v.integrationStatus, hasAdapter: v.hasAdapter, configured: v.missing.length === 0 && v.hasRow, lastSuccessAt: v.lastSuccessAt, lastError: v.lastError });
     }
     return { data };
   });

@@ -7,7 +7,7 @@ import { requireRole } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Αναλύσεις & Προτάσεις" };
 
-type Queue = { key: string; label: string; count: number; href: string | null; hint: string };
+type Queue = { key: string; label: string; count: number | null; href: string | null; hint: string };
 type Row = { channel: string; listingType: string; listingWeeks: number; enquiries: number; qualified: number; viewings: number; offers: number; closedTransactions: number; enquiriesPerListingWeek: number | null; qualifiedPerListingWeek: number | null; note: string | null };
 type Payload = {
   queues: Queue[];
@@ -42,8 +42,8 @@ export default async function InsightsPage({ searchParams }: { searchParams: Pro
               {res.data.queues.map((q) => (
                 <li key={q.key} className="pubchan">
                   <div className="pubchan__head">
-                    <strong>{q.count}</strong>
-                    {q.href && q.count > 0 ? <Link href={q.href}>{q.label}</Link> : <span>{q.label}</span>}
+                    <strong>{q.count ?? "—"}</strong>
+                    {q.href && (q.count ?? 0) > 0 ? <Link href={q.href}>{q.label}</Link> : <span>{q.label}</span>}
                   </div>
                   <div className="pubchan__body"><p className="hint">{q.hint}</p></div>
                 </li>

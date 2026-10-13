@@ -28,7 +28,7 @@ import { resolveEmailProvider } from "../providers/email";
 import { resolveSignatureProvider } from "../providers/signature";
 import { resolveSmsProvider } from "../providers/sms";
 import { aiConfig, settings } from "../settings";
-import { portalView } from "./settings";
+import { loadPortalViewData, portalView } from "./settings";
 
 type Connection = {
   key: string;
@@ -163,9 +163,10 @@ export async function connectionRoutes(app: FastifyInstance): Promise<void> {
 
     // --- Portals -----------------------------------------------------------------
 
+    const portalData = await loadPortalViewData();
     for (const entry of PORTAL_CATALOG) {
-      const v = await portalView(entry.code, false);
-      const row = await db().portal.findUnique({ where: { code: entry.code }, select: { lastErrorAt: true } });
+      const v = await portalView(entry.code, false, portalData);
+      const row = portalData.rows.get(entry.code) ?? null;
       rows.push({
         key: `portal:${v.code}`,
         group: "portals",

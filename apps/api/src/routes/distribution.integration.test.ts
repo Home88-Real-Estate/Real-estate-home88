@@ -12,6 +12,8 @@ describe("portal directory (real Postgres)", { skip: !url && "TEST_DATABASE_URL 
   let db: typeof import("../lib/prisma").db;
   let get: (cookie: string | null, path: string) => Promise<{ status: number; body: any }>;
   let agent = "";
+  let admin = "";
+  let put: (cookie: string, path: string, body: unknown) => Promise<{ status: number; body: any }>;
   let viewer = "";
   const run = randomBytes(4).toString("hex");
 
@@ -28,7 +30,11 @@ describe("portal directory (real Postgres)", { skip: !url && "TEST_DATABASE_URL 
     const password = "Integration-Test-Password-123";
     const hash = hashPassword(password, 10);
     const mk = (role: string) => db().user.create({ data: { email: `dist-${role.toLowerCase()}-${run}@test.invalid`, firstName: "D", lastName: role, role: role as never, passwordHash: hash } });
-    const [a, v] = await Promise.all([mk("AGENT"), mk("VIEWER")]);
+    const [a, v, ad] = await Promise.all([mk("AGENT"), mk("VIEWER"), mk("ADMIN")]);
+    // A previous run may have recorded details for the portal this test sets up.
+    await db().providerCredential.deleteMany({ where: { scope: "portal:RIGHTMOVE" } });
+    await db().portal.deleteMany({ where: { code: "RIGHTMOVE" } });
+    process.env.SETTINGS_ENCRYPTION_KEY ??= randomBytes(32).toString("base64");
     const SELF = "https://crm.home88.test";
     const headers = (cookie: string | null): Record<string, string> => ({ host: new URL(SELF).host, "x-forwarded-host": new URL(SELF).host, "x-forwarded-proto": "https", origin: SELF, ...(cookie ? { cookie } : {}) });
     const login = async (email: string) => {
@@ -38,6 +44,11 @@ describe("portal directory (real Postgres)", { skip: !url && "TEST_DATABASE_URL 
     };
     agent = await login(a.email);
     viewer = await login(v.email);
+    admin = await login(ad.email);
+    put = async (cookie, path, body) => {
+      const res = await handleApiRequest(new Request(`http://crm.test/api${path}`, { method: "PUT", headers: { ...headers(cookie), "content-type": "application/json" }, body: JSON.stringify(body) }));
+      return { status: res.status, body: JSON.parse(Buffer.from(await res.arrayBuffer()).toString("utf8") || "{}") };
+    };
     get = async (cookie, path) => {
       const res = await handleApiRequest(new Request(`http://crm.test/api${path}`, { headers: headers(cookie) }));
       return { status: res.status, body: JSON.parse(Buffer.from(await res.arrayBuffer()).toString("utf8") || "{}") };
@@ -52,12 +63,12 @@ describe("portal directory (real Postgres)", { skip: !url && "TEST_DATABASE_URL 
     const byKey = new Map<string, any>(res.body.data.map((r: any) => [r.key, r]));
     for (const k of ["SPITOGATOS", "XE_GR", "INDOMIO_GR", "KYERO", "GREEN_ACRES", "RIGHTMOVE", "TROVIT"]) assert.ok(byKey.has(k), k);
     assert.equal(res.body.counts.CONNECTED, 0, "a fresh database has no connected portal");
-    // Research candidates have no live block; framework portals do, and expose no credential field.
-    assert.equal(byKey.get("RIGHTMOVE").live, null);
+    // Every destination has a live block (setup state), exposes no credential, and none without an adapter is connected.
+    assert.equal(byKey.get("RIGHTMOVE").live.configured, false);
     assert.equal(byKey.get("RIGHTMOVE").status, "NEEDS_SPECIFICATION");
     assert.equal(byKey.get("KYERO").status, "CATALOG_ONLY");
     assert.ok(["AWAITING_ACCOUNT", "READY_FOR_TEST", "PAUSED", "CATALOG_ONLY"].includes(byKey.get("SPITOGATOS").status));
-    assert.deepEqual(Object.keys(byKey.get("SPITOGATOS").live).sort(), ["enabled", "lastError", "lastSuccessAt"]);
+    assert.deepEqual(Object.keys(byKey.get("SPITOGATOS").live).sort(), ["configured", "enabled", "lastError", "lastSuccessAt"]);
     assert.ok(!/password|appKey|token/i.test(JSON.stringify(res.body)));
     const sum = Object.values(res.body.counts as Record<string, number>).reduce((x, y) => x + y, 0);
     assert.equal(sum, res.body.total);
@@ -146,6 +157,37 @@ describe("portal directory (real Postgres)", { skip: !url && "TEST_DATABASE_URL 
     assert.equal((await get(agent, `/distribution/properties?statusGroup=PUBLIC&missing=price&city=Ins${run}`)).body.total, 0);
     assert.equal((await get(viewer, "/distribution/insights")).status, 403);
     assert.equal((await get(null, "/distribution/insights")).status, 401);
+  });
+
+  it("every destination can be set up: account details are recorded, sealed, and never make it look connected", async () => {
+    const list = await get(admin, "/settings/portals");
+    assert.equal(list.status, 200, JSON.stringify(list.body));
+    assert.ok(list.body.data.length >= 60, "the settings list carries the whole directory");
+    const rm = list.body.data.find((p: any) => p.code === "RIGHTMOVE");
+    assert.deepEqual([rm.status, rm.hasAdapter, rm.configured], ["PLANNED", false, false]);
+
+    const view = await get(admin, "/settings/portals/RIGHTMOVE");
+    assert.equal(view.status, 200);
+    assert.deepEqual(view.body.portal.fields.map((f: any) => f.key), ["accountRef", "username", "contactEmail", "apiKey", "password"]);
+
+    const rule = { mode: "NONE" };
+    const saved = await put(admin, "/settings/portals/RIGHTMOVE", { enabled: false, values: { accountRef: "ACC-12345", contactEmail: "feeds@rightmove.test" }, secrets: { apiKey: "super-secret-token" }, rule });
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    assert.ok(!JSON.stringify(saved.body).includes("super-secret-token"), "the secret never comes back");
+    assert.equal(saved.body.portal.secrets.apiKey.configured, true);
+    assert.equal(saved.body.portal.values.accountRef, "ACC-12345");
+    const stored = await db().providerCredential.findFirst({ where: { scope: "portal:RIGHTMOVE", field: "apiKey" } });
+    assert.ok(stored && !JSON.stringify(stored).includes("super-secret-token"), "stored sealed, not in clear");
+
+    const after = await get(admin, "/settings/portals");
+    const rm2 = after.body.data.find((p: any) => p.code === "RIGHTMOVE");
+    assert.deepEqual([rm2.status, rm2.configured], ["PLANNED", true], "recorded, but still waiting for an integration");
+    const dir = await get(agent, "/distribution/portals?q=rightmove");
+    assert.deepEqual([dir.body.data[0].status, dir.body.data[0].live.configured], ["NEEDS_SPECIFICATION", true], "credentials alone never make a destination connected");
+    assert.equal((await put(agent, "/settings/portals/RIGHTMOVE", { enabled: false, values: {}, rule })).status, 403, "only administrators set up portals");
+    assert.equal((await put(admin, "/settings/portals/RIGHTMOVE", { enabled: false, values: { nonsense: "x" }, rule })).status, 400);
+    // The old framework portals keep their own specific fields.
+    assert.ok((await get(admin, "/settings/portals/XE_GR")).body.portal.fields.some((f: any) => f.key === "profileId"));
   });
 
   it("needs a signed-in agent or above", async () => {

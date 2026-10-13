@@ -18,6 +18,21 @@ import type { Prisma } from "@prisma/client";
 
 import { db } from "./prisma";
 
+/** A table the running code expects but the database has not been migrated to yet (Prisma P2021). */
+export function isMissingTable(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as { code?: string }).code === "P2021";
+}
+
+/** Counts a table that may not exist yet: null means "unavailable", never zero. */
+async function countIfAvailable(run: () => Promise<number>): Promise<number | null> {
+  try {
+    return await run();
+  } catch (error) {
+    if (isMissingTable(error)) return null;
+    throw error;
+  }
+}
+
 const LIVE_LISTING = ["PUBLISHED", "OUTDATED", "IN_FEED"] as const;
 const PHOTO = { kind: "PHOTO" as const, status: { in: ["approved", "published"] } };
 const LEAD_CAP = 20000;
@@ -35,7 +50,7 @@ export function missingWhere(kind: string): Prisma.PropertyWhereInput | null {
 
 const onMarket: Prisma.PropertyWhereInput = { status: { in: [...PUBLIC_PROPERTY_STATUSES] } };
 
-export type Queue = { key: string; label: string; count: number; href: string | null; hint: string };
+export type Queue = { key: string; label: string; count: number | null; href: string | null; hint: string };
 
 export async function loadQueues(): Promise<Queue[]> {
   const week = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -45,8 +60,8 @@ export async function loadQueues(): Promise<Queue[]> {
     db().property.count({ where: { AND: [onMarket, missingWhere("photos")!] } }),
     db().property.count({ where: { AND: [onMarket, missingWhere("english")!] } }),
     db().property.count({ where: { AND: [onMarket, missingWhere("price")!] } }),
-    db().portalDistributionItem.count({ where: { status: "FAILED", finishedAt: { gte: week } } }),
-    db().portalDistributionBatch.count({ where: { status: { in: ["QUEUED", "RUNNING"] } } }),
+    countIfAvailable(() => db().portalDistributionItem.count({ where: { status: "FAILED", finishedAt: { gte: week } } })),
+    countIfAvailable(() => db().portalDistributionBatch.count({ where: { status: { in: ["QUEUED", "RUNNING"] } } })),
   ]);
   return [
     { key: "no-portal", label: "Στην αγορά, σε κανένα portal", count: noPortal, href: "/distribution/properties?statusGroup=PUBLIC&portalState=NONE", hint: "Ακίνητα στην αγορά χωρίς δημοσιευμένη αγγελία σε portal." },

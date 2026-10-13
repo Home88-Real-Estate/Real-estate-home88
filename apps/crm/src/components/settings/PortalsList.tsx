@@ -3,7 +3,7 @@ import { PORTAL_STATUS_LABELS } from "@home88/domain";
 
 import { apiFetch } from "@/lib/api";
 
-type Row = { code: string; name: string; transport: string; enabled: boolean; status: string; hasAdapter: boolean; lastSuccessAt: string | null; lastError: string | null };
+type Row = { code: string; name: string; transport: string; enabled: boolean; status: string; hasAdapter: boolean; configured?: boolean; lastSuccessAt: string | null; lastError: string | null };
 
 export const CAPABILITY_LABELS: Record<string, string> = {
   create: "δημιουργία",
@@ -47,7 +47,7 @@ export async function PortalsList() {
       <div className="panel__head">
         <div>
           <h2>Υποστηριζόμενα portals</h2>
-          <p className="panel__sub">Η λίστα δεν σημαίνει ότι η HOME88 έχει λογαριασμό σε όλα. Κάθε portal μένει ανενεργό μέχρι να το ρυθμίσετε.</p>
+          <p className="panel__sub">Η λίστα δεν σημαίνει ότι η HOME88 έχει λογαριασμό σε όλα. Κάθε portal μένει ανενεργό μέχρι να το ρυθμίσετε. Όπου δεν υπάρχει ακόμη προσαρμογέας μπορείτε να καταχωρήσετε τα στοιχεία του λογαριασμού· φυλάσσονται κρυπτογραφημένα και δεν στέλνεται τίποτα μέχρι να υλοποιηθεί η σύνδεση.</p>
         </div>
       </div>
       <div className="table-wrap">
@@ -64,8 +64,11 @@ export async function PortalsList() {
             {result.data.data.map((p) => (
               <tr key={p.code}>
                 <th scope="row"><Link href={`/settings/portals/${p.code}`}>{p.name}</Link></th>
-                <td>{TRANSPORT_LABEL[p.transport] ?? p.transport}{!p.hasAdapter && <span className="hint"> · χωρίς προσαρμογέα ακόμη</span>}</td>
-                <td><span className={STATUS_CLASS[p.status] ?? "badge"}>{PORTAL_STATUS_LABELS[p.status] ?? p.status}</span></td>
+                <td>{!p.hasAdapter && p.transport === "MANUAL" ? "Τρόπος σύνδεσης: προς επιβεβαίωση" : (TRANSPORT_LABEL[p.transport] ?? p.transport)}{!p.hasAdapter && <span className="hint"> · χωρίς προσαρμογέα ακόμη</span>}</td>
+                <td>
+                  <span className={STATUS_CLASS[p.status] ?? "badge"}>{PORTAL_STATUS_LABELS[p.status] ?? p.status}</span>
+                  {p.status === "PLANNED" && <span className="hint"> · {p.configured ? "τα στοιχεία λογαριασμού έχουν καταχωρηθεί" : "μπορείτε να καταχωρήσετε λογαριασμό"}</span>}
+                </td>
                 <td className="muted">{p.lastSuccessAt ? new Date(p.lastSuccessAt).toLocaleString("el-GR", { timeZone: "Europe/Athens" }) : "—"}</td>
               </tr>
             ))}

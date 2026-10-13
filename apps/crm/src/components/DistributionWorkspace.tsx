@@ -47,16 +47,21 @@ export function DistributionWorkspace({ rows, total, page, limit, maxBatch, filt
   const key = useRef<string>("");
 
   // The selection survives paging; a different filter starts a new one.
+  // Nothing is written until the stored selection has been read, so the first
+  // (empty) render can never overwrite it — also under React's double effects in development.
+  const [restored, setRestored] = useState<string | null>(null);
   useEffect(() => {
     try {
       const s = JSON.parse(sessionStorage.getItem(STORE) ?? "null") as Stored | null;
       if (s && s.key === filterKey) { setAll(s.all); setIds(new Set(s.ids)); setExcluded(new Set(s.excluded)); }
       else sessionStorage.removeItem(STORE);
     } catch { /* storage unavailable: selection just won't persist */ }
+    setRestored(filterKey);
   }, [filterKey]);
   useEffect(() => {
+    if (restored !== filterKey) return;
     try { sessionStorage.setItem(STORE, JSON.stringify({ key: filterKey, all, ids: [...ids], excluded: [...excluded] } satisfies Stored)); } catch { /* ignore */ }
-  }, [filterKey, all, ids, excluded]);
+  }, [restored, filterKey, all, ids, excluded]);
 
   const selectedCount = all ? total - excluded.size : ids.size;
   const pageIds = rows.map((r) => r.id);
