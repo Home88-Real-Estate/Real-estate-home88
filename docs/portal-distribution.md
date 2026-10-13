@@ -41,3 +41,10 @@ Added:
 - **Explained:** every row lists what matches, what blocks, and notes; the basis is always "rules" and performance is always "unavailable". Nothing claims audience, demand or speed of sale, and missing metrics are never shown as zero.
 - **Assumption:** HOME88 stores no property country; properties are treated as located in Greece.
 - **Not built (milestone 5):** performance evidence from attributed enquiries, viewings and transactions, and portfolio-level queues.
+
+## Milestone 5 — insights and measured performance
+`GET /api/distribution/insights?days=30|90|180|365` and the page `/distribution/insights`.
+- **Queues** (real counts, each opening the matching workspace list through the same filter): market-ready properties on no portal; portal errors or review holds; no approved photo; no English title/description; no price; failed bulk items in the last 7 days; open batches. The workspace gained `missing=photos|english|price`.
+- **Performance by destination and sale/rent**, from HOME88's own records only: enquiries (leads with a property, by recorded portal or source), qualified (status qualified or later), completed viewings, offers and closed transactions linked to those leads, and **listing-weeks of exposure** from the publication event history. Rates are enquiries per listing-week and are shown only from 20 listing-weeks of exposure; otherwise only counts and the reason appear. Exposure before the first recorded event is unknown and not counted. "Other portals" never gets a rate (not attributable to one portal).
+- **Unavailable, and listed as such:** portal views, clicks, and cost per lead. Attribution is the lead's recorded source and never claims causation.
+- **Not built:** a "published long with no engagement" queue (no reliable engagement source), comparison by price band or area, and any learned model. Lead and event reads are capped (20,000 leads, 100,000 events) and the page says when truncated.

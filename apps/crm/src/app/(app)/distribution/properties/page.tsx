@@ -7,7 +7,7 @@ import { requireRole } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Διανομή ακινήτων" };
 
-const FILTERS = ["q", "city", "listingType", "statusGroup", "portalState", "mine"] as const;
+const FILTERS = ["q", "city", "listingType", "statusGroup", "portalState", "mine", "missing"] as const;
 
 type Listing = { data: WorkspaceRow[]; total: number; page: number; limit: number; maxBatch: number };
 
@@ -39,6 +39,7 @@ export default async function DistributionPropertiesPage({ searchParams }: { sea
         <select name="listingType" className="select" defaultValue={v("listingType")} aria-label="Συναλλαγή"><option value="">Πώληση και ενοικίαση</option><option value="SALE">Πώληση</option><option value="RENT">Ενοικίαση</option></select>
         <select name="statusGroup" className="select" defaultValue={v("statusGroup")} aria-label="Κατάσταση"><option value="CURRENT">Τρέχοντα</option><option value="PUBLIC">Στην αγορά</option></select>
         <select name="portalState" className="select" defaultValue={v("portalState")} aria-label="Κατάσταση portals"><option value="">Όλα</option><option value="NONE">Σε κανένα portal</option><option value="PUBLISHED">Δημοσιευμένα σε portal</option><option value="ISSUES">Με σφάλμα portal</option></select>
+        <select name="missing" className="select" defaultValue={v("missing")} aria-label="Λείπουν στοιχεία"><option value="">Όλα τα στοιχεία</option><option value="photos">Χωρίς φωτογραφία</option><option value="english">Χωρίς αγγλικά κείμενα</option><option value="price">Χωρίς τιμή</option></select>
         <label className="pubchan__pick"><input type="checkbox" name="mine" value="1" defaultChecked={v("mine") === "1"} /> Δικά μου</label>
         <button className="btn btn--outline" type="submit">Φίλτρο</button>
       </form>
