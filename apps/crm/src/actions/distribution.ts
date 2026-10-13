@@ -7,7 +7,9 @@ export type PortalChoice = { code: string; accountId: string; environment: "TEST
 export type Operation = "publish" | "update" | "unpublish";
 
 export type PlanItem = { propertyId: string; reference: string | null; portalCode: string; ready: boolean; blockers: string[]; mock: boolean };
+export type MassRemovalGuard = { portalCode: string; live: number; removing: number; remaining: number; message: string; confirmed: boolean };
 export type Plan = {
+  guards: MassRemovalGuard[];
   operation: Operation;
   propertyCount: number;
   matched: number;
@@ -27,20 +29,21 @@ export type Batch = {
 
 type Result<T> = { ok: true; data: T } | { ok: false; message: string };
 
-const body = (operation: Operation, selection: Selection, portals: PortalChoice[], idempotencyKey?: string) => ({
+const body = (operation: Operation, selection: Selection, portals: PortalChoice[], idempotencyKey?: string, confirmMassRemoval?: boolean) => ({
   operation,
   selection: "ids" in selection ? { ids: selection.ids } : { filter: selection.filter, exclude: selection.exclude.length ? selection.exclude : undefined },
   portals,
   idempotencyKey,
+  confirmMassRemoval: confirmMassRemoval || undefined,
 });
 
-export async function planDistribution(operation: Operation, selection: Selection, portals: PortalChoice[]): Promise<Result<Plan>> {
-  const r = await apiFetch<Plan>("/api/distribution/plan", { method: "POST", json: body(operation, selection, portals) });
+export async function planDistribution(operation: Operation, selection: Selection, portals: PortalChoice[], confirmMassRemoval?: boolean): Promise<Result<Plan>> {
+  const r = await apiFetch<Plan>("/api/distribution/plan", { method: "POST", json: body(operation, selection, portals, undefined, confirmMassRemoval) });
   return r.ok ? { ok: true, data: r.data } : { ok: false, message: r.error.message };
 }
 
-export async function createDistribution(operation: Operation, selection: Selection, portals: PortalChoice[], idempotencyKey: string): Promise<Result<{ id: string; reused: boolean }>> {
-  const r = await apiFetch<{ id: string; reused: boolean }>("/api/distribution/batches", { method: "POST", json: body(operation, selection, portals, idempotencyKey) });
+export async function createDistribution(operation: Operation, selection: Selection, portals: PortalChoice[], idempotencyKey: string, confirmMassRemoval?: boolean): Promise<Result<{ id: string; reused: boolean }>> {
+  const r = await apiFetch<{ id: string; reused: boolean }>("/api/distribution/batches", { method: "POST", json: body(operation, selection, portals, idempotencyKey, confirmMassRemoval) });
   return r.ok ? { ok: true, data: r.data } : { ok: false, message: r.error.message };
 }
 

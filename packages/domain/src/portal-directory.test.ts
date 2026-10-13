@@ -58,3 +58,13 @@ test("filters by search (accent-insensitive), country, method, status, priority 
   const counts = countByStatus(all);
   assert.equal(Object.values(counts).reduce((a, b) => a + b, 0), all.length);
 });
+
+test("snapshot behaviour is only claimed where documented, and snapshot portals carry the caution", () => {
+  const snapshots = PORTAL_DIRECTORY.filter((e) => e.publication === "FULL_SNAPSHOT").map((e) => e.key).sort();
+  assert.deepEqual(snapshots, ["GREEN_ACRES", "JAMESEDITION", "KYERO"]);
+  for (const key of ["GREEN_ACRES", "KYERO"]) assert.ok(PORTAL_DIRECTORY.find((e) => e.key === key)!.caution, key);
+  const xe = PORTAL_DIRECTORY.find((e) => e.key === "XE_GR")!;
+  assert.deepEqual([xe.delivery, xe.publication, xe.specification], ["API", "INCREMENTAL", "DOCUMENTED"]);
+  assert.match(xe.note ?? "", /δεν έχει υλοποιηθεί/, "the API is documented but not built");
+  assert.ok(PORTAL_DIRECTORY.filter((e) => !["GREEN_ACRES", "KYERO", "JAMESEDITION", "XE_GR"].includes(e.key)).every((e) => e.publication === "UNKNOWN"));
+});

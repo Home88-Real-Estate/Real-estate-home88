@@ -69,6 +69,12 @@ export type DirectoryEntry = {
   delivery: DeliveryMethod;
   /** DOCUMENTED = a public specification is known to exist (still not validated by the portal). */
   specification: "DOCUMENTED" | "UNVERIFIED";
+  /**
+   * How a delivery changes the portal's inventory. FULL_SNAPSHOT: what is absent from the
+   * feed may be removed, so an empty or short feed is dangerous. INCREMENTAL: one listing at
+   * a time. UNKNOWN until the portal's documentation says otherwise.
+   */
+  publication: "INCREMENTAL" | "FULL_SNAPSHOT" | "UNKNOWN";
   /** Whether the portal is known to accept listings located in Greece. */
   greece: "YES" | "UNKNOWN";
   /** Link into the working framework (PORTAL_CATALOG code). Absent for research candidates. */
@@ -78,17 +84,20 @@ export type DirectoryEntry = {
   caution?: string;
 };
 
-type Seed = Omit<DirectoryEntry, "key" | "specification" | "greece" | "delivery"> & Partial<Pick<DirectoryEntry, "specification" | "greece" | "delivery">>;
+type Seed = Omit<DirectoryEntry, "key" | "specification" | "greece" | "delivery" | "publication"> & Partial<Pick<DirectoryEntry, "specification" | "greece" | "delivery" | "publication">>;
 
-const gr = (key: string, s: Seed): DirectoryEntry => ({ key, specification: "UNVERIFIED", greece: "YES", delivery: "UNKNOWN", ...s });
-const intl = (key: string, s: Seed): DirectoryEntry => ({ key, specification: "UNVERIFIED", greece: "UNKNOWN", delivery: "UNKNOWN", ...s });
+const gr = (key: string, s: Seed): DirectoryEntry => ({ key, specification: "UNVERIFIED", greece: "YES", delivery: "UNKNOWN", publication: "UNKNOWN", ...s });
+const intl = (key: string, s: Seed): DirectoryEntry => ({ key, specification: "UNVERIFIED", greece: "UNKNOWN", delivery: "UNKNOWN", publication: "UNKNOWN", ...s });
 
 const INDOMIO = "Indomio Group";
 
 export const PORTAL_DIRECTORY: readonly DirectoryEntry[] = [
   // Greece — priority A
   gr("SPITOGATOS", { name: "Spitogatos", country: "GR", market: "GR", group: INDOMIO, priority: "A", delivery: "XML_FEED", catalogCode: "SPITOGATOS" }),
-  gr("XE_GR", { name: "XE.gr (Χρυσή Ευκαιρία)", country: "GR", market: "GR", priority: "A", delivery: "CSV_FEED", catalogCode: "XE_GR" }),
+  gr("XE_GR", {
+    name: "XE.gr (Χρυσή Ευκαιρία)", country: "GR", market: "GR", priority: "A", delivery: "API", publication: "INCREMENTAL", specification: "DOCUMENTED", catalogCode: "XE_GR",
+    note: "Το XE δηλώνει Real Estate API (JWT, δημιουργία, ενημέρωση και διαγραφή ανά αγγελία) με sandbox και πιστοποίηση πριν την παραγωγή. Το υπάρχον adapter του HOME88 χρησιμοποιεί CSV feed· το API δεν έχει υλοποιηθεί ακόμη και απαιτεί εγγραφή CRM και credentials από το XE.",
+  }),
   gr("INDOMIO_GR", { name: "Indomio.gr", country: "GR", market: "GR", group: INDOMIO, priority: "A", note: "Να διερευνηθεί αν μία εμπορική σύνδεση καλύπτει όλα τα brands του ομίλου." }),
   gr("SPITI24", { name: "Spiti24", country: "GR", market: "GR", group: INDOMIO, priority: "A" }),
   gr("TOSPITIMOU", { name: "Tospitimou", country: "GR", market: "GR", group: INDOMIO, priority: "A" }),
@@ -113,11 +122,11 @@ export const PORTAL_DIRECTORY: readonly DirectoryEntry[] = [
   intl("PROPERSTAR", { name: "Properstar / ListGlobally", country: "INT", market: "DISTRIBUTION", priority: "INTL_1", delivery: "PARTNER", catalogCode: "PROPERSTAR", note: "Δίκτυο διανομής· να ζητηθεί γραπτά ποιες πύλες και χώρες καλύπτονται για γραφείο στην Ελλάδα." }),
   intl("GLOBAL_PROPERTY_NETWORK", { name: "Global Property Network", country: "INT", market: "DISTRIBUTION", priority: "INTL_1", delivery: "PARTNER", note: "Συνεργασία προς διερεύνηση· δεν υπάρχει σύνδεση." }),
   intl("GREEN_ACRES", {
-    name: "Green-Acres", country: "FR", market: "DISTRIBUTION", priority: "INTL_1", delivery: "XML_FEED", specification: "DOCUMENTED", greece: "UNKNOWN", catalogCode: "GREEN_ACRES",
+    name: "Green-Acres", country: "FR", market: "DISTRIBUTION", priority: "INTL_1", delivery: "XML_FEED", publication: "FULL_SNAPSHOT", specification: "DOCUMENTED", greece: "UNKNOWN", catalogCode: "GREEN_ACRES",
     caution: "Cancel-and-replace: ακίνητα που λείπουν από το feed αποσύρονται. Απαιτείται προστασία από κενό ή μειωμένο feed.",
   }),
-  intl("KYERO", { name: "Kyero", country: "ES", market: "DISTRIBUTION", priority: "INTL_1", delivery: "XML_FEED", specification: "DOCUMENTED", note: "Δημοσιευμένη προδιαγραφή XML (με XSD). Πλήρες feed ανά διαφημιστή και σταθερά αναγνωριστικά.", caution: "Ακίνητα που λείπουν από το feed μπορεί να αφαιρεθούν." }),
-  intl("JAMESEDITION", { name: "JamesEdition", country: "INT", market: "DISTRIBUTION", priority: "INTL_1", delivery: "XML_FEED", specification: "DOCUMENTED", catalogCode: "JAMESEDITION", note: "Δημοσιευμένη προδιαγραφή XML· απαιτούνται σταθερά URL φωτογραφιών." }),
+  intl("KYERO", { name: "Kyero", country: "ES", market: "DISTRIBUTION", priority: "INTL_1", delivery: "XML_FEED", publication: "FULL_SNAPSHOT", specification: "DOCUMENTED", note: "Δημοσιευμένη προδιαγραφή XML (με XSD). Πλήρες feed ανά διαφημιστή και σταθερά αναγνωριστικά.", caution: "Ακίνητα που λείπουν από το feed μπορεί να αφαιρεθούν." }),
+  intl("JAMESEDITION", { name: "JamesEdition", country: "INT", market: "DISTRIBUTION", priority: "INTL_1", delivery: "XML_FEED", publication: "FULL_SNAPSHOT", specification: "DOCUMENTED", catalogCode: "JAMESEDITION", note: "Δημοσιευμένη προδιαγραφή XML· τα ακίνητα συμφωνούνται με το feed· απαιτούνται σταθερά URL φωτογραφιών." }),
   intl("EUROPEAN_REALESTATE", { name: "European.realestate", country: "INT", market: "DISTRIBUTION", priority: "INTL_1" }),
   intl("LUXURYESTATE", { name: "LuxuryEstate", country: "IT", market: "DISTRIBUTION", priority: "INTL_1" }),
   intl("THEMOVECHANNEL", { name: "TheMoveChannel", country: "INT", market: "DISTRIBUTION", priority: "INTL_2" }),
@@ -166,6 +175,12 @@ export function distributionStatus(entry: DirectoryEntry, live: LiveConnection |
     default: return "AWAITING_ACCOUNT";
   }
 }
+
+export const PUBLICATION_MODE_LABELS: Record<DirectoryEntry["publication"], string> = {
+  INCREMENTAL: "ανά αγγελία",
+  FULL_SNAPSHOT: "πλήρες feed (ό,τι λείπει μπορεί να αφαιρεθεί)",
+  UNKNOWN: "άγνωστος τρόπος ενημέρωσης",
+};
 
 export type DirectoryFilter = {
   q?: string;

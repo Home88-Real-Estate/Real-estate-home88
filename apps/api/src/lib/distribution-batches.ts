@@ -20,6 +20,7 @@
  */
 
 import type { ChannelRequest, ChannelView } from "@home88/domain";
+import { guardConfigFromSettings, guardPublicationChange } from "@home88/portals";
 import type { Prisma } from "@prisma/client";
 
 import { loadConfig } from "../config";
@@ -52,7 +53,11 @@ export type PlanItem = {
   mock: boolean;
 };
 
+/** A bulk withdrawal large enough to look like a mistake: held until a person explicitly confirms it. */
+export type MassRemovalGuard = { portalCode: string; live: number; removing: number; remaining: number; message: string; confirmed: boolean };
+
 export type BatchPlan = {
+  guards: MassRemovalGuard[];
   operation: BatchOperation;
   propertyCount: number;
   portals: string[];
@@ -72,7 +77,7 @@ export async function assertMayBulk(viewer: Viewer, operation: BatchOperation): 
 }
 
 /** Plans without touching anything: every (property, portal) is judged with the viewer's own permissions. */
-export async function planBatch(input: { operation: BatchOperation; propertyIds: string[]; portals: PortalSelection[]; viewer: Viewer }): Promise<BatchPlan> {
+export async function planBatch(input: { operation: BatchOperation; propertyIds: string[]; portals: PortalSelection[]; viewer: Viewer; confirmMassRemoval?: boolean }): Promise<BatchPlan> {
   const { operation, viewer } = input;
   const ids = [...new Set(input.propertyIds)];
   if (ids.length === 0) throw badRequest("Δεν επιλέχθηκε κανένα ακίνητο.");
@@ -103,10 +108,21 @@ export async function planBatch(input: { operation: BatchOperation; propertyIds:
       items.push(item);
     }
   }
+  const guards = operation === "unpublish" ? await massRemovalGuards(items, input.confirmMassRemoval === true) : [];
+  for (const g of guards) {
+    if (g.confirmed) continue;
+    for (const item of items) {
+      if (item.portalCode === g.portalCode && item.ready) {
+        item.ready = false;
+        item.blockers = [g.message];
+      }
+    }
+  }
   const blockedItems = items.filter((i) => !i.ready);
   const groups = new Map<string, number>();
   for (const i of blockedItems) for (const b of i.blockers) groups.set(b, (groups.get(b) ?? 0) + 1);
   return {
+    guards,
     operation,
     propertyCount: ids.length,
     portals: codes,
@@ -114,6 +130,37 @@ export async function planBatch(input: { operation: BatchOperation; propertyIds:
     summary: { ready: items.length - blockedItems.length, blocked: blockedItems.length },
     blockerGroups: [...groups.entries()].map(([message, count]) => ({ message, count })).sort((a, b) => b.count - a.count),
   };
+}
+
+/**
+ * Withdrawing many listings at once is how a wrong selection empties a portal
+ * (and on cancel-and-replace portals the same effect comes from a short feed).
+ * Per portal, the same thresholds as the served-feed guard apply to the number of
+ * live listings: emptying a portal, or dropping past its limit, needs an explicit
+ * confirmation. Small books swing naturally, so only a full emptying blocks there.
+ */
+async function massRemovalGuards(items: PlanItem[], confirmed: boolean): Promise<MassRemovalGuard[]> {
+  const out: MassRemovalGuard[] = [];
+  const codes = [...new Set(items.filter((i) => i.ready).map((i) => i.portalCode))];
+  for (const code of codes) {
+    const portal = await db().portal.findUnique({ where: { code }, select: { id: true, name: true, settings: true } });
+    if (!portal) continue;
+    const live = await db().portalListing.count({ where: { portalId: portal.id, state: { in: ["PUBLISHED", "OUTDATED", "IN_FEED"] } } });
+    const removing = items.filter((i) => i.portalCode === code && i.ready).length;
+    const remaining = Math.max(0, live - removing);
+    const verdict = guardPublicationChange(live, remaining, guardConfigFromSettings((portal.settings ?? {}) as Record<string, unknown>));
+    if (verdict.blocked) {
+      out.push({
+        portalCode: code,
+        live,
+        removing,
+        remaining,
+        confirmed,
+        message: `Μαζική απόσυρση από ${portal.name}: ${removing} από ${live} δημοσιευμένα (απομένουν ${remaining}). Απαιτείται ρητή επιβεβαίωση.`,
+      });
+    }
+  }
+  return out;
 }
 
 function judge(operation: BatchOperation, propertyId: string, reference: string, code: string, sel: PortalSelection, channel: ChannelView | undefined, mayEdit: boolean): PlanItem {
@@ -190,7 +237,7 @@ export async function createBatch(input: {
         action: "portal_batch_created",
         entity: "PORTAL",
         entityId: created.id,
-        changes: { operation: input.operation, properties: input.plan.propertyCount, portals: input.plan.portals, queued: readyCount, blocked: input.plan.summary.blocked },
+        changes: { operation: input.operation, properties: input.plan.propertyCount, portals: input.plan.portals, queued: readyCount, blocked: input.plan.summary.blocked, massRemovalConfirmed: input.plan.guards.filter((g) => g.confirmed).map((g) => ({ portal: g.portalCode, removing: g.removing, live: g.live })) },
         ipAddress: input.ctx.ipAddress,
         userAgent: input.ctx.userAgent,
       },

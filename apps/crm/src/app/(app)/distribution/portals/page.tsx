@@ -6,6 +6,7 @@ import {
   DISTRIBUTION_MARKET_LABELS,
   DISTRIBUTION_STATUSES,
   DISTRIBUTION_STATUS_LABELS,
+  PUBLICATION_MODE_LABELS,
 } from "@home88/domain";
 
 import { apiFetch } from "@/lib/api";
@@ -76,7 +77,7 @@ export default async function DistributionPortalsPage({ searchParams }: { search
               <div className="pubchan__body">
                 <p className="hint">
                   {r.market === "GR" ? "" : `${DISTRIBUTION_MARKET_LABELS[r.market]} · `}{DIRECTORY_PRIORITY_LABELS[r.priority]}
-                  {r.group ? ` · ${r.group}` : ""} · Παράδοση: {DELIVERY_METHOD_LABELS[r.delivery]} ·{" "}
+                  {r.group ? ` · ${r.group}` : ""} · Παράδοση: {DELIVERY_METHOD_LABELS[r.delivery]} · ενημέρωση: {PUBLICATION_MODE_LABELS[r.publication]} ·{" "}
                   {r.specification === "DOCUMENTED" ? "υπάρχει δημοσιευμένη προδιαγραφή (δεν έχει επικυρωθεί από το portal)" : "προδιαγραφές μη επιβεβαιωμένες"} ·{" "}
                   {r.greece === "YES" ? "ελληνική αγορά" : "αποδοχή ελληνικών ακινήτων: άγνωστη"}
                 </p>
