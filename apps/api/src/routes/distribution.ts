@@ -32,6 +32,7 @@ import {
   type PortalSelection,
 } from "../lib/distribution-batches";
 import { resolvePortalProvider } from "../lib/portal-accounts";
+import { loadPerformance, loadQueues, missingWhere } from "../lib/distribution-insights";
 import { loadPortalChannels } from "../lib/publications";
 import { notFound } from "../lib/errors";
 import { db } from "../lib/prisma";
@@ -124,6 +125,8 @@ export async function distributionRoutes(app: FastifyInstance): Promise<void> {
     if (portalState === "NONE") and.push({ portalListings: { none: { state: { in: ["PUBLISHED", "OUTDATED", "IN_FEED"] } } } });
     if (portalState === "PUBLISHED") and.push({ portalListings: { some: { state: { in: ["PUBLISHED", "OUTDATED", "IN_FEED"] } } } });
     if (portalState === "ISSUES") and.push({ portalListings: { some: { OR: [{ state: "FAILED" }, { needsReview: true }] } } });
+    const missing = missingWhere(raw.missing ?? "");
+    if (missing) and.push(missing);
     if (and.length > 0) where.AND = and;
 
     const [total, rows] = await db().$transaction([
@@ -273,5 +276,13 @@ export async function distributionRoutes(app: FastifyInstance): Promise<void> {
     };
     const recs = sortRecommendations(rows.map((r) => recommendFor(r, r.status, facts, verdictOf(r.catalogCode))));
     return { property: { id: property.id, reference: property.reference }, data: recs, counts: countByFit(recs), basis: "RULES", performance: "UNAVAILABLE" };
+  });
+
+  /** Actionable queues and measured performance by destination. */
+  app.get("/distribution/insights", { preHandler: requireRole("AGENT") }, async (request) => {
+    const raw = Number((request.query as { days?: string }).days);
+    const days = [30, 90, 180, 365].includes(raw) ? raw : 90;
+    const [queues, performance] = await Promise.all([loadQueues(), loadPerformance(days)]);
+    return { queues, performance };
   });
 }

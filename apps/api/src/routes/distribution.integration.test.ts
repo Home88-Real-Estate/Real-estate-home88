@@ -106,6 +106,48 @@ describe("portal directory (real Postgres)", { skip: !url && "TEST_DATABASE_URL 
     assert.equal((await get(null, `/properties/${rich.id}/recommendations`)).status, 401);
   });
 
+  it("insights: queues that match their lists, and performance from real leads and listing history, never estimated", async () => {
+    const a = await db().user.findFirstOrThrow({ where: { email: { startsWith: "dist-agent" } } });
+    const row = (r: any, ch = "XE_GR", t = "SALE") => r.body.performance.rows.find((x: any) => x.channel === ch && x.listingType === t) ?? { enquiries: 0, qualified: 0, viewings: 0, offers: 0, listingWeeks: 0 };
+    const queue = (r: any, key: string) => r.body.queues.find((q: any) => q.key === key).count;
+    const before = await get(agent, "/distribution/insights?days=365");
+    assert.equal(before.status, 200, JSON.stringify(before.body));
+    assert.ok(before.body.performance.unavailable.length >= 3, "views, clicks and cost are listed as unavailable");
+    assert.ok(Object.keys(before.body.performance.definitions).includes("attribution"));
+
+    // A market-ready property with no photo and no English text lands in two queues, and in the matching lists.
+    const bare = await db().property.create({ data: { reference: `H88-${800000 + Math.floor(Math.random() * 99999)}`, slug: `ins-${run}-${Math.random().toString(36).slice(2, 8)}`, listingType: "SALE", propertyType: "APARTMENT", titleEl: "Διαμέρισμα", descriptionEl: "Περιγραφή.", price: 90000, area: 60, city: `Ins${run}`, status: "ACTIVE", agentId: a.id, createdById: a.id } as never });
+    // History: listed on XE for about 25 weeks, with two enquiries (one progressed, with a viewing and an offer).
+    const portal = await db().portal.findUniqueOrThrow({ where: { code: "XE_GR" } });
+    const weeksAgo = (w: number) => new Date(Date.now() - w * 7 * 24 * 60 * 60 * 1000);
+    const listing = await db().portalListing.create({ data: { portalId: portal.id, propertyId: bare.id, state: "PUBLISHED", externalId: "mock-ins" } });
+    await db().channelPublicationEvent.create({ data: { propertyId: bare.id, channelType: "PORTAL", portalId: portal.id, portalListingId: listing.id, action: "PUBLISH", ok: true, portalState: "PUBLISHED", createdAt: weeksAgo(25) } });
+    const mkLead = (status: string) => db().lead.create({ data: { reference: `LD-INS-${status}-${run}`, firstName: "Ins", lastName: status, email: `ins-${status.toLowerCase()}-${run}@test.invalid`, source: "XE_GR", status: status as never, type: "PROPERTY_ENQUIRY", propertyId: bare.id } as never });
+    const l1 = await mkLead("NEW");
+    const l2 = await mkLead("VIEWING");
+    await db().viewing.create({ data: { propertyId: bare.id, leadId: l2.id, status: "COMPLETED", scheduledAt: weeksAgo(1), agentId: a.id } as never }).catch(() => undefined);
+    void l1;
+
+    const after = await get(agent, "/distribution/insights?days=365");
+    assert.equal(queue(after, "missing-photos") - queue(before, "missing-photos"), 1);
+    assert.equal(queue(after, "missing-english") - queue(before, "missing-english"), 1);
+    assert.equal(queue(after, "no-portal") - queue(before, "no-portal"), 0, "it has a live portal listing, so it is not in the no-portal queue");
+    const xe0 = row(before), xe1 = row(after);
+    assert.equal(xe1.enquiries - xe0.enquiries, 2);
+    assert.equal(xe1.qualified - xe0.qualified, 1, "only the viewing-stage lead is qualified");
+    assert.ok(xe1.listingWeeks - xe0.listingWeeks > 24 && xe1.listingWeeks - xe0.listingWeeks < 26, "exposure from the event history");
+    if (xe1.listingWeeks >= 20) assert.equal(xe1.enquiriesPerListingWeek, Math.round((xe1.enquiries / xe1.listingWeeks) * 100) / 100, "rate = enquiries per listing-week");
+    assert.equal(after.body.performance.rows.every((r: any) => r.channel !== "DIRECT"), true);
+
+    // The queue's link filters the workspace to exactly those properties.
+    const listed = await get(agent, `/distribution/properties?statusGroup=PUBLIC&missing=photos&city=Ins${run}`);
+    assert.deepEqual(listed.body.data.map((r: any) => r.id), [bare.id]);
+    assert.equal((await get(agent, `/distribution/properties?statusGroup=PUBLIC&missing=english&city=Ins${run}`)).body.total, 1);
+    assert.equal((await get(agent, `/distribution/properties?statusGroup=PUBLIC&missing=price&city=Ins${run}`)).body.total, 0);
+    assert.equal((await get(viewer, "/distribution/insights")).status, 403);
+    assert.equal((await get(null, "/distribution/insights")).status, 401);
+  });
+
   it("needs a signed-in agent or above", async () => {
     assert.equal((await get(null, "/distribution/portals")).status, 401);
     assert.equal((await get(viewer, "/distribution/portals")).status, 403);
