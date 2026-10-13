@@ -2,6 +2,14 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { AgentsTable, Categories, LeadsBySource, MonthlyActivity, Pipeline } from "@/components/dashboard/ChartPanels";
+import { ActivityFeed, type ActivityItem } from "@/components/dashboard/home/ActivityFeed";
+import { HomeKpis, type Overview } from "@/components/dashboard/home/HomeKpis";
+import { HomeQuickActions } from "@/components/dashboard/home/HomeQuickActions";
+import { MyCalendar } from "@/components/dashboard/home/MyCalendar";
+import { RecentContacts, type RecentContact } from "@/components/dashboard/home/RecentContacts";
+import { StatsPanel } from "@/components/dashboard/home/StatsPanel";
+import { SubscriptionCard } from "@/components/dashboard/home/SubscriptionCard";
+import { WelcomeBanner } from "@/components/dashboard/home/WelcomeBanner";
 import { Kpi } from "@/components/dashboard/Kpi";
 import { PropertyTabs } from "@/components/dashboard/PropertyTabs";
 import { QuickActions, type IntakeDraft } from "@/components/dashboard/QuickActions";
@@ -11,6 +19,7 @@ import { TodayStrip } from "@/components/dashboard/TodayStrip";
 import { apiFetch } from "@/lib/api";
 import { greeting, longDate, num, rangeLabel, type DashboardData } from "@/lib/dashboard";
 import { CRM_BASE_PATH } from "@/lib/paths";
+import { getSettingsOverview } from "@/lib/settings";
 import { hasRole, requireUser } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Αρχική" };
@@ -62,11 +71,17 @@ export default async function DashboardPage({
     to: first(sp.to) || undefined,
     scope: first(sp.scope) || undefined,
   };
-  const [result, draftsResult] = await Promise.all([
+  const [result, draftsResult, overviewResult, contactsResult, activityResult, settingsResult] = await Promise.all([
     apiFetch<DashboardData>("/api/dashboard", { query }),
     // Half-done voice registrations; the dashboard still renders when this fails.
     apiFetch<{ sessions: IntakeDraft[] }>("/api/property-intake/sessions"),
+    // The redesigned top region; each block degrades on its own.
+    apiFetch<Overview>("/api/dashboard/overview", { query: { scope: query.scope } }),
+    apiFetch<{ data: RecentContact[] }>("/api/contacts", { query: { sort: "lastActivityAt", dir: "desc", limit: 5 } }),
+    apiFetch<{ data: ActivityItem[] }>("/api/dashboard/activity"),
+    getSettingsOverview(),
   ]);
+  const subscription = settingsResult.ok ? settingsResult.data.subscription : null;
   const drafts = draftsResult.ok ? draftsResult.data.sessions : [];
 
   /** Dashboard URL with some filters changed, the others kept. */
@@ -109,11 +124,27 @@ export default async function DashboardPage({
 
   return (
     <div className="dash">
+      <WelcomeBanner greeting={greeting(data.generatedAt)} name={firstName} date={longDate(data.generatedAt)} />
+      <div className="home-top">
+        <HomeQuickActions />
+        {overviewResult.ok ? (
+          <HomeKpis overview={overviewResult.data} />
+        ) : (
+          <p className="notice notice--danger" role="alert">Δεν ήταν δυνατή η φόρτωση των δεικτών.</p>
+        )}
+      </div>
+      <div className="home-grid">
+        <StatsPanel scope={query.scope} />
+        <MyCalendar data={data} />
+        <RecentContacts contacts={contactsResult.ok ? contactsResult.data.data : null} now={data.generatedAt} />
+        <ActivityFeed items={activityResult.ok ? activityResult.data.data : null} now={data.generatedAt} />
+        <SubscriptionCard subscription={subscription} />
+      </div>
       <div className="dash-head">
         <div>
-          <h1>
+          <h2>
             {greeting(data.generatedAt)}, {firstName}
-          </h1>
+          </h2>
           <p>
             {longDate(data.generatedAt)} ·{" "}
             <span className="nowrap">Περίοδος: {rangeLabel(data.range.from, data.range.to)}</span>

@@ -14,6 +14,7 @@ import { OfflineSyncAgent } from "@/lib/offline-runtime";
 import { Icon, type IconName } from "./Icon";
 import { LogoutButton } from "./LogoutButton";
 import { Logo, MARK_WHITE } from "./Logo";
+import { GlobalSearch } from "./dashboard/home/GlobalSearch";
 import { ThemeToggle } from "./ThemeToggle";
 
 export type NavCounters = { properties: number; newLeads: number; dueTasks: number; newSubmissions?: number; unreadNotifications?: number } | null;
@@ -196,6 +197,12 @@ export function Shell({
           ))}
         </div>
 
+        <div className="nav__brandpanel" aria-hidden="true">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={`${CRM_BASE_PATH}/brand/login-fox.webp`} alt="" width={120} height={120} loading="lazy" />
+          <p>Το ακίνητό σας, στα σωστά χέρια.</p>
+        </div>
+
         <div className="nav__footer">
           {siteUrl && (
             <a
@@ -236,7 +243,7 @@ export function Shell({
           >
             <Icon name="menu" />
           </button>
-          <div className="topbar__spacer" />
+          {hasRole(user.role, "AGENT") ? <GlobalSearch /> : <div className="topbar__spacer" />}
           {hasRole(user.role, "AGENT") && (
             <Link href="/properties/new" className="btn btn--primary btn--sm topbar__new">
               <Icon name="plus" size={16} />
