@@ -32,7 +32,7 @@ import {
   type PortalSelection,
 } from "../lib/distribution-batches";
 import { resolvePortalProvider } from "../lib/portal-accounts";
-import { loadPerformance, loadQueues, missingWhere } from "../lib/distribution-insights";
+import { isMissingTable, loadPerformance, loadQueues, missingWhere } from "../lib/distribution-insights";
 import { loadPortalChannels } from "../lib/publications";
 import { notFound } from "../lib/errors";
 import { db } from "../lib/prisma";
@@ -99,6 +99,16 @@ async function loadDirectoryRows(): Promise<DirectoryRow[]> {
 }
 
 export async function distributionRoutes(app: FastifyInstance): Promise<void> {
+  // Until the batch tables are migrated, say so plainly instead of failing with a database error.
+  const parentHandler = app.errorHandler;
+  app.setErrorHandler((error, request, reply) => {
+    if (isMissingTable(error) && request.url.includes("/distribution/batches")) {
+      reply.code(503).send({ error: { code: "migration_pending", message: "Η μαζική διανομή δεν είναι διαθέσιμη ακόμη: η βάση δεδομένων δεν έχει ενημερωθεί (migration portal_distribution_batches)." } });
+      return;
+    }
+    return parentHandler(error, request, reply);
+  });
+
   app.get("/distribution/portals", { preHandler: requireRole("AGENT") }, async (request) => {
     const query = request.query as Record<string, string | undefined>;
     const rows = await loadDirectoryRows();

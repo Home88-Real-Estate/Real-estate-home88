@@ -138,6 +138,12 @@ describe("bulk portal distribution (real Postgres)", { skip: !url && "TEST_DATAB
     const again = await create(c.agent, "publish", ids, { idempotencyKey: key });
     assert.deepEqual([again.status, again.body.id, again.body.reused], [200, created.body.id, true], "a double click is one batch");
     assert.equal(await db().portalDistributionBatch.count({ where: { idempotencyKey: key } }), 1);
+    // A genuine race: several identical requests at once make one batch and none fails.
+    const raceKey = `race-${run}-1`;
+    const raced = await Promise.all([1, 2, 3, 4].map(() => create(c.agent, "publish", ids.slice(0, 2), { idempotencyKey: raceKey })));
+    assert.ok(raced.every((r) => r.status === 200 || r.status === 201), JSON.stringify(raced.map((r) => r.status)));
+    assert.equal(new Set(raced.map((r) => r.body.id)).size, 1);
+    assert.equal(await db().portalDistributionBatch.count({ where: { idempotencyKey: raceKey } }), 1);
     assert.equal((await call(c.other, "GET", `/distribution/batches/${created.body.id}`)).status, 403, "another agent cannot read it");
 
     const first = (await call(c.agent, "POST", `/distribution/batches/${created.body.id}/process`)).body;
@@ -324,6 +330,26 @@ describe("bulk portal distribution (real Postgres)", { skip: !url && "TEST_DATAB
       assert.equal((await plan(c.agent, "unpublish", ids, { confirmMassRemoval: true })).status, 403, "confirming does not grant the right to withdraw");
     } finally {
       await db().portal.update({ where: { id: xeId }, data: { settings: (original ?? {}) as never } });
+    }
+  });
+
+  it("before the batch tables are migrated: insights show those counts as unavailable and batches say so plainly", async () => {
+    const p = await make();
+    await db().$executeRawUnsafe('ALTER TABLE "portal_distribution_items" RENAME TO "portal_distribution_items_off"');
+    await db().$executeRawUnsafe('ALTER TABLE "portal_distribution_batches" RENAME TO "portal_distribution_batches_off"');
+    try {
+      const insights = await call(c.agent, "GET", "/distribution/insights");
+      assert.equal(insights.status, 200, JSON.stringify(insights.body));
+      const q = (k: string) => insights.body.queues.find((x: any) => x.key === k);
+      assert.deepEqual([q("failed-items").count, q("open-batches").count], [null, null], "unavailable, not zero");
+      assert.equal(typeof q("no-portal").count, "number", "the queues that do not need the tables still work");
+      const created = await create(c.agent, "publish", [p.id]);
+      assert.equal(created.status, 503, JSON.stringify(created.body));
+      assert.equal(created.body.error.code, "migration_pending");
+      assert.equal((await call(c.agent, "GET", "/distribution/properties")).status, 200, "the workspace itself keeps working");
+    } finally {
+      await db().$executeRawUnsafe('ALTER TABLE "portal_distribution_items_off" RENAME TO "portal_distribution_items"');
+      await db().$executeRawUnsafe('ALTER TABLE "portal_distribution_batches_off" RENAME TO "portal_distribution_batches"');
     }
   });
 
