@@ -25,3 +25,4 @@ export * from "./website-publication";
 export * from "./publication-panel";
 export * from "./property-documents";
 export * from "./portal-directory";
+export * from "./portal-recommendations";

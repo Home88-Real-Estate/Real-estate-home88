@@ -33,3 +33,11 @@ Added:
 - Endpoints (JSON, `account_id` in the body): `POST /v1/real-estate/listings`, `PUT …/{id}`, `DELETE …/{id}` (pause), `GET …/listings`.
 - Limits: 429 above 1 token/sec and 5 tokens/min — an adapter must cache and reuse tokens, not request one per listing.
 - Status: the existing XE adapter is CSV-based; an API adapter is a separate piece of work gated on XE issuing sandbox credentials.
+
+## Milestone 4 — compatibility recommendations
+`GET /api/properties/:id/recommendations` and the "Προτάσεις πυλών" panel on the property page.
+- **Suitability only.** Rules over verified facts: the portal directory (market, whether Greek listings are confirmed, publication mode, connection status), the property (approved photos, price, Greek/English title and description) and, for portals with a working integration, the framework's own readiness verdict.
+- **Levels:** strong, possible, needs information (fixable blockers, listed), low priority, not eligible. A destination whose acceptance of Greek listings is unconfirmed is never "strong"; foreign-market destinations need English content; a Greek portal with no working integration is at most "possible".
+- **Explained:** every row lists what matches, what blocks, and notes; the basis is always "rules" and performance is always "unavailable". Nothing claims audience, demand or speed of sale, and missing metrics are never shown as zero.
+- **Assumption:** HOME88 stores no property country; properties are treated as located in Greece.
+- **Not built (milestone 5):** performance evidence from attributed enquiries, viewings and transactions, and portfolio-level queues.

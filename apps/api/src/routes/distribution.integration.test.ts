@@ -74,6 +74,38 @@ describe("portal directory (real Postgres)", { skip: !url && "TEST_DATABASE_URL 
     assert.equal((await get(agent, "/distribution/portals?status=BOGUS")).body.data.length, greek.body.total);
   });
 
+  it("recommendations: explainable rules over verified facts, performance unavailable, nothing invented", async () => {
+    const a = await db().user.findFirstOrThrow({ where: { email: { startsWith: "dist-agent" } } });
+    const mk = (over: Record<string, unknown>) => db().property.create({ data: { reference: `H88-${String(700000 + Math.floor(Math.random() * 99999))}`, slug: `rec-${run}-${Math.random().toString(36).slice(2, 8)}`, listingType: "SALE", propertyType: "APARTMENT", titleEl: "Διαμέρισμα", descriptionEl: "Περιγραφή διαμερίσματος.", price: 100000, area: 70, city: "Αθήνα", status: "ACTIVE", agentId: a.id, createdById: a.id, ...over } as never });
+    const bare = await mk({ titleEn: null, descriptionEn: null });
+    const rich = await mk({ titleEn: "Apartment", descriptionEn: "A lovely apartment close to everything." });
+    await db().propertyMedia.create({ data: { propertyId: rich.id, kind: "PHOTO", storageKey: `properties/${rich.id}/p.png`, mimeType: "image/png", byteSize: 33, status: "approved", isPrimary: true, sortOrder: 0 } });
+    await db().propertyMedia.create({ data: { propertyId: rich.id, kind: "PHOTO", storageKey: `properties/${rich.id}/pending.png`, mimeType: "image/png", byteSize: 33, status: "pending_review", sortOrder: 1 } });
+
+    const r1 = await get(agent, `/properties/${rich.id}/recommendations`);
+    assert.equal(r1.status, 200, JSON.stringify(r1.body));
+    assert.deepEqual([r1.body.basis, r1.body.performance], ["RULES", "UNAVAILABLE"]);
+    const byKey = new Map<string, any>(r1.body.data.map((x: any) => [x.key, x]));
+    assert.equal(r1.body.data.length, byKey.size);
+    assert.ok(r1.body.data.every((x: any) => x.performance === "UNAVAILABLE" && x.basis === "RULES"));
+    assert.ok(byKey.get("SPITI24").matches.includes("1 εγκεκριμένες φωτογραφίες"), "only the approved photo counts");
+    assert.equal(byKey.get("KYERO").fit, "POSSIBLE", "unconfirmed Greek acceptance is never strong");
+    assert.notEqual(byKey.get("GREEN_ACRES").fit, "STRONG");
+    assert.equal(byKey.get("RIGHTMOVE").fit, "LOW");
+    const order = ["STRONG", "POSSIBLE", "NEEDS_INFO", "LOW", "NOT_ELIGIBLE"];
+    for (let i = 1; i < r1.body.data.length; i++) assert.ok(order.indexOf(r1.body.data[i - 1].fit) <= order.indexOf(r1.body.data[i].fit), "best fits first");
+    assert.equal(Object.values(r1.body.counts as Record<string, number>).reduce((x, y) => x + y, 0), r1.body.data.length);
+
+    const r2 = await get(agent, `/properties/${bare.id}/recommendations`);
+    const bare2 = new Map<string, any>(r2.body.data.map((x: any) => [x.key, x]));
+    assert.equal(bare2.get("SPITI24").fit, "NEEDS_INFO", "no approved photo");
+    assert.ok(bare2.get("SPITI24").constraints.includes("Δεν υπάρχει εγκεκριμένη φωτογραφία."));
+    assert.ok(bare2.get("KYERO").constraints.some((c: string) => c.includes("αγγλικός")), "foreign destinations need English");
+    assert.equal((await get(agent, "/properties/no-such/recommendations")).status, 404);
+    assert.equal((await get(viewer, `/properties/${rich.id}/recommendations`)).status, 403);
+    assert.equal((await get(null, `/properties/${rich.id}/recommendations`)).status, 401);
+  });
+
   it("needs a signed-in agent or above", async () => {
     assert.equal((await get(null, "/distribution/portals")).status, 401);
     assert.equal((await get(viewer, "/distribution/portals")).status, 403);
