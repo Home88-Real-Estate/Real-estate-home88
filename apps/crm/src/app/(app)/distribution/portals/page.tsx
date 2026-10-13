@@ -83,9 +83,10 @@ export default async function DistributionPortalsPage({ searchParams }: { search
                 </p>
                 {r.note && <p>{r.note}</p>}
                 {r.caution && <p className="notice notice--warn">{r.caution}</p>}
+                {r.live?.configured && !r.live.lastSuccessAt && <p className="hint">Έχουν καταχωρηθεί στοιχεία λογαριασμού.</p>}
                 {r.live?.lastSuccessAt && <p className="hint">Τελευταίος επιτυχής συγχρονισμός: {formatDateTime(r.live.lastSuccessAt)}</p>}
                 {r.live?.lastError && <p className="hint">Τελευταίο σφάλμα: {r.live.lastError}</p>}
-                {r.catalogCode && <p><Link href={`/settings/portals/${r.catalogCode}`}>Ρύθμιση σύνδεσης</Link></p>}
+                {r.catalogCode && <p><Link href={`/settings/portals/${r.catalogCode}`}>{r.live?.configured ? "Στοιχεία λογαριασμού" : "Ρύθμιση λογαριασμού"}</Link></p>}
               </div>
             </li>
           ))}

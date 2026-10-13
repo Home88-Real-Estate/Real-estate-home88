@@ -17,6 +17,8 @@
  * secret value — only the names of secret fields.
  */
 
+import { PORTAL_DIRECTORY } from "./portal-directory";
+
 import { AI_MODELS, AI_PROVIDERS } from "./ai";
 import { zonedTime } from "./date-range";
 
@@ -905,6 +907,8 @@ export type PortalField = {
   type: "text" | "email" | "tel" | "url" | "select" | "secret";
   options?: readonly SettingsOption[];
   help?: string;
+  /** Not needed to call the portal configured (kept for the day an adapter uses it). */
+  optional?: boolean;
 };
 
 export type PortalCatalogEntry = {
@@ -921,7 +925,25 @@ export type PortalCatalogEntry = {
  * Portals the framework supports. Listing one here says nothing about whether
  * HOME88 has an account with it: every portal starts disabled and unconfigured.
  */
-export const PORTAL_CATALOG: readonly PortalCatalogEntry[] = [
+/**
+ * What can be recorded for a destination whose own fields are not known yet:
+ * the account reference and, optionally, the login details the portal issued.
+ * They are stored the same way as every portal's (secrets sealed on the server)
+ * and wait for the adapter; nothing is sent anywhere because they exist.
+ */
+export const GENERIC_PORTAL_FIELDS: readonly PortalField[] = [
+  { key: "accountRef", label: "Κωδικός λογαριασμού ή πελάτη στο portal", type: "text", help: "Όπως τον έδωσε το portal όταν ενεργοποιήθηκε ο λογαριασμός σας." },
+  { key: "username", label: "Όνομα χρήστη", type: "text", optional: true },
+  { key: "contactEmail", label: "Email επικοινωνίας με το portal", type: "email", optional: true },
+  { key: "apiKey", label: "API key ή token", type: "secret", optional: true },
+  { key: "password", label: "Κωδικός", type: "secret", optional: true },
+];
+
+const withFields = (e: PortalCatalogEntry): PortalCatalogEntry => (e.fields.length > 0 ? e : { ...e, fields: GENERIC_PORTAL_FIELDS });
+
+const DIRECTORY_TRANSPORT: Record<string, PortalCatalogEntry["transport"]> = { API: "API", XML_FEED: "XML_FEED", CSV_FEED: "CSV_FEED", JSON_FEED: "JSON_FEED" };
+
+const BASE_PORTALS: readonly PortalCatalogEntry[] = [
   {
     code: "SPITOGATOS",
     name: "Spitogatos",
@@ -983,6 +1005,18 @@ export const PORTAL_CATALOG: readonly PortalCatalogEntry[] = [
   { code: "CUSTOM_JSON", name: "Άλλη ροή JSON", transport: "JSON_FEED", fields: [{ key: "label", label: "Περιγραφή", type: "text" }] },
 ];
 
+/**
+ * Every destination in the directory can be set up: the ones with an integration
+ * keep their own fields; the rest take the generic account fields until their
+ * specification is confirmed and an adapter exists.
+ */
+export const PORTAL_CATALOG: readonly PortalCatalogEntry[] = [
+  ...BASE_PORTALS.map(withFields),
+  ...PORTAL_DIRECTORY.filter((d) => !BASE_PORTALS.some((p) => p.code === d.key)).map(
+    (d): PortalCatalogEntry => ({ code: d.key, name: d.name, transport: DIRECTORY_TRANSPORT[d.delivery] ?? "MANUAL", fields: GENERIC_PORTAL_FIELDS, note: d.note }),
+  ),
+];
+
 export function portalCatalogEntry(code: string): PortalCatalogEntry | undefined {
   return PORTAL_CATALOG.find((p) => p.code === code.toUpperCase());
 }
@@ -1015,7 +1049,7 @@ export function portalVerification(code: string): ProviderVerification {
 }
 
 export const PORTAL_STATUS_LABELS: Record<string, string> = {
-  PLANNED: "Σε προγραμματισμό",
+  PLANNED: "Αναμένει ενσωμάτωση",
   NOT_CONFIGURED: "Δεν έχει ρυθμιστεί",
   CONFIGURED: "Ρυθμίστηκε",
   CONNECTED: "Συνδεδεμένο",

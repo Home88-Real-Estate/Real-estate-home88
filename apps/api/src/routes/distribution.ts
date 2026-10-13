@@ -38,7 +38,7 @@ import { notFound } from "../lib/errors";
 import { db } from "../lib/prisma";
 import { requireRole } from "../plugins/auth";
 import { buildPropertyWhere } from "./properties";
-import { portalView } from "./settings";
+import { loadPortalViewData, portalView } from "./settings";
 
 const portalSchema = z.object({ code: z.string().trim().min(1).max(40), accountId: z.string().trim().min(1).max(40), environment: z.enum(["TEST", "PRODUCTION"]) }).strict();
 
@@ -84,13 +84,14 @@ async function resolveSelection(selection: z.infer<typeof selectionSchema>, user
 /** The directory with live status from the portal framework (adapter, account, last sync). */
 async function loadDirectoryRows(): Promise<DirectoryRow[]> {
   const rows: DirectoryRow[] = [];
+  const shared = await loadPortalViewData();
   for (const entry of PORTAL_DIRECTORY) {
     let live: DirectoryRow["live"] = null;
     let status = distributionStatus(entry, null);
     if (entry.catalogCode) {
-      const view = await portalView(entry.catalogCode, false);
+      const view = await portalView(entry.catalogCode, false, shared);
       status = distributionStatus(entry, { hasAdapter: Boolean(getAdapter(entry.catalogCode)), status: view.integrationStatus });
-      live = { lastSuccessAt: view.lastSuccessAt, lastError: view.lastError, enabled: view.enabled };
+      live = { lastSuccessAt: view.lastSuccessAt, lastError: view.lastError, enabled: view.enabled, configured: view.hasRow && view.missing.length === 0 };
     }
     rows.push({ ...entry, status, live });
   }

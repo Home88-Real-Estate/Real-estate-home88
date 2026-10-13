@@ -18,7 +18,7 @@ export function portalProvider(code: string): PortalProvider | null {
     hasAdapter: Boolean(getAdapter(entry.code)),
     missing(values, secretsConfigured) {
       return entry.fields
-        .filter((f) => f.key !== "jamesEditionId" && f.key !== "label" && f.key !== "officePhone2")
+        .filter((f) => !f.optional && f.key !== "jamesEditionId" && f.key !== "label" && f.key !== "officePhone2")
         .filter((f) => (f.type === "secret" ? !secretsConfigured[f.key] : !values[f.key]))
         .map((f) => f.label);
     },
