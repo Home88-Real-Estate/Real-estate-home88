@@ -9,6 +9,7 @@ import { accountRoutes } from "./routes/account";
 import { authRoutes } from "./routes/auth";
 import { contactRoutes } from "./routes/contacts";
 import { dashboardRoutes } from "./routes/dashboard";
+import { dashboardHomeRoutes } from "./routes/dashboard-home";
 import { documentRoutes } from "./routes/documents";
 import { healthRoutes } from "./routes/health";
 import { invitationRoutes } from "./routes/invitations";
@@ -139,6 +140,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(viewingRoutes, { prefix: "/api" });
   await app.register(requestRoutes, { prefix: "/api" });
   await app.register(dashboardRoutes, { prefix: "/api" });
+  await app.register(dashboardHomeRoutes, { prefix: "/api" });
   await app.register(settingsRoutes, { prefix: "/api" });
   await app.register(transactionRoutes, { prefix: "/api" });
   await app.register(sellerRoutes, { prefix: "/api" });
