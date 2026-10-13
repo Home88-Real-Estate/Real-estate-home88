@@ -291,6 +291,42 @@ describe("bulk portal distribution (real Postgres)", { skip: !url && "TEST_DATAB
     assert.equal((await call(c.viewer, "GET", "/distribution/properties")).status, 403);
   });
 
+  it("a bulk withdrawal that looks like a mistake is held until a person explicitly confirms it", async () => {
+    const portal = await db().portal.findUniqueOrThrow({ where: { id: xeId } });
+    const original = portal.settings;
+    try {
+      // Make the guard sensitive so a small withdrawal trips it regardless of how many listings other tests left.
+      await db().portal.update({ where: { id: xeId }, data: { settings: { ...((original ?? {}) as object), publicationGuard: { maxDropPercent: 0.01, minPreviousForPercent: 1 } } } });
+      const props = await Promise.all([make(), make()]);
+      const ids = props.map((p) => p.id);
+      const up = await create(c.manager, "publish", ids);
+      assert.equal((await drain(c.manager, up.body.id)).counts.SUCCEEDED, 2);
+      assert.deepEqual((await plan(c.manager, "publish", [(await make()).id])).body.guards, [], "publishing never trips the removal guard");
+
+      const held = await plan(c.manager, "unpublish", ids);
+      assert.equal(held.status, 200, JSON.stringify(held.body));
+      assert.deepEqual(held.body.summary, { ready: 0, blocked: 2 });
+      assert.equal(held.body.guards.length, 1);
+      assert.deepEqual([held.body.guards[0].portalCode, held.body.guards[0].removing, held.body.guards[0].confirmed], ["XE_GR", 2, false]);
+      assert.ok(held.body.guards[0].message.includes("επιβεβαίωση"));
+      assert.ok(held.body.items.every((i: any) => i.blockers[0].includes("επιβεβαίωση")));
+      assert.equal((await create(c.manager, "unpublish", ids)).status, 400, "no batch is created while the guard holds everything");
+      for (const id of ids) assert.equal((await listing(id))?.state, "PUBLISHED", "nothing was withdrawn");
+
+      const confirmed = await plan(c.manager, "unpublish", ids, { confirmMassRemoval: true });
+      assert.deepEqual([confirmed.body.summary.ready, confirmed.body.guards[0].confirmed], [2, true]);
+      const down = await create(c.manager, "unpublish", ids, { confirmMassRemoval: true });
+      assert.equal(down.status, 201, JSON.stringify(down.body));
+      assert.equal((await drain(c.manager, down.body.id)).counts.SUCCEEDED, 2);
+      for (const id of ids) assert.equal((await listing(id))?.state, "REMOVED");
+      const audit = await db().auditLog.findFirst({ where: { entity: "PORTAL", entityId: down.body.id, action: "portal_batch_created" } });
+      assert.ok(JSON.stringify(audit?.changes).includes("massRemovalConfirmed"), "the confirmation is on the record");
+      assert.equal((await plan(c.agent, "unpublish", ids, { confirmMassRemoval: true })).status, 403, "confirming does not grant the right to withdraw");
+    } finally {
+      await db().portal.update({ where: { id: xeId }, data: { settings: (original ?? {}) as never } });
+    }
+  });
+
   it("nothing external was contacted", () => {
     assert.deepEqual(blocked, []);
   });

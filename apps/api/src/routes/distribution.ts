@@ -57,6 +57,8 @@ const planSchema = z
     selection: selectionSchema,
     portals: z.array(portalSchema).min(1).max(20),
     idempotencyKey: z.string().trim().min(8).max(80).optional(),
+    /** Withdraw only: acknowledges a removal the size guard held back. */
+    confirmMassRemoval: z.boolean().optional(),
   })
   .strict();
 
@@ -169,7 +171,7 @@ export async function distributionRoutes(app: FastifyInstance): Promise<void> {
     const viewer = { id: user.id, role: user.role };
     await assertMayBulk(viewer, body.operation);
     const { ids, matched } = await resolveSelection(body.selection, user.id);
-    const plan = await planBatch({ operation: body.operation, propertyIds: ids, portals: body.portals as PortalSelection[], viewer });
+    const plan = await planBatch({ operation: body.operation, propertyIds: ids, portals: body.portals as PortalSelection[], viewer, confirmMassRemoval: body.confirmMassRemoval });
     return { ...plan, matched, items: plan.items.filter((i) => !i.ready).slice(0, 100), readyPreview: plan.items.filter((i) => i.ready).slice(0, 20) };
   });
 
@@ -179,7 +181,7 @@ export async function distributionRoutes(app: FastifyInstance): Promise<void> {
     const viewer = { id: user.id, role: user.role };
     await assertMayBulk(viewer, body.operation);
     const { ids } = await resolveSelection(body.selection, user.id);
-    const plan = await planBatch({ operation: body.operation as BatchOperation, propertyIds: ids, portals: body.portals as PortalSelection[], viewer });
+    const plan = await planBatch({ operation: body.operation as BatchOperation, propertyIds: ids, portals: body.portals as PortalSelection[], viewer, confirmMassRemoval: body.confirmMassRemoval });
     const created = await createBatch({
       operation: body.operation,
       plan,

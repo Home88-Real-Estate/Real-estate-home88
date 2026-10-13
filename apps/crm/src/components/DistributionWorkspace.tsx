@@ -39,6 +39,7 @@ export function DistributionWorkspace({ rows, total, page, limit, maxBatch, filt
   const [picked, setPicked] = useState<Record<string, boolean>>({});
   const [accounts, setAccounts] = useState<Record<string, string>>(() => Object.fromEntries(destinations.map((d) => [d.code, (d.accounts.find((a) => a.enabled) ?? d.accounts[0])?.id ?? ""])));
   const [plan, setPlan] = useState<Plan | null>(null);
+  const [confirmRemoval, setConfirmRemoval] = useState(false);
   const [batch, setBatch] = useState<Batch | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, startTransition] = useTransition();
@@ -85,7 +86,7 @@ export function DistributionWorkspace({ rows, total, page, limit, maxBatch, filt
   const check = () => {
     setError(null); setBatch(null);
     startTransition(async () => {
-      const r = await planDistribution(operation, selection(), choices());
+      const r = await planDistribution(operation, selection(), choices(), confirmRemoval);
       if (r.ok) setPlan(r.data); else { setPlan(null); setError(r.message); }
     });
   };
@@ -105,7 +106,7 @@ export function DistributionWorkspace({ rows, total, page, limit, maxBatch, filt
     setError(null);
     if (!key.current) key.current = `ui-${crypto.randomUUID()}`;
     startTransition(async () => {
-      const r = await createDistribution(operation, selection(), choices(), key.current);
+      const r = await createDistribution(operation, selection(), choices(), key.current, confirmRemoval);
       if (!r.ok) { setError(r.message); return; }
       key.current = "";
       setPlan(null);
@@ -165,7 +166,7 @@ export function DistributionWorkspace({ rows, total, page, limit, maxBatch, filt
           ) : (
             <>
               <label>Ενέργεια{" "}
-                <select className="select" value={operation} onChange={(e) => { setOperation(e.target.value as Operation); setPlan(null); }} disabled={running}>
+                <select className="select" value={operation} onChange={(e) => { setOperation(e.target.value as Operation); setPlan(null); setConfirmRemoval(false); }} disabled={running}>
                   {(Object.keys(OP_LABEL) as Operation[]).map((o) => <option key={o} value={o}>{OP_LABEL[o]}</option>)}
                 </select>
               </label>
@@ -196,6 +197,13 @@ export function DistributionWorkspace({ rows, total, page, limit, maxBatch, filt
             <div className="distws__plan" role="status">
               <p><strong>{plan.summary.ready}</strong> έτοιμες · <strong>{plan.summary.blocked}</strong> μπλοκαρισμένες από {plan.propertyCount} ακίνητα × {plan.portals.length} portal. Τίποτα δεν έχει σταλεί ακόμη.</p>
               {plan.readyPreview.some((i) => i.mock) && <p className="hint">Ο επιλεγμένος λογαριασμός είναι mock: δεν θα γίνει επικοινωνία με πραγματικό portal.</p>}
+              {plan.guards.length > 0 && (
+                <div className="notice notice--warn" role="alert">
+                  {plan.guards.map((g) => <p key={g.portalCode}>{g.message}</p>)}
+                  <label className="pubchan__pick"><input type="checkbox" checked={confirmRemoval} onChange={(e) => { setConfirmRemoval(e.target.checked); setPlan(null); }} />
+                    {" "}Επιβεβαιώνω τη μαζική απόσυρση. Μετά πατήστε ξανά «Έλεγχος επιλογής».</label>
+                </div>
+              )}
               {plan.blockerGroups.length > 0 && (
                 <ul className="pubchan__blockers">{plan.blockerGroups.slice(0, 8).map((g) => <li key={g.message}>{g.count} × {g.message}</li>)}</ul>
               )}
