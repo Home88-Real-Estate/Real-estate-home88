@@ -39,3 +39,15 @@ test("documents are never written with a public ACL", () => {
   assert.ok(!/ACL\s*:/.test(source), "no ACL is ever set on a document object");
   assert.ok(!/public-read/i.test(source));
 });
+
+
+test("Estate+ import keys stay inside the private import prefix and validate generated keys", async () => {
+  const { isLegacyImportKey, legacyImportKey } = await import("./document-store");
+  const key = legacyImportKey(new Date(Date.UTC(2026, 10, 19)));
+
+  assert.match(key, /^private\/legacy-imports\/2026\/11\/[0-9a-f]{32}\.csv$/);
+  assert.equal(isLegacyImportKey(key), true);
+  assert.equal(isLegacyImportKey("private/legacy-imports/2026/11/../../documents/secret.csv"), false);
+  assert.equal(isLegacyImportKey("private/documents/2026/11/0123456789abcdef0123456789abcdef.csv"), false);
+  assert.equal(isLegacyImportKey("legacy-imports/2026/11/0123456789abcdef0123456789abcdef.csv"), false);
+});
