@@ -1041,7 +1041,6 @@ p { margin: 0 0 1em; }
 }
 .service-card:hover { box-shadow: 0 14px 34px rgba(16, 42, 84, 0.12); transform: translateY(-3px); }
 .service-card:focus-visible { outline: 3px solid var(--home88-blue); outline-offset: 3px; }
-}
 .service-card h3 { font-size: 1.15rem; margin: 0 0 6px; }
 .service-card p { margin: 0 0 14px; font-size: 0.94rem; color: var(--ink-muted); }
 .service-card__cta { margin-top: auto; font-weight: 700; color: var(--home88-blue); }
