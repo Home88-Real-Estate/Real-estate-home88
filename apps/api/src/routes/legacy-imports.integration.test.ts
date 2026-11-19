@@ -138,7 +138,7 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
     assert.equal(JSON.stringify(audit).includes("Μαρία Παπαδοπούλου"), false, "audit rows contain no source values");
     assert.equal(JSON.stringify(audit).includes("6900000000"), false, "audit rows contain no source phone numbers");
 
-    const mappings = await db().legacyEntityMapping.count({ where: { sourceSystem: "ESTATE_PLUS" } });
+    const mappings = await db().legacyEntityMapping.count({ where: { sourceSystem: "ESTATE_PLUS", importBatchId: batchId } });
     assert.equal(mappings, 0, "staging does not create legacy mappings or canonical CRM records");
   } finally {
     setDocumentStore(null);
