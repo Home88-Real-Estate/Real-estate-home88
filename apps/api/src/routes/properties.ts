@@ -386,12 +386,16 @@ export function buildPropertyWhere(q: PropertySearchInput, userId: string): Pris
   return where;
 }
 
-function orderBy(sort: PropertySearchInput["sort"]): Prisma.PropertyOrderByWithRelationInput {
+function orderBy(
+  sort: PropertySearchInput["sort"],
+  listingType?: PropertySearchInput["listingType"],
+): Prisma.PropertyOrderByWithRelationInput {
+  const priceField = listingType === "RENT" ? "monthlyRent" : "price";
   switch (sort) {
     case "price_asc":
-      return { price: "asc" };
+      return { [priceField]: "asc" };
     case "price_desc":
-      return { price: "desc" };
+      return { [priceField]: "desc" };
     case "area_desc":
       return { area: "desc" };
     case "area_asc":
@@ -442,7 +446,7 @@ export async function propertyRoutes(app: FastifyInstance): Promise<void> {
       db().property.findMany({
         where,
         select: LIST_SELECT,
-        orderBy: orderBy(q.sort),
+        orderBy: orderBy(q.sort, q.listingType),
         skip: (q.page - 1) * q.limit,
         take: q.limit,
       }),
