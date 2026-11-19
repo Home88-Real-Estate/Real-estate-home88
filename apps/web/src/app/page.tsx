@@ -112,7 +112,7 @@ export default async function HomePage() {
         style={heroImage ? { backgroundImage: `url(${heroImage})` } : undefined}
       >
         <div className="wrap hero__inner">
-            />
+          <div className="hero__lead">
             <div className="hero__copy">
               <span className="hero__eyebrow">Πωλήσεις · Ενοικιάσεις · Αναθέσεις</span>
               <span className="hero__rule" aria-hidden="true" />
