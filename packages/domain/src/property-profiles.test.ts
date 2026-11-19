@@ -106,3 +106,30 @@ test("completeness names what is missing, per type", () => {
   assert.ok(hotel.missing.includes("Κλίνες"));
   assert.ok(!hotel.missing.includes("Υπνοδωμάτια"), "hotels have no bedrooms requirement");
 });
+
+test("land intake supports the requested land subtypes and planning details", () => {
+  const { values, issues } = normalizeForProfile({
+    propertyType: "PLOT",
+    listingType: "ANTIPAROXI",
+    status: "ACTIVE",
+    area: 1200,
+    priceOnRequest: true,
+    details: {
+      landSubtype: "AGRICULTURAL",
+      buildingCoefficient: "0.4",
+      remainingBuildableArea: "350",
+      accessFrom: "DIRT",
+      landSlope: "GENTLE",
+      distanceToSea: "2.5",
+    },
+  });
+  assert.deepEqual(issues, []);
+  assert.deepEqual(values.details, {
+    landSubtype: "AGRICULTURAL",
+    buildingCoefficient: 0.4,
+    remainingBuildableArea: 350,
+    accessFrom: "DIRT",
+    landSlope: "GENTLE",
+    distanceToSea: 2.5,
+  });
+});

@@ -197,12 +197,6 @@ export function Shell({
           ))}
         </div>
 
-        <div className="nav__brandpanel" aria-hidden="true">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={`${CRM_BASE_PATH}/brand/login-fox.webp`} alt="" width={120} height={120} loading="lazy" />
-          <p>Το ακίνητό σας, στα σωστά χέρια.</p>
-        </div>
-
         <div className="nav__footer">
           {siteUrl && (
             <a

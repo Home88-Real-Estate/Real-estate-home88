@@ -38,31 +38,24 @@ const TYPE_OPTIONS: Array<[string, string]> = [
   ["OTHER", "Άλλο"],
 ];
 
-// The HOME88 fox mascot: one card per thing a visitor usually comes to do.
-const SERVICES: Array<{ title: string; text: string; href: string; cta: string; image: string; alt: string }> = [
+const SERVICES: Array<{ title: string; text: string; href: string; cta: string }> = [
   {
     title: "Πουλάτε ή νοικιάζετε;",
     text: "Αναθέστε μας το ακίνητό σας και αναλαμβάνουμε την προβολή και τους ενδιαφερόμενους.",
     href: "/submit",
     cta: "Ανάθεση ακινήτου",
-    image: "/images/fox/fox-house.webp",
-    alt: "Η αλεπού της HOME88 δίπλα σε ένα σπιτάκι",
   },
   {
     title: "Ψάχνετε ακίνητο;",
     text: "Πείτε μας τι χρειάζεστε και θα σας στείλουμε τα ακίνητα που ταιριάζουν.",
     href: "/request",
     cta: "Ζητώ ακίνητο",
-    image: "/images/fox/fox-keys.webp",
-    alt: "Η αλεπού της HOME88 κρατά κλειδιά σπιτιού",
   },
   {
     title: "Πόσο αξίζει το ακίνητό σας;",
     text: "Ζητήστε εκτίμηση της εμπορικής αξίας από σύμβουλο που γνωρίζει την περιοχή.",
     href: "/valuation",
     cta: "Ζητήστε εκτίμηση",
-    image: "/images/fox/fox-view.webp",
-    alt: "Η αλεπού της HOME88 κοιτάζει τη θάλασσα από μια βεράντα",
   },
 ];
 
@@ -119,20 +112,7 @@ export default async function HomePage() {
         style={heroImage ? { backgroundImage: `url(${heroImage})` } : undefined}
       >
         <div className="wrap hero__inner">
-          {/* The mascot stands left of the copy and gestures toward the headline;
-              it is decorative, so it carries no alt text. */}
           <div className="hero__lead">
-            <img
-              className="hero__mascot"
-              src="/images/fox/home88-fox-hero.webp"
-              srcSet="/images/fox/home88-fox-hero-400.webp 406w, /images/fox/home88-fox-hero.webp 771w"
-              sizes="(min-width: 900px) 21vw, 30vw"
-              width={771}
-              height={760}
-              alt=""
-              aria-hidden="true"
-              fetchPriority="high"
-            />
             <div className="hero__copy">
               <span className="hero__eyebrow">Πωλήσεις · Ενοικιάσεις · Αναθέσεις</span>
               <span className="hero__rule" aria-hidden="true" />
@@ -166,6 +146,14 @@ export default async function HomePage() {
               <label>
                 <input type="radio" name="listingType" value="RENT" />
                 <span>Ενοικίαση</span>
+              </label>
+              <label>
+                <input type="radio" name="listingType" value="ANTIPAROXI" />
+                <span>Αντιπαροχή</span>
+              </label>
+              <label>
+                <input type="radio" name="listingType" value="SALE_ANTIPAROXI" />
+                <span>Πώληση + Αντιπαροχή</span>
               </label>
             </div>
 
@@ -295,18 +283,6 @@ export default async function HomePage() {
               Μια εταιρεία που γνωρίζει την αγορά και στηρίζει κάθε συναλλαγή.
             </p>
           </div>
-          <figure className="brand-banner">
-            <img
-              src="/images/fox/home88-fox-banner.webp"
-              srcSet="/images/fox/home88-fox-banner-960.webp 960w, /images/fox/home88-fox-banner.webp 1536w"
-              sizes="(min-width: 1240px) 1180px, 100vw"
-              width={1536}
-              height={1024}
-              alt="Η αλεπού της HOME88 με ένα σπιτάκι σε βεράντα με θέα στη θάλασσα, δίπλα στο λογότυπο HOME 88"
-              loading="lazy"
-              decoding="async"
-            />
-          </figure>
           <div className="value-grid">
             {VALUES.map((v) => (
               <div className="value" key={v.title}>
@@ -332,7 +308,6 @@ export default async function HomePage() {
           <div className="service-grid">
             {SERVICES.map((s) => (
               <Link key={s.href} href={s.href} className="service-card">
-                <img src={s.image} alt={s.alt} width={440} height={440} loading="lazy" decoding="async" />
                 <h3>{s.title}</h3>
                 <p>{s.text}</p>
                 <span className="service-card__cta">{s.cta} →</span>
@@ -438,18 +413,6 @@ export default async function HomePage() {
                 ) : null}
               </div>
             </div>
-            {/* Shown whole at its own 16:9 ratio, so the fox, phone and pendant are never cropped. */}
-            <img
-              className="contact-cta__visual"
-              src="/images/fox/home88-fox-contact.webp"
-              srcSet="/images/fox/home88-fox-contact-840.webp 840w, /images/fox/home88-fox-contact.webp 1674w"
-              sizes="(min-width: 900px) 50vw, 100vw"
-              width={1674}
-              height={940}
-              alt="Η αλεπού της HOME88 σε παραθαλάσσια βεράντα"
-              loading="lazy"
-              decoding="async"
-            />
           </div>
         </div>
       </section>

@@ -6,14 +6,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { CapturePanel } from "@/components/intake/CapturePanel";
 import { FeatureChips, FieldPicker, FieldRow, ORIGIN_LABEL } from "@/components/intake/fields";
-import { LiveConversation, LiveStore } from "@/components/intake/LiveConversation";
 import { LocationPicker } from "@/components/intake/LocationPicker";
 import { OfflineDraftEditor } from "@/components/offline/OfflineDraftEditor";
 import { DocumentChecklist } from "@/components/property/DocumentChecklist";
 import { SyncStatus } from "@/components/offline/OfflineWorkspace";
 import { Stepper, type StepIndex, type StepState } from "@/components/intake/steps";
 import { VoiceOrb, type MicState } from "@/components/intake/VoiceOrb";
-import { ActionButton, ActionLink, Segmented, Toggle } from "@/components/ui/ActionButton";
+import { ActionButton, ActionLink, Segmented } from "@/components/ui/ActionButton";
 import { PendingMedia, type PendingFile } from "@/components/PendingMedia";
 import { browserIO, makeLabelPreview, persistOrder, saveAltText } from "@/lib/browser-upload";
 import { listenForSpeech, type Listener } from "@/lib/hands-free";
@@ -36,24 +35,6 @@ const EXAMPLES = [
   { title: "Οικόπεδο", text: "Πωλείται οικόπεδο [εμβαδόν] τ.μ. στην περιοχή [περιοχή], εντός σχεδίου, στην τιμή των [ποσό] ευρώ." },
 ];
 const PLACEHOLDER = /\[[^\]]{1,40}\]/;
-
-/**
- * A tiny silent clip, played on the first tap so iOS lets later replies play
- * without another tap. Built as a blob: URL because the CRM's CSP allows blob:
- * media but not data: media.
- */
-function silentClipUrl(): string {
-  const samples = 800; // 0.1 s at 8 kHz
-  const bytes = new Uint8Array(44 + samples);
-  const view = new DataView(bytes.buffer);
-  const tag = (o: number, t: string) => [...t].forEach((c, i) => view.setUint8(o + i, c.charCodeAt(0)));
-  tag(0, "RIFF"); view.setUint32(4, 36 + samples, true); tag(8, "WAVE"); tag(12, "fmt ");
-  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
-  view.setUint32(24, 8000, true); view.setUint32(28, 8000, true); view.setUint16(32, 1, true); view.setUint16(34, 8, true);
-  tag(36, "data"); view.setUint32(40, samples, true);
-  bytes.fill(128, 44); // 8-bit PCM silence
-  return URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
-}
 
 function draftKey(id: string) {
   return `h88.intake.draft.${id}`;
@@ -111,27 +92,17 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
   const [micError, setMicError] = useState<string | null>(null);
   const [micStream, setMicStream] = useState<MediaStream | null>(null);
   const [recSeconds, setRecSeconds] = useState(0);
-  /** live = spoken two-way conversation; voice = record, check the text, send; type = writing. */
-  const [mode, setMode] = useState<"live" | "voice" | "type">("voice");
-  const [liveAvailable, setLiveAvailable] = useState(false);
-  /** The live conversation outlives re-layouts of the page; it ends when the agent ends it or leaves. */
-  const [liveStore] = useState(() => new LiveStore());
-  useEffect(() => () => liveStore.dispose(), [liveStore]);
-  // Leaving the conversation for recording or typing ends it: the microphone is never left open in the background.
-  useEffect(() => {
-    if (mode !== "live") void liveStore.stop();
-  }, [mode, liveStore]);
+  /** Voice records and verifies one description; typing remains available as an alternative. */
+  const [mode, setMode] = useState<"voice" | "type">("voice");
   const [maxChars, setMaxChars] = useState(4000);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [saveFlash, setSaveFlash] = useState(false);
   const [online, setOnline] = useState(true);
-  const [showLog, setShowLog] = useState(false);
   const [visitedReview, setVisitedReview] = useState(false);
   const [netDown, setNetDown] = useState(false);
   const [offlineDraft, setOfflineDraft] = useState<OfflineDraft | null>(null);
   const [deviceNote, setDeviceNote] = useState<string | null>(null);
   const [voiceNote, setVoiceNote] = useState<string | null>(null);
-  const [needsTap, setNeedsTap] = useState(false);
   const [photos, setPhotos] = useState<PendingFile[]>([]);
   const [progress, setProgress] = useState<Record<string, UploadUpdate> | undefined>();
   const [created, setCreated] = useState<{ id: string; reference: string } | null>(null);
@@ -150,10 +121,8 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
   const [pickedKeys, setPickedKeys] = useState<string[]>([]);
 
   const progressRef = useRef<Record<string, UploadUpdate>>({});
-  const audioRef = useRef<HTMLAudioElement | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const stopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const logRef = useRef<HTMLDivElement>(null);
   // Hands-free mode runs from timers and audio callbacks, which must always see the latest state.
   const handsFreeRef = useRef(false);
   const listenerRef = useRef<Listener | null>(null);
@@ -186,9 +155,6 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
         const [status, list] = await Promise.all([intakeApi.status(), intakeApi.list()]);
         if (!alive) return;
         setAvailable(status.available);
-        // The conversation is the default where the server offers it; recording and typing stay one tap away.
-        setLiveAvailable(Boolean(status.live?.available));
-        if (status.live?.available) setMode("live");
         setMaxChars(status.maxUtteranceChars);
         setResumable(list.sessions);
         if (resumeId) {
@@ -284,10 +250,6 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
     }
   }
 
-  useEffect(() => {
-    logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" });
-  }, [session?.turns.length]);
-
   // Unsent text and unsent photos survive an accidental swipe-away or reload warning.
   useEffect(() => {
     if (session) writeDraft(session.id, input);
@@ -317,49 +279,6 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
     if (session) writeLabels(session.id, labels);
   }, [labels, session]);
 
-  // --- Sound ---------------------------------------------------------------------
-  function unlockAudio() {
-    if (!audioRef.current) audioRef.current = new Audio();
-    const el = audioRef.current;
-    if (el.dataset.unlocked) return;
-    el.dataset.unlocked = "1";
-    el.src = silentClipUrl();
-    void el.play().catch(() => undefined);
-  }
-
-  /** Speaks the assistant's latest reply. Resolves when it has finished playing (or could not play), so hands-free mode knows when to listen again. */
-  async function speak(id: string): Promise<void> {
-    setVoiceNote(null);
-    try {
-      const out = await intakeApi.speak(id);
-      if (!out.audio) return;
-      const bytes = Uint8Array.from(atob(out.audio), (c) => c.charCodeAt(0));
-      const url = URL.createObjectURL(new Blob([bytes], { type: out.mimeType ?? "audio/wav" }));
-      const el = (audioRef.current ??= new Audio());
-      el.src = url;
-      const finished = new Promise<void>((resolve) => {
-        const end = () => {
-          URL.revokeObjectURL(url);
-          el.onended = null;
-          el.onerror = null;
-          resolve();
-        };
-        el.onended = end;
-        el.onerror = end;
-        setTimeout(end, 90_000); // never wait forever
-      });
-      try {
-        await el.play();
-        setNeedsTap(false);
-        await finished;
-      } catch {
-        setNeedsTap(true); // the browser wants a tap before it plays sound
-      }
-    } catch {
-      setVoiceNote("Η φωνή δεν είναι διαθέσιμη αυτή τη στιγμή· συνεχίζουμε γραπτά.");
-    }
-  }
-
   // --- Recording -----------------------------------------------------------------
   /**
    * Starts listening. By default the agent presses the button again to stop. In hands-free mode the
@@ -372,7 +291,6 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
   }
 
   async function startRecording(options: { handsFree?: boolean } = {}) {
-    unlockAudio();
     setError(null);
     setVoiceNote(null);
     setMicError(null);
@@ -575,10 +493,9 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // --- Conversation ---------------------------------------------------------------
+  // --- Guided field capture -------------------------------------------------------
   async function send(text = input) {
     if (!text.trim() || busy || PLACEHOLDER.test(text)) return;
-    unlockAudio();
     clearAutoSend();
     const current = await ensureSession();
     if (!current) return;
@@ -591,8 +508,7 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
       setInput("");
       setMic("idle");
       writeDraft(current.id, "");
-      const played = out.session.muted ? Promise.resolve() : speak(out.session.id);
-      if (handsFreeRef.current) void played.then(() => resumeRef.current());
+      setVoiceNote("Η περιγραφή καταχωρήθηκε και τα αναγνωρισμένα στοιχεία ενημερώθηκαν στις αντίστοιχες ενότητες.");
     } catch (e) {
       if (handsFreeRef.current) stopHandsFree(); // never keep sending into an error
       if (e instanceof IntakeRequestError && e.status === 409) {
@@ -678,18 +594,6 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
 
   const sessionRef = useRef(session);
   sessionRef.current = session;
-  /** After a live conversation: draft the listing texts from what was recorded (quietly; the button can do it later). */
-  async function suggestAfterLive() {
-    const s = sessionRef.current;
-    if (!s || s.status !== "ACTIVE" || !s.fields.propertyType || s.fields.descriptionEl) return;
-    try {
-      setSession((await intakeApi.suggest(s.id)).session);
-      setSavedAt(new Date());
-    } catch {
-      // Not needed to continue: the review step has «Πρόταση» and the fields can be written by hand.
-    }
-  }
-
   async function suggest() {
     if (!session) return;
     setBusy(true);
@@ -867,9 +771,6 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
   const locked = busy || done;
   const micBusy = mic === "recording" || mic === "processing" || mic === "requesting_permission";
   const hasPlaceholder = PLACEHOLDER.test(input);
-  const lastAgent = session ? [...session.turns].reverse().find((t) => t.role === "agent") : undefined;
-  const lastAssistant = session ? [...session.turns].reverse().find((t) => t.role === "assistant") : undefined;
-
   function insertText(text: string) {
     setMode("type");
     setInput((cur) => (cur.trim() ? `${cur.trimEnd()} ${text}` : text));
@@ -904,21 +805,10 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
         </div>
       </header>
 
-      {liveAvailable && !done && (
-        <div className="xvoice__modes">
-          <Segmented<"live" | "voice" | "type">
-            label="Τρόπος καταχώρισης"
-            value={mode}
-            disabled={micBusy || busy}
-            onChange={(m) => setMode(m)}
-            options={[
-              { value: "live", label: "Συνομιλία", icon: "chat", title: "Μιλάτε με τον βοηθό σε πραγματικό χρόνο· σας απαντά φωνητικά" },
-              { value: "voice", label: "Ηχογράφηση", icon: "mic", title: "Ηχογραφείτε, ελέγχετε το κείμενο και το στέλνετε" },
-              { value: "type", label: "Γραπτά", icon: "keyboard", title: "Γράφετε την περιγραφή" },
-            ]}
-          />
-        </div>
-      )}
+      <div className="xvoice__greeting" role="status">
+        <strong>Γεια σας!</strong>
+        <span>Ας καταχωρήσουμε το ακίνητο. Μιλήστε ή γράψτε μια περιγραφή και το HOME88 θα οργανώσει τα αναγνωρισμένα στοιχεία στα αντίστοιχα πεδία για έλεγχο.</span>
+      </div>
 
       <div className="xvoice__controls">
         <Segmented<Language>
@@ -935,25 +825,6 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
             { value: "en", label: "English", icon: "globe", title: "Speech recognition and replies in English" },
           ]}
         />
-        {mode !== "live" && <Toggle
-          on={!(session?.muted ?? false)}
-          icon="wave"
-          label={<>Φωνή: <strong>{session?.muted ? "Όχι" : "Ναι"}</strong></>}
-          title="Ο βοηθός διαβάζει δυνατά τις απαντήσεις του"
-          disabled={locked}
-          onChange={async (on) => {
-            const current = await ensureSession();
-            if (current) await editOn(current, { type: "settings", muted: !on });
-          }}
-        />}
-        {mode !== "live" && <Toggle
-          on={handsFree}
-          icon="hand"
-          label={handsFree ? "Χωρίς χέρια: ενεργό" : "Χωρίς χέρια"}
-          title="Μιλάτε χωρίς να πατάτε κουμπί: ο βοηθός ακούει, απαντά και ξανακούει. Πριν από κάθε αποστολή έχετε 3 δευτερόλεπτα να την ακυρώσετε."
-          disabled={done || !available || (busy && !handsFree)}
-          onChange={(on) => (on ? startHandsFree() : stopHandsFree())}
-        />}
       </div>
 
       {!available && (
@@ -963,19 +834,6 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
         </p>
       )}
 
-      {mode === "live" && !done && (
-        <LiveConversation
-          store={liveStore}
-          ensureSession={ensureSession}
-          onSession={(next) => { setSession(next); setSavedAt(new Date()); }}
-          onUseRecorder={() => setMode("voice")}
-          onUseText={() => { setMode("type"); requestAnimationFrame(() => textRef.current?.focus()); }}
-          onReview={() => void goStep(4)}
-          onEnded={() => void suggestAfterLive()}
-          disabled={!available}
-        />
-      )}
-
       {mode === "voice" && (
         <VoiceOrb
           state={mic}
@@ -983,8 +841,8 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
           seconds={recSeconds}
           maxSeconds={MAX_RECORDING_SECONDS}
           thinking={busy && !done}
-          handsFree={handsFree}
-          disabled={done || !available || busy || (handsFree && mic !== "recording")}
+          handsFree={false}
+          disabled={done || !available || busy}
           errorText={micError}
           onPress={pressOrb}
         />
@@ -997,29 +855,7 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
         </div>
       )}
 
-      {handsFree && autoSend && (
-        <div className="xalert xalert--info xhandsfree" role="status" aria-live="polite">
-          <span>Αποστολή σε <strong>{autoSend.left}</strong>…</span>
-          <span className="xhandsfree__buttons">
-            <ActionButton variant="secondary" size="sm" onClick={() => { clearAutoSend(); stopRecording(); }}>Ακύρωση — θα το διορθώσω</ActionButton>
-            <ActionButton variant="primary" size="sm" onClick={() => void send(autoSend.text)}>Στείλε τώρα</ActionButton>
-          </span>
-        </div>
-      )}
-      {handsFree && !autoSend && mic === "transcript_ready" && !busy && (
-        <div className="xalert xalert--info xhandsfree" role="status">
-          <span>Διορθώστε το κείμενο και πατήστε «Αποστολή στον βοηθό»· μετά την απάντηση θα ακούω ξανά.</span>
-          <ActionButton variant="secondary" size="sm" icon="mic" onClick={() => { setInput(""); setMic("idle"); resumeListening(); }}>Άκου ξανά από την αρχή</ActionButton>
-        </div>
-      )}
-      {handsFree && !autoSend && mic === "idle" && !busy && (
-        <div className="xalert xalert--info xhandsfree" role="status">
-          <span>Συνομιλία χωρίς χέρια ενεργή. Θα ακούσω ξανά μόλις απαντήσω.</span>
-          <ActionButton variant="secondary" size="sm" icon="mic" onClick={() => resumeListening()}>Άκου τώρα</ActionButton>
-        </div>
-      )}
-
-      {mode !== "live" && (mode === "type" || input.trim() || mic === "transcript_ready") && !done && (
+      {(mode === "type" || input.trim() || mic === "transcript_ready") && !done && (
         <div className="xcomposer">
           <label htmlFor="intake-text">{mic === "transcript_ready" && mode === "voice" ? "Απομαγνητοφώνηση — ελέγξτε και διορθώστε πριν τη στείλετε" : "Περιγραφή ακινήτου"}</label>
           <textarea
@@ -1041,7 +877,7 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
               {mode === "type" && <ActionButton variant="secondary" size="sm" icon="mic" disabled={!available} onClick={() => setMode("voice")}>Φωνή</ActionButton>}
               {mode === "voice" && mic === "transcript_ready" && !handsFree && <ActionButton variant="secondary" size="sm" icon="mic" disabled={busy || !available} onClick={() => void startRecording()}>Συνέχεια με φωνή</ActionButton>}
               <ActionButton variant="primary" size="sm" iconAfter="arrowRight" loading={busy} loadingLabel="Επεξεργασία…" disabled={!input.trim() || !available || hasPlaceholder || mic === "processing"} onClick={() => void send()}>
-                Αποστολή στον βοηθό
+                Καταχώριση στοιχείων
               </ActionButton>
             </span>
           </div>
@@ -1063,16 +899,16 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
               iconAfter="arrowRight"
               loading={mic === "requesting_permission" || mic === "processing"}
               loadingLabel={mic === "processing" ? "Επεξεργασία…" : "Αναμονή άδειας…"}
-              disabled={!available || busy || handsFree}
+              disabled={!available || busy}
               onClick={() => void startRecording()}
             >
-              {session?.turns.some((t) => t.role === "agent") ? "Συνέχεια με φωνή" : "Έναρξη φωνητικής καταχώρισης"}
+              "Έναρξη φωνητικής καταχώρισης"
             </ActionButton>
           )}
         </div>
       )}
       {mode === "type" && !done && !input.trim() && (
-        <p className="hint xvoice__typing-hint">Γράψτε ελεύθερα, σε ελληνικά ή αγγλικά. Ο βοηθός συμπληρώνει τα πεδία από όσα γράφετε και ρωτά ό,τι λείπει.</p>
+        <p className="hint xvoice__typing-hint">Γράψτε τις πληροφορίες στα ελληνικά ή αγγλικά. Τα αναγνωρισμένα στοιχεία οργανώνονται στα αντίστοιχα πεδία.</p>
       )}
 
       {voiceNote && <p className="xalert" role="status"><Icon name="info" size={18} /><span>{voiceNote}</span></p>}
@@ -1089,47 +925,6 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
         </div>
       ))}
 
-      {mode !== "live" && session && session.turns.length > 0 && (
-        <div className="xconvo" aria-live="polite">
-          {showLog ? (
-            <div className="intake-log" ref={logRef} aria-label="Όλη η συνομιλία">
-              {session.turns.map((t, i) => (
-                <div key={`${t.at}-${i}`} className={t.role === "agent" ? "intake-msg intake-msg--agent" : "intake-msg"}>
-                  <span className="intake-msg__who">{t.role === "agent" ? "Εσείς" : "Βοηθός"}</span>
-                  <p>{t.text}</p>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <>
-              {lastAgent && (
-                <div className="intake-msg intake-msg--agent">
-                  <span className="intake-msg__who">Εσείς</span>
-                  <p>{lastAgent.text}</p>
-                </div>
-              )}
-              {lastAssistant && (
-                <div className="intake-msg xreply">
-                  <span className="intake-msg__who">Βοηθός</span>
-                  <p>{lastAssistant.text}</p>
-                </div>
-              )}
-            </>
-          )}
-          {busy && !done && <div className="intake-msg intake-msg--thinking" role="status">Ο βοηθός ενημερώνει την καταχώριση…</div>}
-          <div className="xconvo__tools">
-            {lastAssistant && !session.muted && (
-              <>
-                <ActionButton variant={needsTap ? "primary" : "ghost"} size="sm" icon="play" onClick={() => { unlockAudio(); void speak(session.id); }}>Ακούστε</ActionButton>
-                <ActionButton variant="ghost" size="sm" icon="stop" onClick={() => audioRef.current?.pause()}>Διακοπή</ActionButton>
-              </>
-            )}
-            {session.asked && !done && <ActionButton variant="ghost" size="sm" disabled={busy} onClick={() => void edit({ type: "skip", key: session.asked!.key })}>Παράλειψη: {session.asked.label}</ActionButton>}
-            {!done && <ActionButton variant="ghost" size="sm" icon="undo" disabled={busy || !session.canUndo} onClick={() => void edit({ type: "undo" })} title={session.canUndo ? "Επαναφέρει την τελευταία αλλαγή σε στοιχείο" : "Δεν υπάρχει αλλαγή για αναίρεση"}>Αναίρεση τελευταίας αλλαγής</ActionButton>}
-            {session.turns.length > 2 && <ActionButton variant="ghost" size="sm" icon="chat" onClick={() => setShowLog((v) => !v)} aria-expanded={showLog}>{showLog ? "Μόνο τα τελευταία" : `Όλη η συνομιλία (${session.turns.length})`}</ActionButton>}
-          </div>
-        </div>
-      )}
     </section>
   );
 

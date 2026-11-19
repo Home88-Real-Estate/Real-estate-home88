@@ -60,7 +60,7 @@ const emailSchema = z
   .optional()
   .or(z.literal(""));
 
-export const listingTypeSchema = z.enum(["SALE", "RENT", "ASSIGNMENT"]);
+export const listingTypeSchema = z.enum(["SALE", "RENT", "ANTIPAROXI", "SALE_ANTIPAROXI", "ASSIGNMENT"]);
 export const propertyTypeSchema = z.enum([
   "APARTMENT", "MAISONETTE", "HOUSE", "VILLA", "STUDIO", "OFFICE", "SHOP",
   "WAREHOUSE", "BUILDING", "HOTEL", "LAND", "PLOT", "PARKING", "INDUSTRIAL", "OTHER",
@@ -345,7 +345,7 @@ const propertyUpsertBaseSchema = z.object({
       .optional()
       .default("GOOD"),
 
-    titleEl: requiredText(200, "Τίτλος"),
+    titleEl: optionalText(200),
     titleEn: optionalText(200),
     descriptionEl: requiredText(20000, "Περιγραφή"),
     descriptionEn: optionalText(20000),
@@ -493,6 +493,8 @@ export const propertySearchSchema = z.object({
 
   minYearBuilt: yearSchema,
   maxYearBuilt: yearSchema,
+  minFloor: z.coerce.number().int().min(-10).max(200).optional(),
+  maxFloor: z.coerce.number().int().min(-10).max(200).optional(),
 
   energyClass: z
     .enum(["A_PLUS", "A", "B", "C", "D", "E", "F", "G", "NOT_AVAILABLE"])
@@ -509,6 +511,8 @@ export const propertySearchSchema = z.object({
   petsAllowed: z.coerce.boolean().optional(),
   newConstruction: z.coerce.boolean().optional(),
   priceOnRequest: z.coerce.boolean().optional(),
+  publishedOnWebsite: z.coerce.boolean().optional(),
+  featured: z.coerce.boolean().optional(),
 
   lat: z.coerce.number().min(-90).max(90).optional(),
   lng: z.coerce.number().min(-180).max(180).optional(),

@@ -124,10 +124,18 @@ export async function createPropertyInTx(
   meta: CreateMeta,
 ) {
   const reference = input.reference ?? (await allocateReference(tx, "property"));
-  const slug = slugify(input.titleEl, reference);
+  const fallbackLabels: Partial<Record<PropertyTypeValue, string>> = {
+    APARTMENT: "Διαμέρισμα", MAISONETTE: "Μεζονέτα", HOUSE: "Μονοκατοικία", VILLA: "Βίλα",
+    STUDIO: "Στούντιο", OFFICE: "Γραφείο", SHOP: "Κατάστημα", WAREHOUSE: "Αποθήκη",
+    BUILDING: "Κτίριο", HOTEL: "Ξενοδοχείο", LAND: "Γη", PLOT: "Οικόπεδο",
+    PARKING: "Parking", INDUSTRIAL: "Βιομηχανικό", OTHER: "Ακίνητο",
+  };
+  const titleEl = nullableString(input.titleEl) ?? `${fallbackLabels[input.propertyType] ?? "Ακίνητο"} ${reference}`;
+  const withTitle = { ...input, titleEl };
+  const slug = slugify(titleEl, reference);
   const created = await tx.property.create({
     data: {
-      ...toScalars(input),
+      ...toScalars(withTitle),
       reference,
       slug,
       agentId: input.agentId ?? null,
@@ -146,7 +154,7 @@ export async function createPropertyInTx(
       actorId: actor.id,
       ipAddress: meta.ipAddress,
       userAgent: meta.userAgent,
-      changes: { reference, titleEl: input.titleEl, status: input.status },
+      changes: { reference, titleEl, status: input.status },
     },
     tx,
   );
@@ -161,7 +169,7 @@ export async function createPropertyInTx(
   return created;
 }
 
-function toScalars(raw: PropertyUpsertInput): Omit<Prisma.PropertyUncheckedCreateInput, "reference" | "slug"> {
+function toScalars(raw: PropertyUpsertInput, titleFallback = "Ακίνητο"): Omit<Prisma.PropertyUncheckedCreateInput, "reference" | "slug"> {
   // Store only what applies to this property type and listing type: fields of
   // other types are cleared and details are cleaned (see property-profiles).
   const input = normalizeForProfile(raw as unknown as Record<string, unknown>).values as unknown as PropertyUpsertInput & {
@@ -172,7 +180,7 @@ function toScalars(raw: PropertyUpsertInput): Omit<Prisma.PropertyUncheckedCreat
     propertyType: input.propertyType,
     status: input.status,
     condition: input.condition,
-    titleEl: input.titleEl,
+    titleEl: nullableString(input.titleEl) ?? titleFallback,
     titleEn: nullableString(input.titleEn),
     descriptionEl: input.descriptionEl,
     descriptionEn: nullableString(input.descriptionEn),
@@ -314,35 +322,80 @@ export function buildPropertyWhere(q: PropertySearchInput, userId: string): Pris
     and.push({ OR: [{ agentId: me }, { createdById: me }] });
   }
   if (q.city) where.city = { contains: q.city, mode: "insensitive" };
+  if (q.areaName) where.areaName = { contains: q.areaName, mode: "insensitive" };
   if (q.neighborhood) where.neighborhood = { contains: q.neighborhood, mode: "insensitive" };
   if (q.region) where.region = { contains: q.region, mode: "insensitive" };
+
+  // The price column depends on the transaction: rental listings sort/filter by monthlyRent.
   if (q.minPrice != null || q.maxPrice != null) {
-    where.price = {
+    const priceRange = {
       ...(q.minPrice != null ? { gte: q.minPrice } : {}),
       ...(q.maxPrice != null ? { lte: q.maxPrice } : {}),
     };
+    if (q.listingType === "RENT") where.monthlyRent = priceRange;
+    else if (q.listingType) where.price = priceRange;
+    else and.push({ OR: [{ price: priceRange }, { monthlyRent: priceRange }] });
+  }
+
+  if (q.minArea != null || q.maxArea != null) {
+    where.area = {
+      ...(q.minArea != null ? { gte: q.minArea } : {}),
+      ...(q.maxArea != null ? { lte: q.maxArea } : {}),
+    };
   }
   if (q.bedrooms != null) where.bedrooms = { gte: q.bedrooms };
+  if (q.bathrooms != null) where.bathrooms = { gte: q.bathrooms };
+  if (q.minYearBuilt != null || q.maxYearBuilt != null) {
+    where.yearBuilt = {
+      ...(q.minYearBuilt != null ? { gte: q.minYearBuilt } : {}),
+      ...(q.maxYearBuilt != null ? { lte: q.maxYearBuilt } : {}),
+    };
+  }
+  if (q.minFloor != null || q.maxFloor != null) {
+    where.floor = {
+      ...(q.minFloor != null ? { gte: q.minFloor } : {}),
+      ...(q.maxFloor != null ? { lte: q.maxFloor } : {}),
+    };
+  }
+  if (q.heating) where.heating = q.heating;
+  if (q.energyClass) where.energyClass = q.energyClass;
+  if (q.parking) where.parking = true;
+  if (q.pool) where.pool = true;
+  if (q.garden) where.garden = true;
+  if (q.seaView) where.seaView = true;
+  if (q.furnished) where.furnished = true;
+  if (q.petsAllowed) where.petsAllowed = true;
+  if (q.newConstruction) where.newConstruction = true;
+  if (q.priceOnRequest) where.priceOnRequest = true;
+  if (q.publishedOnWebsite) where.publishedOnWebsite = true;
+  if (q.featured) where.featured = true;
+
   if (q.q) {
-    where.OR = [
-      { titleEl: { contains: q.q, mode: "insensitive" } },
-      { reference: { contains: q.q.toUpperCase() } },
-      { city: { contains: q.q, mode: "insensitive" } },
-      { areaName: { contains: q.q, mode: "insensitive" } },
-      { neighborhood: { contains: q.q, mode: "insensitive" } },
-      { address: { contains: q.q, mode: "insensitive" } },
-    ];
+    and.push({
+      OR: [
+        { titleEl: { contains: q.q, mode: "insensitive" } },
+        { reference: { contains: q.q.toUpperCase() } },
+        { city: { contains: q.q, mode: "insensitive" } },
+        { areaName: { contains: q.q, mode: "insensitive" } },
+        { neighborhood: { contains: q.q, mode: "insensitive" } },
+        { address: { contains: q.q, mode: "insensitive" } },
+      ],
+    });
   }
   if (and.length > 0) where.AND = and;
   return where;
 }
 
-function orderBy(sort: PropertySearchInput["sort"]): Prisma.PropertyOrderByWithRelationInput {
+function orderBy(
+  sort: PropertySearchInput["sort"],
+  listingType?: PropertySearchInput["listingType"],
+): Prisma.PropertyOrderByWithRelationInput {
+  const priceField = listingType === "RENT" ? "monthlyRent" : "price";
   switch (sort) {
     case "price_asc":
-      return { price: "asc" };
+      return { [priceField]: "asc" };
     case "price_desc":
-      return { price: "desc" };
+      return { [priceField]: "desc" };
     case "area_desc":
       return { area: "desc" };
     case "area_asc":
@@ -393,7 +446,7 @@ export async function propertyRoutes(app: FastifyInstance): Promise<void> {
       db().property.findMany({
         where,
         select: LIST_SELECT,
-        orderBy: orderBy(q.sort),
+        orderBy: orderBy(q.sort, q.listingType),
         skip: (q.page - 1) * q.limit,
         take: q.limit,
       }),
@@ -556,7 +609,7 @@ export async function propertyRoutes(app: FastifyInstance): Promise<void> {
         const updated = await tx.property.update({
           where: { id },
           data: {
-            ...toScalars(input),
+            ...toScalars(input, existing.titleEl),
             agentId: input.agentId ?? null,
             ownerId: input.ownerId ?? null,
           },

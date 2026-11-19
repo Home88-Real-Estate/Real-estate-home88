@@ -35,7 +35,8 @@ export default function SubmitPage() {
                 options: [
                   { value: "SALE", label: "Πώληση" },
                   { value: "RENT", label: "Ενοικίαση" },
-                  { value: "ASSIGNMENT", label: "Ανάθεση" },
+                  { value: "ANTIPAROXI", label: "Αντιπαροχή" },
+                  { value: "SALE_ANTIPAROXI", label: "Πώληση + Αντιπαροχή" },
                 ],
               },
               {
