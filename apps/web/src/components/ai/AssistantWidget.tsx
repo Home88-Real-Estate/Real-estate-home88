@@ -202,7 +202,13 @@ export default function AssistantWidget() {
           className="ai-iconbtn"
           aria-label="Νέα συνομιλία"
           title="Νέα συνομιλία"
-          
+          onClick={() => {
+            abortRef.current?.abort();
+            setMessages([]);
+            setSessionId(newSessionId());
+            setBusy(false);
+            inputRef.current?.focus();
+          }}
         >
           ↺
         </button>
