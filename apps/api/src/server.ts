@@ -14,6 +14,7 @@ import { documentRoutes } from "./routes/documents";
 import { healthRoutes } from "./routes/health";
 import { invitationRoutes } from "./routes/invitations";
 import { leadRoutes } from "./routes/leads";
+import { legacyImportRoutes } from "./routes/legacy-imports";
 import { mandateDocumentRoutes } from "./routes/mandate-documents";
 import { mandateRoutes } from "./routes/mandates";
 import { showingRoutes } from "./routes/showings";
@@ -147,6 +148,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(valuationRoutes, { prefix: "/api" });
   await app.register(valuationRequestRoutes, { prefix: "/api" });
   await app.register(documentRoutes, { prefix: "/api" });
+  await app.register(legacyImportRoutes, { prefix: "/api" });
   await app.register(mandateRoutes, { prefix: "/api" });
   await app.register(mandateDocumentRoutes, { prefix: "/api" });
   await app.register(showingRoutes, { prefix: "/api" });
