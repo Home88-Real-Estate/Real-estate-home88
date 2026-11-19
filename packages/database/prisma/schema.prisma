@@ -507,8 +507,6 @@ model User {
   invitationsSent           Invitation[]            @relation("InvitationInviter")
   assignedValuationRequests ValuationRequest[]      @relation("ValuationRequestAgent")
   propertyIntakeSessions    PropertyIntakeSession[]
-  estatePlusImportBatches   EstatePlusImportBatch[] @relation("EstatePlusImportCreatedBy")
-  approvedEstatePlusImports EstatePlusImportBatch[] @relation("EstatePlusImportApprovedBy")
 
   @@index([role])
   @@index([status])
@@ -3486,20 +3484,6 @@ enum LegacySourceSystem {
   CSV_IMPORT
 }
 
-enum EstatePlusImportBatchStatus {
-  STAGED
-  APPROVED
-  IMPORTING
-  COMPLETED
-  FAILED
-  CANCELLED
-}
-
-enum EstatePlusImportRowStatus {
-  READY
-  BLOCKED
-}
-
 enum LegacyImportBatchStatus {
   CREATED
   PARSING
@@ -4088,54 +4072,3 @@ model PortalDistributionItem {
 }
 
 
-/// A quarantined Estate+ CSV upload. Staging never creates or merges CRM records.
-model EstatePlusImportBatch {
-  id                 String                      @id @default(cuid())
-  sourceSystem       LegacySourceSystem          @default(ESTATE_PLUS)
-  sourceEntityType   String
-  legacyIdHeader     String
-  delimiter          String
-  headers            Json
-  fileChecksum       String
-  fileByteSize       Int
-  rowCount           Int
-  readyRowCount      Int
-  blockedRowCount    Int
-  duplicateRowCount  Int
-  status             EstatePlusImportBatchStatus @default(STAGED)
-  createdById        String
-  createdBy          User                        @relation("EstatePlusImportCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  approvedById       String?
-  approvedBy         User?                       @relation("EstatePlusImportApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
-  approvedAt         DateTime?
-  approvalReason     String?
-  expiresAt          DateTime
-  createdAt          DateTime                    @default(now())
-  updatedAt          DateTime                    @updatedAt
-  rows               EstatePlusImportRow[]
-
-  @@index([status, createdAt])
-  @@index([createdById, createdAt])
-  @@index([expiresAt])
-  @@map("estate_plus_import_batches")
-}
-
-/// Source row payloads are AES-GCM encrypted by the API. The encrypted payload,
-/// source hash and row identity are immutable; only review status/issues may change.
-model EstatePlusImportRow {
-  id             String                     @id @default(cuid())
-  batchId        String
-  batch          EstatePlusImportBatch      @relation(fields: [batchId], references: [id], onDelete: Restrict)
-  rowNumber      Int
-  legacyIdHash   String?
-  payloadEncrypted String
-  payloadHash    String
-  status         EstatePlusImportRowStatus  @default(READY)
-  issues         Json                       @default("[]")
-  createdAt      DateTime                   @default(now())
-
-  @@unique([batchId, rowNumber])
-  @@index([batchId, status, rowNumber])
-  @@index([batchId, legacyIdHash])
-  @@map("estate_plus_import_rows")
-}
