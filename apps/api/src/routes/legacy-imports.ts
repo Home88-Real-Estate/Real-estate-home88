@@ -14,7 +14,6 @@ import type { FastifyInstance } from "fastify";
 import { Prisma } from "@home88/database";
 import { z } from "zod";
 
-import { loadConfig } from "../config";
 import { writeAudit } from "../lib/audit";
 import { conflict, notFound, badRequest } from "../lib/errors";
 import { clientIp, parseInput, userAgent } from "../lib/http";
@@ -153,6 +152,7 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
     if (claim.count !== 1) throw conflict("Η παρτίδα αναλύεται ήδη ή έχει ήδη ολοκληρωθεί.");
 
     const key = batch.temporaryStorageKey;
+    let stagingPersisted = false;
     try {
       const head = await store.head(key);
       if (!head || head.byteSize !== batch.sourceFileBytes || head.byteSize > MAX_IMPORT_BYTES) {
@@ -185,28 +185,45 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
         throw error;
       }
 
+      const seenPayloads = new Map<string, number>();
       const encryptedRows = parsed.rows.map((row) => {
         const payload = JSON.stringify({ headers: parsed.headers, values: row.values });
+        const payloadSha256 = sha256(payload);
+        const duplicateOfRow = row.issues.length === 0 ? seenPayloads.get(payloadSha256) : undefined;
+        if (row.issues.length === 0 && duplicateOfRow === undefined) {
+          seenPayloads.set(payloadSha256, row.rowNumber);
+        }
+
         const payloadCiphertext = encryptField(payload);
         if (!payloadCiphertext) {
           throw conflict("Η κρυπτογράφηση των δεδομένων εισαγωγής απέτυχε.");
         }
+
+        const validationIssues = [
+          ...row.issues,
+          ...(duplicateOfRow === undefined ? [] : [{ code: "EXACT_DUPLICATE_ROW", duplicateOfRowNumber: duplicateOfRow }]),
+        ];
         return {
           batchId: id,
           rowNumber: row.rowNumber,
-          status: row.issues.length > 0 ? "INVALID" as const : "STAGED" as const,
+          status: row.issues.length > 0
+            ? "INVALID" as const
+            : duplicateOfRow !== undefined
+              ? "DUPLICATE_REVIEW" as const
+              : "STAGED" as const,
           payloadCiphertext,
-          payloadSha256: sha256(payload),
-          ...(row.issues.length > 0
-            ? { validationIssues: row.issues as unknown as Prisma.InputJsonValue }
+          payloadSha256,
+          ...(validationIssues.length > 0
+            ? { validationIssues: validationIssues as unknown as Prisma.InputJsonValue }
             : {}),
         };
       });
 
       const invalidRowCount = encryptedRows.filter((row) => row.status === "INVALID").length;
-      const stagedRowCount = encryptedRows.length - invalidRowCount;
+      const duplicateRowCount = encryptedRows.filter((row) => row.status === "DUPLICATE_REVIEW").length;
+      const stagedRowCount = encryptedRows.filter((row) => row.status === "STAGED").length;
       const sourceFileSha256 = sha256(bytes);
-      const finalStatus = invalidRowCount > 0 ? "NEEDS_REVIEW" : "STAGED";
+      const finalStatus = invalidRowCount > 0 || duplicateRowCount > 0 ? "NEEDS_REVIEW" : "STAGED";
 
       await db().$transaction(async (tx) => {
         await tx.legacyImportRow.createMany({ data: encryptedRows });
@@ -220,9 +237,11 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
             sourceRowCount: encryptedRows.length,
             stagedRowCount,
             invalidRowCount,
+            duplicateRowCount,
           },
         });
       });
+      stagingPersisted = true;
 
       const sourceDeleted = await removeSourceObject(key, id, request);
       await writeAudit({
@@ -235,6 +254,7 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
           sourceRowCount: encryptedRows.length,
           stagedRowCount,
           invalidRowCount,
+          duplicateRowCount,
           detectedDelimiter: parsed.delimiter,
           parserVersion: LEGACY_CSV_PARSER_VERSION,
         },
@@ -252,7 +272,7 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
           sourceRowCount: encryptedRows.length,
           stagedRowCount,
           invalidRowCount,
-          duplicateRowCount: 0,
+          duplicateRowCount,
           importedRowCount: 0,
           mappingVersion: "unmapped",
           sourceCleanupPending: !sourceDeleted,
@@ -260,6 +280,10 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
         nextStep: "FIELD_MAPPING_REQUIRED",
       };
     } catch (error) {
+      // Once the transaction committed, the batch is durable. A failed
+      // cleanup or audit write must not reset it to CREATED (rows already exist).
+      if (stagingPersisted) throw error;
+
       if (error instanceof Error && "statusCode" in error) {
         const httpError = error as Error & { statusCode?: number };
         if ((httpError.statusCode ?? 500) < 500) {
