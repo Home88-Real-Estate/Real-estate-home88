@@ -133,3 +133,15 @@ export function isDocumentKey(key: string): boolean {
 }
 
 export const sha256 = (buf: Buffer | string) => createHash("sha256").update(buf).digest("hex");
+
+
+/** Temporary source files for controlled imports live beside private documents,
+ * never in public media prefixes. The route removes the object after staging. */
+export function legacyImportKey(now = new Date()): string {
+  const month = `${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+  return `private/legacy-imports/${month}/${randomBytes(16).toString("hex")}.csv`;
+}
+
+export function isLegacyImportKey(key: string): boolean {
+  return /^private\\/legacy-imports\\/\\d{4}\\/\\d{2}\\/[0-9a-f]{32}\\.csv$/.test(key);
+}
