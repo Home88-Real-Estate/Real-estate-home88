@@ -143,5 +143,5 @@ export function legacyImportKey(now = new Date()): string {
 }
 
 export function isLegacyImportKey(key: string): boolean {
-  return /^private\\/legacy-imports\\/\\d{4}\\/\\d{2}\\/[0-9a-f]{32}\\.csv$/.test(key);
+  return /^private\/legacy-imports\/\d{4}\/\d{2}\/[0-9a-f]{32}\.csv$/.test(key);
 }
