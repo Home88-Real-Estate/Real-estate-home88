@@ -147,6 +147,14 @@ export default async function HomePage() {
                 <input type="radio" name="listingType" value="RENT" />
                 <span>Ενοικίαση</span>
               </label>
+              <label>
+                <input type="radio" name="listingType" value="ANTIPAROXI" />
+                <span>Αντιπαροχή</span>
+              </label>
+              <label>
+                <input type="radio" name="listingType" value="SALE_ANTIPAROXI" />
+                <span>Πώληση + Αντιπαροχή</span>
+              </label>
             </div>
 
             <div className="search-controls">

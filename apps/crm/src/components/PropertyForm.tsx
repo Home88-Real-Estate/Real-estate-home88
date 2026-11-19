@@ -265,12 +265,12 @@ export function PropertyForm({
       <section className="panel">
         <h2>Βασικά στοιχεία</h2>
         <div className="formgrid">
-          <TextInput name="titleEl" label="Τίτλος (ελληνικά)" required value={values.titleEl} onChange={set} error={error("titleEl")} span2 />
+          <TextInput name="titleEl" label="Τίτλος (προαιρετικό)" value={values.titleEl} onChange={set} error={error("titleEl")} hint="Αν μείνει κενό, δημιουργείται αυτόματα από τον τύπο και τον κωδικό ακινήτου." span2 />
           <TextInput name="titleEn" label="Τίτλος (αγγλικά)" value={values.titleEn} onChange={set} error={error("titleEn")} span2 />
           <div className="field">
             <label htmlFor="listingType">Είδος αγγελίας</label>
             <select id="listingType" name="listingType" className="select" value={listing} onChange={(e) => set("listingType", e.target.value)}>
-              {Object.keys(LISTING_TYPE_LABELS).map((key) => (
+              {Object.keys(LISTING_TYPE_LABELS).filter((key) => key !== "ASSIGNMENT" || listing === "ASSIGNMENT").map((key) => (
                 <option key={key} value={key}>
                   {label(LISTING_TYPE_LABELS, key, "el")}
                 </option>

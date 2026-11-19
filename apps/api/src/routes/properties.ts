@@ -124,10 +124,18 @@ export async function createPropertyInTx(
   meta: CreateMeta,
 ) {
   const reference = input.reference ?? (await allocateReference(tx, "property"));
-  const slug = slugify(input.titleEl, reference);
+  const fallbackLabels: Partial<Record<PropertyTypeValue, string>> = {
+    APARTMENT: "Διαμέρισμα", MAISONETTE: "Μεζονέτα", HOUSE: "Μονοκατοικία", VILLA: "Βίλα",
+    STUDIO: "Στούντιο", OFFICE: "Γραφείο", SHOP: "Κατάστημα", WAREHOUSE: "Αποθήκη",
+    BUILDING: "Κτίριο", HOTEL: "Ξενοδοχείο", LAND: "Γη", PLOT: "Οικόπεδο",
+    PARKING: "Parking", INDUSTRIAL: "Βιομηχανικό", OTHER: "Ακίνητο",
+  };
+  const titleEl = nullableString(input.titleEl) ?? `${fallbackLabels[input.propertyType] ?? "Ακίνητο"} ${reference}`;
+  const withTitle = { ...input, titleEl };
+  const slug = slugify(titleEl, reference);
   const created = await tx.property.create({
     data: {
-      ...toScalars(input),
+      ...toScalars(withTitle),
       reference,
       slug,
       agentId: input.agentId ?? null,
@@ -146,7 +154,7 @@ export async function createPropertyInTx(
       actorId: actor.id,
       ipAddress: meta.ipAddress,
       userAgent: meta.userAgent,
-      changes: { reference, titleEl: input.titleEl, status: input.status },
+      changes: { reference, titleEl, status: input.status },
     },
     tx,
   );
@@ -161,7 +169,7 @@ export async function createPropertyInTx(
   return created;
 }
 
-function toScalars(raw: PropertyUpsertInput): Omit<Prisma.PropertyUncheckedCreateInput, "reference" | "slug"> {
+function toScalars(raw: PropertyUpsertInput, titleFallback = "Ακίνητο"): Omit<Prisma.PropertyUncheckedCreateInput, "reference" | "slug"> {
   // Store only what applies to this property type and listing type: fields of
   // other types are cleared and details are cleaned (see property-profiles).
   const input = normalizeForProfile(raw as unknown as Record<string, unknown>).values as unknown as PropertyUpsertInput & {
@@ -172,7 +180,7 @@ function toScalars(raw: PropertyUpsertInput): Omit<Prisma.PropertyUncheckedCreat
     propertyType: input.propertyType,
     status: input.status,
     condition: input.condition,
-    titleEl: input.titleEl,
+    titleEl: nullableString(input.titleEl) ?? titleFallback,
     titleEn: nullableString(input.titleEn),
     descriptionEl: input.descriptionEl,
     descriptionEn: nullableString(input.descriptionEn),
@@ -556,7 +564,7 @@ export async function propertyRoutes(app: FastifyInstance): Promise<void> {
         const updated = await tx.property.update({
           where: { id },
           data: {
-            ...toScalars(input),
+            ...toScalars(input, existing.titleEl),
             agentId: input.agentId ?? null,
             ownerId: input.ownerId ?? null,
           },

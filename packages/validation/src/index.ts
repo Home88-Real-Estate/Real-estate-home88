@@ -345,7 +345,7 @@ const propertyUpsertBaseSchema = z.object({
       .optional()
       .default("GOOD"),
 
-    titleEl: requiredText(200, "Τίτλος"),
+    titleEl: optionalText(200),
     titleEn: optionalText(200),
     descriptionEl: requiredText(20000, "Περιγραφή"),
     descriptionEn: optionalText(20000),
