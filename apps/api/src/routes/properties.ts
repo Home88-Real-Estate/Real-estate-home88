@@ -322,24 +322,65 @@ export function buildPropertyWhere(q: PropertySearchInput, userId: string): Pris
     and.push({ OR: [{ agentId: me }, { createdById: me }] });
   }
   if (q.city) where.city = { contains: q.city, mode: "insensitive" };
+  if (q.areaName) where.areaName = { contains: q.areaName, mode: "insensitive" };
   if (q.neighborhood) where.neighborhood = { contains: q.neighborhood, mode: "insensitive" };
   if (q.region) where.region = { contains: q.region, mode: "insensitive" };
+
+  // The price column depends on the transaction: rental listings sort/filter by monthlyRent.
   if (q.minPrice != null || q.maxPrice != null) {
-    where.price = {
+    const priceRange = {
       ...(q.minPrice != null ? { gte: q.minPrice } : {}),
       ...(q.maxPrice != null ? { lte: q.maxPrice } : {}),
     };
+    if (q.listingType === "RENT") where.monthlyRent = priceRange;
+    else if (q.listingType) where.price = priceRange;
+    else and.push({ OR: [{ price: priceRange }, { monthlyRent: priceRange }] });
+  }
+
+  if (q.minArea != null || q.maxArea != null) {
+    where.area = {
+      ...(q.minArea != null ? { gte: q.minArea } : {}),
+      ...(q.maxArea != null ? { lte: q.maxArea } : {}),
+    };
   }
   if (q.bedrooms != null) where.bedrooms = { gte: q.bedrooms };
+  if (q.bathrooms != null) where.bathrooms = { gte: q.bathrooms };
+  if (q.minYearBuilt != null || q.maxYearBuilt != null) {
+    where.yearBuilt = {
+      ...(q.minYearBuilt != null ? { gte: q.minYearBuilt } : {}),
+      ...(q.maxYearBuilt != null ? { lte: q.maxYearBuilt } : {}),
+    };
+  }
+  if (q.minFloor != null || q.maxFloor != null) {
+    where.floor = {
+      ...(q.minFloor != null ? { gte: q.minFloor } : {}),
+      ...(q.maxFloor != null ? { lte: q.maxFloor } : {}),
+    };
+  }
+  if (q.heating) where.heating = q.heating;
+  if (q.energyClass) where.energyClass = q.energyClass;
+  if (q.parking) where.parking = true;
+  if (q.pool) where.pool = true;
+  if (q.garden) where.garden = true;
+  if (q.seaView) where.seaView = true;
+  if (q.furnished) where.furnished = true;
+  if (q.petsAllowed) where.petsAllowed = true;
+  if (q.newConstruction) where.newConstruction = true;
+  if (q.priceOnRequest) where.priceOnRequest = true;
+  if (q.publishedOnWebsite) where.publishedOnWebsite = true;
+  if (q.featured) where.featured = true;
+
   if (q.q) {
-    where.OR = [
-      { titleEl: { contains: q.q, mode: "insensitive" } },
-      { reference: { contains: q.q.toUpperCase() } },
-      { city: { contains: q.q, mode: "insensitive" } },
-      { areaName: { contains: q.q, mode: "insensitive" } },
-      { neighborhood: { contains: q.q, mode: "insensitive" } },
-      { address: { contains: q.q, mode: "insensitive" } },
-    ];
+    and.push({
+      OR: [
+        { titleEl: { contains: q.q, mode: "insensitive" } },
+        { reference: { contains: q.q.toUpperCase() } },
+        { city: { contains: q.q, mode: "insensitive" } },
+        { areaName: { contains: q.q, mode: "insensitive" } },
+        { neighborhood: { contains: q.q, mode: "insensitive" } },
+        { address: { contains: q.q, mode: "insensitive" } },
+      ],
+    });
   }
   if (and.length > 0) where.AND = and;
   return where;

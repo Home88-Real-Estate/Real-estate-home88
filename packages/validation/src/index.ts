@@ -493,6 +493,8 @@ export const propertySearchSchema = z.object({
 
   minYearBuilt: yearSchema,
   maxYearBuilt: yearSchema,
+  minFloor: z.coerce.number().int().min(-10).max(200).optional(),
+  maxFloor: z.coerce.number().int().min(-10).max(200).optional(),
 
   energyClass: z
     .enum(["A_PLUS", "A", "B", "C", "D", "E", "F", "G", "NOT_AVAILABLE"])
@@ -509,6 +511,8 @@ export const propertySearchSchema = z.object({
   petsAllowed: z.coerce.boolean().optional(),
   newConstruction: z.coerce.boolean().optional(),
   priceOnRequest: z.coerce.boolean().optional(),
+  publishedOnWebsite: z.coerce.boolean().optional(),
+  featured: z.coerce.boolean().optional(),
 
   lat: z.coerce.number().min(-90).max(90).optional(),
   lng: z.coerce.number().min(-180).max(180).optional(),
