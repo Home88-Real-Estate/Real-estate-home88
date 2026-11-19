@@ -8,7 +8,9 @@
  * assignable to them without a cast.
  */
 
-import type { PropertyStatus } from "@home88/domain";
+import type { ListingType, PropertyStatus } from "@home88/domain";
+
+export type { ListingType, PropertyStatus };
 
 export type PortalTransport = "API" | "XML_FEED" | "CSV_FEED" | "JSON_FEED" | "MANUAL";
 
@@ -29,7 +31,7 @@ export type PortalSyncState =
 
 export type SyncAction = "PUBLISH" | "UPDATE" | "REMOVE" | "REPUBLISH" | "IMPORT_LEADS";
 
-export type ListingType = "SALE" | "RENT" | "ASSIGNMENT";
+
 
 /** Owned by the property lifecycle in @home88/domain. */
 export type { PropertyStatus };
