@@ -133,7 +133,7 @@ BEGIN
 END $$;
 
 CREATE OR REPLACE FUNCTION public.h88_guard_legacy_import_row() RETURNS trigger
-LANGUAGE plpgsql SET search_path = pg_catalog AS $
+LANGUAGE plpgsql SET search_path = pg_catalog AS $$
 DECLARE
   mutable text[] := ARRAY[
     'status', 'sourceEntityType', 'legacyIdHash', 'validationIssues',
@@ -147,7 +147,7 @@ BEGIN
     RAISE EXCEPTION 'legacy import row source payload is immutable';
   END IF;
   RETURN NEW;
-END $;
+END $$;
 
 CREATE TRIGGER h88_legacy_import_batch_guard
   BEFORE UPDATE OR DELETE ON "legacy_import_batches"
