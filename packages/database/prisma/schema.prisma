@@ -48,8 +48,9 @@ enum UserStatus {
 enum ListingType {
   SALE
   RENT
-  /// Portal-only transaction type: the agency is seeking an assignment of the
-  /// existing contract, not a new sale or tenancy.
+  ANTIPAROXI
+  SALE_ANTIPAROXI
+  /// Legacy portal-only transaction type: assignment of an existing contract.
   ASSIGNMENT
 }
 

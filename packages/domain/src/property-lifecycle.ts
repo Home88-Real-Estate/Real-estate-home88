@@ -27,7 +27,7 @@ export const PROPERTY_STATUSES = [
 ] as const;
 export type PropertyStatus = (typeof PROPERTY_STATUSES)[number];
 
-export type ListingType = "SALE" | "RENT" | "ASSIGNMENT";
+export type ListingType = "SALE" | "RENT" | "ANTIPAROXI" | "SALE_ANTIPAROXI" | "ASSIGNMENT";
 
 /** Statuses visible on the public website and eligible for portal feeds. */
 export const PUBLIC_PROPERTY_STATUSES = ["ACTIVE", "UNDER_OFFER", "RESERVED"] as const satisfies

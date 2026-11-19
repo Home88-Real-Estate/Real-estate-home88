@@ -34,7 +34,9 @@ export type Localised = { el: string; en: string };
 export const LISTING_TYPE_LABELS: Record<string, Localised> = {
   SALE: { el: "Πώληση", en: "For sale" },
   RENT: { el: "Ενοικίαση", en: "For rent" },
-  ASSIGNMENT: { el: "Ανάθεση", en: "Assignment" },
+  ANTIPAROXI: { el: "Αντιπαροχή", en: "Land-for-units exchange" },
+  SALE_ANTIPAROXI: { el: "Πώληση + Αντιπαροχή", en: "Sale + land-for-units exchange" },
+  ASSIGNMENT: { el: "Εκχώρηση σύμβασης", en: "Contract assignment" },
 };
 
 export const PROPERTY_TYPE_LABELS: Record<string, Localised> = {

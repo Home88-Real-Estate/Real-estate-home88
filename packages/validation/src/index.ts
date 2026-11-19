@@ -60,7 +60,7 @@ const emailSchema = z
   .optional()
   .or(z.literal(""));
 
-export const listingTypeSchema = z.enum(["SALE", "RENT", "ASSIGNMENT"]);
+export const listingTypeSchema = z.enum(["SALE", "RENT", "ANTIPAROXI", "SALE_ANTIPAROXI", "ASSIGNMENT"]);
 export const propertyTypeSchema = z.enum([
   "APARTMENT", "MAISONETTE", "HOUSE", "VILLA", "STUDIO", "OFFICE", "SHOP",
   "WAREHOUSE", "BUILDING", "HOTEL", "LAND", "PLOT", "PARKING", "INDUSTRIAL", "OTHER",
