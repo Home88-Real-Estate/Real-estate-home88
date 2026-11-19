@@ -67,7 +67,7 @@ export type IntakeState = {
 export type OwnerRef = { contactId: string; reference: string; label: string };
 
 export function emptyState(): IntakeState {
-  return { fields: {}, skipped: [], pending: [], asked: null, lang: "el", muted: false, photosLater: false, stage: "collect", undo: [], owner: null, textsBasis: null, location: null, clientRef: null };
+  return { fields: {}, skipped: [], pending: [], asked: null, lang: "el", muted: true, photosLater: false, stage: "collect", undo: [], owner: null, textsBasis: null, location: null, clientRef: null };
 }
 
 /** Defensive read of the stored JSON: unknown shapes become an empty conversation, never an error. */
