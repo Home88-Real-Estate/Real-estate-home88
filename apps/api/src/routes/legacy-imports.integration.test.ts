@@ -27,6 +27,8 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
   setDocumentStore(store);
 
   const run = randomBytes(5).toString("hex");
+  const stagedFirstName = "Μαρία-" + run;
+  const stagedLastName = "Παπαδοπούλου-" + run;
   const password = "Estate-Import-Integration-Password-123";
   const passwordHash = hashPassword(password, 10);
   const makeUser = (role: "AGENT" | "MANAGER") =>
@@ -72,8 +74,8 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
 
     const csv = [
       "Κωδικός;Όνομα;Επώνυμο;Σημειώσεις",
-      "EP-001;Μαρία;Παπαδοπούλου;Ενδιαφέρεται για αγορά",
-      "EP-001;Μαρία;Παπαδοπούλου;Ενδιαφέρεται για αγορά",
+      "EP-001;" + stagedFirstName + ";" + stagedLastName + ";Ενδιαφέρεται για αγορά",
+      "EP-001;" + stagedFirstName + ";" + stagedLastName + ";Ενδιαφέρεται για αγορά",
       "EP-002;Γιώργος;Κωνσταντίνου;Τηλέφωνο 6900000000;extra",
     ].join("\r\n");
     const bytes = Buffer.from(csv, "utf8");
@@ -135,7 +137,6 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
     assert.ok(options.body.fields.some((field: any) => field.key === "firstName"));
     assert.ok(options.body.fields.some((field: any) => field.key === "email"));
 
-    const contactCountBeforeMapping = await db().contact.count();
     const mapping = await call(managerCookie, "PUT", "/legacy-imports/" + batchId + "/mapping", {
       targetType: "CONTACT",
       fields: [
@@ -164,10 +165,14 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
     assert.deepEqual([
       mappingPreview.body.data[0].record.firstName,
       mappingPreview.body.data[0].record.lastName,
-    ], ["Μαρία", "Παπαδοπούλου"]);
+    ], [stagedFirstName, stagedLastName]);
     assert.equal(mappingPreview.body.canApprove, false);
     assert.equal(mappingPreview.body.canImport, false);
-    assert.equal(await db().contact.count(), contactCountBeforeMapping, "mapping preview never creates CRM contacts");
+    const unexpectedlyImported = await db().contact.findFirst({
+      where: { firstName: stagedFirstName, lastName: stagedLastName },
+      select: { id: true },
+    });
+    assert.equal(unexpectedlyImported, null, "mapping preview never creates the staged CRM contact");
 
     assert.equal((await call(agentCookie, "PUT", "/legacy-imports/" + batchId + "/mapping", {
       targetType: "CONTACT",
