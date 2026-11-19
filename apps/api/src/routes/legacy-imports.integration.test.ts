@@ -130,7 +130,7 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
     assert.equal(preview.status, 200);
     assert.equal(preview.body.data.length, 3);
     assert.deepEqual(preview.body.data.map((row: any) => row.status), ["STAGED", "DUPLICATE_REVIEW", "INVALID"]);
-    assert.equal(preview.body.data[0].record.values[1], "Μαρία");
+    assert.equal(preview.body.data[0].record.values[1], stagedFirstName);
 
     const options = await call(managerCookie, "GET", "/legacy-imports/" + batchId + "/mapping-options?targetType=CONTACT");
     assert.equal(options.status, 200);
