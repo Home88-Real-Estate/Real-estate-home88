@@ -275,7 +275,6 @@ export default async function HomePage() {
               Μια εταιρεία που γνωρίζει την αγορά και στηρίζει κάθε συναλλαγή.
             </p>
           </div>
-          </figure>
           <div className="value-grid">
             {VALUES.map((v) => (
               <div className="value" key={v.title}>
