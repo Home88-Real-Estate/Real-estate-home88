@@ -60,7 +60,7 @@ test("rejects empty and duplicate headers case-insensitively", () => {
 });
 
 test("rejects unclosed quotes, embedded quotes, and characters after a closing quote", () => {
-  errorCode(() => parseLegacyCsv('id;name\n1;"A', "UNTERMINATED_QUOTE");
+  errorCode(() => parseLegacyCsv('id;name\n1;"A'), "UNTERMINATED_QUOTE");
   errorCode(() => parseLegacyCsv('id;name\n1;bad"name'), "INVALID_QUOTE");
   errorCode(() => parseLegacyCsv('id;name\n1;"A"x'), "INVALID_QUOTE");
 });
