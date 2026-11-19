@@ -119,13 +119,17 @@ export default async function PropertiesPage({
   const mine = first(sp.mine) === "1" ? "1" : "";
   const page = Math.max(1, Number(first(sp.page)) || 1);
 
-  const query = {
+  const query: Record<string, string | number> = { page, limit: PAGE_SIZE };
+  const searchValues: Record<string, string> = {
     q, status, listingType, propertyType, category, city, areaName, neighborhood,
     minPrice, maxPrice, minArea, maxArea, bedrooms, bathrooms, minFloor, maxFloor,
     minYearBuilt, maxYearBuilt, heating, energyClass, parking, pool, garden, seaView,
     furnished, petsAllowed, newConstruction, priceOnRequest, publishedOnWebsite, featured,
-    statusGroup, mine, page, limit: PAGE_SIZE,
+    statusGroup, mine,
   };
+  for (const [key, value] of Object.entries(searchValues)) {
+    if (value !== "") query[key] = value;
+  }
 
   const result = await apiFetch<Paginated<PropertyRow>>("/api/properties", { query });
 
@@ -189,7 +193,6 @@ export default async function PropertiesPage({
         </div>
         <details className="filters__advanced" style={{ gridColumn: "1 / -1" }}>
           <summary>Σύνθετη αναζήτηση</summary>
-          {statusGroup && <input type="hidden" name="statusGroup" value={statusGroup} />}
           <div className="formgrid" style={{ marginTop: 12 }}>
             <div className="field">
               <label htmlFor="category">Κατηγορία</label>

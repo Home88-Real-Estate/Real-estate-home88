@@ -841,6 +841,7 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
           seconds={recSeconds}
           maxSeconds={MAX_RECORDING_SECONDS}
           thinking={busy && !done}
+          handsFree={false}
           disabled={done || !available || busy}
           errorText={micError}
           onPress={pressOrb}
