@@ -416,6 +416,7 @@ enum AuditEntity {
   MESSAGE
   REPORT
   PROPERTY_INTAKE
+  LEGACY_IMPORT_BATCH
 }
 
 // ---------------------------------------------------------------------------
@@ -3483,6 +3484,27 @@ enum LegacySourceSystem {
   CSV_IMPORT
 }
 
+enum LegacyImportBatchStatus {
+  CREATED
+  STAGED
+  NEEDS_REVIEW
+  READY_FOR_APPROVAL
+  APPROVED
+  IMPORTING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum LegacyImportRowStatus {
+  STAGED
+  INVALID
+  DUPLICATE_REVIEW
+  SKIPPED
+  IMPORTED
+  FAILED
+}
+
 /// The legal record of an introduction of one or more properties to a client
 /// (Υπόδειξη Ακινήτου). The appointment itself is a Viewing; this is the
 /// document, with its own number, lifecycle and frozen snapshots.
@@ -3820,6 +3842,69 @@ model LegacyEntityMapping {
   @@index([targetEntityType, targetEntityId])
   @@index([importBatchId])
   @@map("legacy_entity_mappings")
+}
+
+/// A controlled source-data intake. Source files are temporary private objects;
+/// parsed row payloads are encrypted before being persisted.
+model LegacyImportBatch {
+  id                 String                  @id @default(cuid())
+  organizationId     String                  @default("home88")
+  sourceSystem       LegacySourceSystem      @default(ESTATE_PLUS)
+  status             LegacyImportBatchStatus @default(CREATED)
+  sourceFileSha256   String?
+  sourceFileBytes    Int
+  temporaryStorageKey String?                @unique
+  requestedDelimiter String                  @default("AUTO")
+  detectedDelimiter  String?
+  parserVersion      String                  @default("home88-csv-v1")
+  /// Remains unmapped until an Estate+ export sample has been reviewed.
+  mappingVersion     String                  @default("unmapped")
+  columnHeaders      Json?
+  sourceRowCount     Int                     @default(0)
+  stagedRowCount     Int                     @default(0)
+  invalidRowCount    Int                     @default(0)
+  duplicateRowCount  Int                     @default(0)
+  importedRowCount   Int                     @default(0)
+  createdByUserId    String
+  approvedByUserId   String?
+  approvedAt         DateTime?
+  importStartedAt    DateTime?
+  completedAt        DateTime?
+  cancelledAt        DateTime?
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+
+  rows LegacyImportRow[]
+
+  @@index([organizationId, status, createdAt])
+  @@index([sourceSystem, createdAt])
+  @@map("legacy_import_batches")
+}
+
+/// One staged source record. The original field values exist only inside the
+/// authenticated encryption envelope; validation metadata never stores values.
+model LegacyImportRow {
+  id                String               @id @default(cuid())
+  batchId           String
+  batch             LegacyImportBatch    @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  rowNumber         Int
+  status            LegacyImportRowStatus @default(STAGED)
+  payloadCiphertext String
+  payloadSha256     String
+  sourceEntityType  String?
+  legacyIdHash      String?
+  validationIssues  Json?
+  targetEntityType  String?
+  targetEntityId    String?
+  importedAt        DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@unique([batchId, rowNumber])
+  @@index([batchId, status, rowNumber])
+  @@index([batchId, payloadSha256])
+  @@index([legacyIdHash])
+  @@map("legacy_import_rows")
 }
 
 // ---------------------------------------------------------------------------
