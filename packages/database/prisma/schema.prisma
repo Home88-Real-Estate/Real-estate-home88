@@ -3486,6 +3486,7 @@ enum LegacySourceSystem {
 
 enum LegacyImportBatchStatus {
   CREATED
+  PARSING
   STAGED
   NEEDS_REVIEW
   READY_FOR_APPROVAL
