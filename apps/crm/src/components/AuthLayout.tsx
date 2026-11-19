@@ -1,9 +1,5 @@
 import { Icon } from "./Icon";
 import { Logo } from "./Logo";
-import { CRM_BASE_PATH } from "@/lib/paths";
-
-const ART = `url("${CRM_BASE_PATH}/brand/login-fox.webp")`;
-
 /**
  * Shared frame for every signed-out page (login, password reset, invitation):
  * a HOME88 brand panel beside the form, collapsing to the form alone on
@@ -23,7 +19,7 @@ export function AuthLayout({
   const year = new Date().getFullYear();
   return (
     <div className="auth">
-      <section className="auth__brand" aria-label="HOME88 CRM" style={{ "--auth-art": ART } as React.CSSProperties}>
+      <section className="auth__brand" aria-label="HOME88 CRM">
         <Logo variant="white" width={170} className="auth__logo" />
         <div className="auth__pitch">
           <p className="auth__eyebrow">HOME88 CRM</p>

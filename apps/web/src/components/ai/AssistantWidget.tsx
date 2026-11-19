@@ -12,7 +12,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { AIAssistantMascot, type MascotState } from "./AIAssistantMascot";
 import "./assistant.css";
 
 type Card = {
@@ -58,7 +57,6 @@ export default function AssistantWidget() {
   const [sessionId, setSessionId] = useState("");
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [mascot, setMascot] = useState<MascotState>("idle");
   const [hover, setHover] = useState(false);
 
   const launcherRef = useRef<HTMLButtonElement>(null);
@@ -102,8 +100,6 @@ export default function AssistantWidget() {
 
   const openChat = useCallback(() => {
     setOpen(true);
-    setMascot("opening");
-    setTimeout(() => setMascot("listening"), 750);
     setTimeout(() => inputRef.current?.focus(), 30);
   }, []);
 
@@ -111,7 +107,6 @@ export default function AssistantWidget() {
   const closeChat = useCallback(() => {
     returnFocus.current = true;
     setOpen(false);
-    setMascot("idle");
   }, []);
 
   // After the launcher is back in the DOM, give it focus so keyboard users land where they started.
@@ -131,7 +126,6 @@ export default function AssistantWidget() {
       setMessages((m) => [...m, { id: nextId.current++, role: "user", text }]);
       setInput("");
       setBusy(true);
-      setMascot("thinking");
 
       abortRef.current?.abort();
       const controller = new AbortController();
@@ -152,17 +146,14 @@ export default function AssistantWidget() {
           ...m,
           { id: nextId.current++, role: "bot", text: body.message, cards: ok ? body.properties : undefined, received: ok && body.leadCreated === true, error: !ok },
         ]);
-        setMascot(!ok ? "error" : body.leadCreated ? "success" : "responding");
       } catch {
         setMessages((m) => [
           ...m,
           { id: nextId.current++, role: "bot", error: true, text: "Συγγνώμη, αντιμετωπίζω προσωρινά ένα τεχνικό πρόβλημα. Μπορείτε να δοκιμάσετε ξανά ή να επικοινωνήσετε με τη HOME88." },
         ]);
-        setMascot("error");
       } finally {
         clearTimeout(timeout);
         setBusy(false);
-        setTimeout(() => setMascot("listening"), 1800);
         setTimeout(() => inputRef.current?.focus(), 30);
       }
     },
@@ -186,7 +177,7 @@ export default function AssistantWidget() {
         onFocus={() => setHover(true)}
         onBlur={() => setHover(false)}
       >
-        <AIAssistantMascot size={92} state={hover ? "hover" : "idle"} />
+        <span className="ai-launcher__mark" data-hover={hover || undefined} aria-hidden="true">88</span>
         <span className="ai-launcher__tag" aria-hidden="true">AI</span>
       </button>
     );
@@ -200,7 +191,7 @@ export default function AssistantWidget() {
       onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); closeChat(); } }}
     >
       <header className="ai-window__head">
-        <AIAssistantMascot size={46} state={mascot} />
+        <span className="ai-window__mark" aria-hidden="true">88</span>
         <div className="ai-window__title">
           <strong>HOME88 AI Assistant</strong>
           <span>Βοηθός τεχνητής νοημοσύνης</span>
@@ -211,7 +202,7 @@ export default function AssistantWidget() {
           className="ai-iconbtn"
           aria-label="Νέα συνομιλία"
           title="Νέα συνομιλία"
-          onClick={() => { abortRef.current?.abort(); setMessages([]); setSessionId(newSessionId()); setBusy(false); setMascot("listening"); inputRef.current?.focus(); }}
+          
         >
           ↺
         </button>
