@@ -99,7 +99,15 @@ function firstRecordColumns(input: string, delimiter: LegacyCsvDelimiter): numbe
 }
 
 function headerKey(value: string): string {
-  return value.normalize("NFKC").trim().toLocaleLowerCase("el-GR");
+  // Greek exports often mix uppercase headers without tonos and lowercase
+  // headers with tonos. Compare compatibility forms without diacritics and
+  // normalise final sigma so visually equivalent column names cannot duplicate.
+  return value
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .trim()
+    .toLocaleLowerCase("el-GR")
+    .replace(/ς/g, "σ");
 }
 
 export function parseLegacyCsv(input: string, options: LegacyCsvOptions = {}): ParsedLegacyCsv {
