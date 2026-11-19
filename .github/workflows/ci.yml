@@ -95,8 +95,11 @@ jobs:
         run: npm run build
 
       - name: Test
+        id: tests
         run: set -o pipefail; npm test 2>&1 | tee test.log
 
+      # Typecheck/lint/build can fail before the test step is reached. In that case
+      # there is no test.log to inspect, so run this guard only if tests actually ran.
       - name: No skipped database tests
-        if: always()
+        if: always() && steps.tests.outcome != 'skipped'
         run: node scripts/check-test-skips.mjs test.log

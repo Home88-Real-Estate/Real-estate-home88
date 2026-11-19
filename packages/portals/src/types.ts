@@ -32,10 +32,6 @@ export type PortalSyncState =
 export type SyncAction = "PUBLISH" | "UPDATE" | "REMOVE" | "REPUBLISH" | "IMPORT_LEADS";
 
 
-
-/** Owned by the property lifecycle in @home88/domain. */
-export type { PropertyStatus };
-
 export type MediaKind = "PHOTO" | "FLOOR_PLAN" | "VIDEO" | "VIRTUAL_TOUR" | "DOCUMENT";
 
 /** A media item with its public URL already resolved by the caller. */

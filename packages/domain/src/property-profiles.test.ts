@@ -124,10 +124,12 @@ test("land intake supports the requested land subtypes and planning details", ()
     },
   });
   assert.deepEqual(issues, []);
-  assert.equal(values.details.landSubtype, "AGRICULTURAL");
-  assert.equal(values.details.buildingCoefficient, 0.4);
-  assert.equal(values.details.remainingBuildableArea, 350);
-  assert.equal(values.details.accessFrom, "DIRT");
-  assert.equal(values.details.landSlope, "GENTLE");
-  assert.equal(values.details.distanceToSea, 2.5);
+  assert.deepEqual(values.details, {
+    landSubtype: "AGRICULTURAL",
+    buildingCoefficient: 0.4,
+    remainingBuildableArea: 350,
+    accessFrom: "DIRT",
+    landSlope: "GENTLE",
+    distanceToSea: 2.5,
+  });
 });
