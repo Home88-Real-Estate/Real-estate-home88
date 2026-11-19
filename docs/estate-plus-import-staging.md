@@ -46,20 +46,31 @@ The upload request takes a .csv filename, byte size, and optional delimiter (AUT
 - Database RLS is enabled and anon / authenticated privileges are revoked for the import tables.
 - Database triggers prevent source payload/hash edits and prevent source batch identity from being rewritten.
 
+## Mapping and validation preview (Phase D.2)
+
+- Mapping is manager-only and can target CONTACT or PROPERTY. This is a controlled allowlist, not a general Prisma field mapper.
+- A source header can be mapped once and each HOME88 target field can be mapped once. Unknown fields and relation IDs (for example owner/agent IDs) are not accepted.
+- TEXT and EMAIL conversions are explicit. Numeric fields require INTEGER, NUMBER_DOT, or NUMBER_COMMA. Boolean fields require user-supplied true/false tokens. Enum fields require a user-supplied source-to-HOME88 value map.
+- Property preview always validates a DRAFT property. Status, publication, ownership links, agent assignments, generated reference and slug are not mappable.
+- The mapping configuration stores only target field names, source header names, and conversion rules. Mapped row values are computed in memory from the encrypted source payloads; no plaintext mapped rows are persisted.
+- Preview returns summary counts and a paginated sample of mapped records to managers. Audit metadata stores only counts and mapping information, not row values.
+- This phase does not yet offer a CRM mapping screen; the mapping and preview endpoints are API-only.
+- A successful preview is not approval. `canApprove` and `canImport` remain false.
+
 ## Explicitly out of scope
 
-- Estate+ column mapping and type coercion.
+- An approved, reusable Estate+ vendor mapping template (until a real export sample is reviewed).
 - XLSX/XLS parsing.
 - Existing-contact/property/mandate matching.
 - Cross-batch or canonical-record duplicate detection.
-- Human approval, dry-run report, entity creation, or import execution.
+- Human approval, contact/property creation, or import execution. (The current mapping preview is a non-writing dry run only.)
 - Automatic merging of contacts.
 - Rollback of imported canonical records (no import writes exist yet).
 
 ## Blockers before a real export can be staged
 
 1. Obtain a representative Estate+ CSV export and confirm which entity types it contains (contacts, properties, mandates, viewings, documents, etc.).
-2. Review and approve column mappings, date/number formats, enum translations, and null/empty conventions.
+2. Review and approve the source column mappings, numeric formats, enum translations, boolean tokens, and null/empty conventions against representative Estate+ records. The API can store a mapping now, but it is not evidence that the vendor export has been mapped correctly.
 3. Define canonical-record duplicate rules and how conflicts are resolved by a human.
 4. Define who may approve an import and what evidence the approver must review.
 5. Agree a retention period and cleanup process for both abandoned temporary uploads and encrypted staged rows. There is currently no scheduled expiry/purge job for abandoned uploads or staged source rows. Do not upload real customer data until that retention policy and cleanup mechanism are agreed and implemented.
