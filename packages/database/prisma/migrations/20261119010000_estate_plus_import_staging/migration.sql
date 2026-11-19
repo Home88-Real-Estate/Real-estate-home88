@@ -69,7 +69,7 @@ CREATE TABLE "legacy_import_batches" (
     CHECK (("approvedByUserId" IS NULL AND "approvedAt" IS NULL)
       OR ("approvedByUserId" IS NOT NULL AND "approvedAt" IS NOT NULL)),
   CONSTRAINT "legacy_import_batches_temp_key_check"
-    CHECK ("temporaryStorageKey" IS NULL OR "temporaryStorageKey" ~ '^private/legacy-imports/[0-9]{4}/[0-9]{2}/[a-f0-9]{32}\\.csv$')
+    CHECK ("temporaryStorageKey" IS NULL OR "temporaryStorageKey" ~ '^private/legacy-imports/[0-9]{4}/[0-9]{2}/[a-f0-9]{32}[.]csv$')
 );
 
 CREATE TABLE "legacy_import_rows" (
