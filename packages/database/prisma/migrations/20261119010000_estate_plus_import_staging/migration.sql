@@ -91,7 +91,7 @@ CREATE TABLE "legacy_import_rows" (
   CONSTRAINT "legacy_import_rows_pkey" PRIMARY KEY ("id"),
   CONSTRAINT "legacy_import_rows_row_number_check" CHECK ("rowNumber" >= 2),
   CONSTRAINT "legacy_import_rows_hash_check" CHECK ("payloadSha256" ~ '^[a-f0-9]{64}$'),
-  CONSTRAINT "legacy_import_rows_batch_fkey"
+  CONSTRAINT "legacy_import_rows_batchId_fkey"
     FOREIGN KEY ("batchId") REFERENCES "legacy_import_batches"("id")
     ON DELETE RESTRICT ON UPDATE CASCADE
 );
