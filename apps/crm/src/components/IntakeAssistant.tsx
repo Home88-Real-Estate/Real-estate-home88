@@ -493,10 +493,9 @@ export function IntakeAssistant({ maxUploadBytes, resumeId }: { maxUploadBytes: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // --- Conversation ---------------------------------------------------------------
+  // --- Guided field capture -------------------------------------------------------
   async function send(text = input) {
     if (!text.trim() || busy || PLACEHOLDER.test(text)) return;
-    unlockAudio();
     clearAutoSend();
     const current = await ensureSession();
     if (!current) return;
