@@ -132,20 +132,21 @@ BEGIN
 END $$;
 
 CREATE OR REPLACE FUNCTION public.h88_guard_legacy_import_row() RETURNS trigger
-LANGUAGE plpgsql SET search_path = pg_catalog AS $$
+LANGUAGE plpgsql SET search_path = pg_catalog AS $
 DECLARE
-  immutable text[] := ARRAY['id', 'batchId', 'rowNumber', 'payloadCiphertext', 'payloadSha256', 'createdAt'];
+  mutable text[] := ARRAY[
+    'status', 'sourceEntityType', 'legacyIdHash', 'validationIssues',
+    'targetEntityType', 'targetEntityId', 'importedAt', 'updatedAt'
+  ];
 BEGIN
   IF TG_OP = 'DELETE' THEN
     RAISE EXCEPTION 'legacy import rows are retained for audit and cannot be deleted';
   END IF;
-  IF (to_jsonb(NEW) - immutable) IS DISTINCT FROM (to_jsonb(OLD) - immutable) THEN
-    -- Review status, validated source identifiers and target links may change,
-    -- but the exact encrypted source record and checksum never do.
-    RETURN NEW;
+  IF (to_jsonb(NEW) - mutable) IS DISTINCT FROM (to_jsonb(OLD) - mutable) THEN
+    RAISE EXCEPTION 'legacy import row source payload is immutable';
   END IF;
   RETURN NEW;
-END $$;
+END $;
 
 CREATE TRIGGER h88_legacy_import_batch_guard
   BEFORE UPDATE OR DELETE ON "legacy_import_batches"
