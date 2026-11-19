@@ -405,7 +405,6 @@ export default async function HomePage() {
                 ) : null}
               </div>
             </div>
-            />
           </div>
         </div>
       </section>
