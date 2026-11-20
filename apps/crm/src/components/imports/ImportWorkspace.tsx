@@ -264,6 +264,15 @@ function reviewChoices(status: PreviewRow["status"]): ReviewChoice[] {
   }
 }
 
+function defaultReviewReason(status: PreviewRow["status"]): ReviewReason {
+  switch (status) {
+    case "READY": return "SOURCE_RECORD_VERIFIED";
+    case "DUPLICATE_REVIEW": return "DUPLICATE_CONFIRMED_DISTINCT";
+    case "SOURCE_INVALID": return "INVALID_SOURCE_SKIPPED";
+    case "MAPPING_INVALID": return "MAPPING_ISSUE_SKIPPED";
+  }
+}
+
 function reviewDecisionLabel(decision: ReviewDecision | null): string {
   return decision === "ACCEPT_AS_NEW" ? "Αποδοχή ως νέα" : decision === "SKIP" ? "Παράλειψη" : "Εκκρεμεί";
 }
@@ -837,7 +846,7 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
                                   <select
                                     className="select"
                                     aria-label={"Αιτιολογία απόφασης γραμμής " + row.rowNumber}
-                                    value={reviewSelections[row.rowNumber] ?? row.reviewReason ?? reviewChoices(row.status)[0].value}
+                                    value={reviewSelections[row.rowNumber] ?? row.reviewReason ?? defaultReviewReason(row.status)}
                                     onChange={(event) => setReviewSelections((current) => ({
                                       ...current,
                                       [row.rowNumber]: event.target.value as ReviewReason,
@@ -853,7 +862,7 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
                                     className="btn btn--outline btn--sm"
                                     onClick={() => void submitRowReview(
                                       row.rowNumber,
-                                      reviewSelections[row.rowNumber] ?? row.reviewReason ?? reviewChoices(row.status)[0].value,
+                                      reviewSelections[row.rowNumber] ?? row.reviewReason ?? defaultReviewReason(row.status),
                                     )}
                                     disabled={mappingBusy}
                                   >
