@@ -12,7 +12,7 @@ ALTER TABLE "legacy_import_batches"
   ADD CONSTRAINT "legacy_import_batches_retention_pair_check"
     CHECK (
       ("retentionDays" IS NULL AND "retentionExpiresAt" IS NULL)
-      OR ("retentionDays" IS NOT NULL AND "retentionDays" > 0 AND "retentionExpiresAt" IS NOT NULL)
+      OR ("retentionDays" IS NOT NULL AND "retentionDays" BETWEEN 1 AND 3650 AND "retentionExpiresAt" IS NOT NULL)
     ),
   ADD CONSTRAINT "legacy_import_batches_purged_row_count_check"
     CHECK ("purgedRowCount" >= 0);
