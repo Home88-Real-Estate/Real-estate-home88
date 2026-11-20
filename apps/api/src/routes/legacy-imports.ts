@@ -675,13 +675,14 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
 
       const mapped = mapLegacyImportRow(mapping, headers, source.values);
       const sourceIssues = Array.isArray(row.validationIssues) ? row.validationIssues : [];
-      const status = row.status === "DUPLICATE_REVIEW"
-        ? "DUPLICATE_REVIEW"
-        : row.status === "INVALID"
-          ? "SOURCE_INVALID"
-          : mapped.issues.length > 0
-            ? "MAPPING_INVALID"
-            : "READY";
+      const status: "READY" | "DUPLICATE_REVIEW" | "SOURCE_INVALID" | "MAPPING_INVALID" =
+        row.status === "DUPLICATE_REVIEW"
+          ? "DUPLICATE_REVIEW"
+          : row.status === "INVALID"
+            ? "SOURCE_INVALID"
+            : mapped.issues.length > 0
+              ? "MAPPING_INVALID"
+              : "READY";
 
       return {
         id: row.id,
