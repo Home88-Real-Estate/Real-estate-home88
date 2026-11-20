@@ -27,6 +27,15 @@ import {
   parseLegacyCsv,
   type LegacyCsvDelimiterChoice,
 } from "../lib/legacy-import/csv";
+import {
+  LEGACY_IMPORT_MAPPING_VERSION,
+  LEGACY_IMPORT_TARGET_TYPES,
+  LegacyMappingConfigurationError,
+  legacyImportMappingOptions,
+  mapLegacyImportRow,
+  validateLegacyImportMapping,
+  type LegacyImportMapping,
+} from "../lib/legacy-import/mapping";
 
 const MAX_IMPORT_BYTES = 20 * 1024 * 1024;
 const MAX_IMPORT_ROWS = 10_000;
@@ -48,6 +57,14 @@ const listSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(25),
 });
 const rowsSchema = z.object({
+  page: z.coerce.number().int().min(1).max(10_000).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+});
+
+const mappingOptionsSchema = z.object({
+  targetType: z.enum(LEGACY_IMPORT_TARGET_TYPES),
+});
+const mappingPreviewSchema = z.object({
   page: z.coerce.number().int().min(1).max(10_000).default(1),
   limit: z.coerce.number().int().min(1).max(50).default(20),
 });
@@ -360,6 +377,7 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
         detectedDelimiter: true,
         parserVersion: true,
         mappingVersion: true,
+        fieldMapping: true,
         columnHeaders: true,
         sourceRowCount: true,
         stagedRowCount: true,
@@ -375,6 +393,197 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
     });
     if (!batch) throw notFound("Η παρτίδα εισαγωγής δεν βρέθηκε.");
     return { batch, nextStep: batch.mappingVersion === "unmapped" ? "FIELD_MAPPING_REQUIRED" : "REVIEW_REQUIRED" };
+  });
+
+  app.get("/legacy-imports/:id/mapping-options", manager, async (request) => {
+    const { id } = parseInput(paramsSchema, request.params);
+    const query = parseInput(mappingOptionsSchema, request.query);
+    const batch = await db().legacyImportBatch.findUnique({
+      where: { id },
+      select: { id: true, columnHeaders: true },
+    });
+    if (!batch) throw notFound("Η παρτίδα εισαγωγής δεν βρέθηκε.");
+    const headers = Array.isArray(batch.columnHeaders)
+      ? batch.columnHeaders.filter((header): header is string => typeof header === "string")
+      : [];
+    return {
+      headers,
+      ...legacyImportMappingOptions(query.targetType),
+    };
+  });
+
+  app.put("/legacy-imports/:id/mapping", manager, async (request) => {
+    const actor = request.auth!.user;
+    const { id } = parseInput(paramsSchema, request.params);
+    const batch = await db().legacyImportBatch.findUnique({ where: { id } });
+    if (!batch) throw notFound("Η παρτίδα εισαγωγής δεν βρέθηκε.");
+    if (!["STAGED", "NEEDS_REVIEW"].includes(batch.status) || batch.importedRowCount > 0) {
+      throw conflict("Η αντιστοίχιση μπορεί να αλλάξει μόνο πριν από οποιαδήποτε εκτέλεση εισαγωγής.");
+    }
+
+    const headers = Array.isArray(batch.columnHeaders)
+      ? batch.columnHeaders.filter((header): header is string => typeof header === "string")
+      : [];
+    let mapping: LegacyImportMapping;
+    try {
+      mapping = validateLegacyImportMapping(request.body, headers);
+    } catch (error) {
+      if (error instanceof LegacyMappingConfigurationError) throw badRequest(error.message);
+      throw error;
+    }
+
+    const fieldMapping = JSON.parse(JSON.stringify(mapping)) as Prisma.InputJsonValue;
+    await db().legacyImportBatch.update({
+      where: { id },
+      data: {
+        fieldMapping,
+        mappingVersion: LEGACY_IMPORT_MAPPING_VERSION,
+      },
+    });
+    await writeAudit({
+      entity: "LEGACY_IMPORT_BATCH",
+      entityId: id,
+      action: "mapping_configured",
+      changes: {
+        targetType: mapping.targetType,
+        mappingVersion: LEGACY_IMPORT_MAPPING_VERSION,
+        fieldCount: mapping.fields.length,
+        sourceHeaderCount: headers.length,
+      },
+      actorId: actor.id,
+      ...auditMeta(request),
+    });
+
+    return {
+      batchId: id,
+      targetType: mapping.targetType,
+      mappingVersion: LEGACY_IMPORT_MAPPING_VERSION,
+      mappedFieldCount: mapping.fields.length,
+      nextStep: "MAPPING_PREVIEW_REQUIRED",
+      canImport: false,
+    };
+  });
+
+  app.post("/legacy-imports/:id/mapping/preview", manager, async (request) => {
+    const actor = request.auth!.user;
+    const { id } = parseInput(paramsSchema, request.params);
+    const query = parseInput(mappingPreviewSchema, request.query);
+    requireEncryption();
+
+    const batch = await db().legacyImportBatch.findUnique({ where: { id } });
+    if (!batch) throw notFound("Η παρτίδα εισαγωγής δεν βρέθηκε.");
+    if (!batch.fieldMapping || batch.mappingVersion !== LEGACY_IMPORT_MAPPING_VERSION) {
+      throw conflict("Αποθηκεύστε πρώτα την αντιστοίχιση πεδίων.");
+    }
+
+    const headers = Array.isArray(batch.columnHeaders)
+      ? batch.columnHeaders.filter((header): header is string => typeof header === "string")
+      : [];
+    let mapping: LegacyImportMapping;
+    try {
+      mapping = validateLegacyImportMapping(batch.fieldMapping, headers);
+    } catch (error) {
+      if (error instanceof LegacyMappingConfigurationError) {
+        throw conflict("Η αποθηκευμένη αντιστοίχιση δεν είναι έγκυρη. Αποθηκεύστε την ξανά.");
+      }
+      throw error;
+    }
+
+    const rows = await db().legacyImportRow.findMany({
+      where: { batchId: id },
+      orderBy: { rowNumber: "asc" },
+      select: {
+        rowNumber: true,
+        status: true,
+        payloadCiphertext: true,
+        validationIssues: true,
+      },
+    });
+
+    const previewRows = rows.map((row) => {
+      const plaintext = decryptField(row.payloadCiphertext);
+      if (plaintext === null) {
+        throw conflict("Τα δεδομένα της παρτίδας δεν μπορούν να αποκρυπτογραφηθούν με το τρέχον κλειδί.");
+      }
+
+      let source: { headers: string[]; values: string[] };
+      try {
+        source = JSON.parse(plaintext) as { headers: string[]; values: string[] };
+      } catch {
+        throw conflict("Μία εγγραφή της παρτίδας δεν είναι αναγνώσιμη.");
+      }
+      if (!Array.isArray(source.headers) || !Array.isArray(source.values) || source.headers.length !== headers.length || source.headers.some((value, index) => value !== headers[index])) {
+        throw conflict("Η δομή μίας αρχικής εγγραφής δεν συμφωνεί με τις επικεφαλίδες της παρτίδας.");
+      }
+
+      const mapped = mapLegacyImportRow(mapping, headers, source.values);
+      const sourceIssues = Array.isArray(row.validationIssues) ? row.validationIssues : [];
+      const status = row.status === "DUPLICATE_REVIEW"
+        ? "DUPLICATE_REVIEW"
+        : row.status === "INVALID"
+          ? "SOURCE_INVALID"
+          : mapped.issues.length > 0
+            ? "MAPPING_INVALID"
+            : "READY";
+
+      return {
+        rowNumber: row.rowNumber,
+        status,
+        record: mapped.record,
+        issues: mapped.issues,
+        sourceIssues,
+      };
+    });
+
+    const readyRows = previewRows.filter((row) => row.status === "READY").length;
+    const duplicateRows = previewRows.filter((row) => row.status === "DUPLICATE_REVIEW").length;
+    const sourceInvalidRows = previewRows.filter((row) => row.status === "SOURCE_INVALID").length;
+    const mappingInvalidRows = previewRows.filter((row) => row.status === "MAPPING_INVALID").length;
+    const skip = (query.page - 1) * query.limit;
+    const data = previewRows.slice(skip, skip + query.limit);
+
+    await writeAudit({
+      entity: "LEGACY_IMPORT_BATCH",
+      entityId: id,
+      action: "mapping_preview",
+      changes: {
+        targetType: mapping.targetType,
+        mappingVersion: batch.mappingVersion,
+        rowsChecked: previewRows.length,
+        readyRows,
+        duplicateRows,
+        sourceInvalidRows,
+        mappingInvalidRows,
+        page: query.page,
+        limit: query.limit,
+        rowsReturned: data.length,
+      },
+      actorId: actor.id,
+      ...auditMeta(request),
+    });
+
+    return {
+      batchId: id,
+      summary: {
+        targetType: mapping.targetType,
+        mappingVersion: batch.mappingVersion,
+        totalRows: previewRows.length,
+        readyRows,
+        duplicateRows,
+        sourceInvalidRows,
+        mappingInvalidRows,
+      },
+      data,
+      pagination: {
+        page: query.page,
+        limit: query.limit,
+        total: previewRows.length,
+        pages: Math.max(1, Math.ceil(previewRows.length / query.limit)),
+      },
+      nextStep: "HUMAN_REVIEW_REQUIRED",
+      canApprove: false,
+      canImport: false,
+    };
   });
 
   app.get("/legacy-imports/:id/rows", manager, async (request) => {

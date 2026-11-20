@@ -27,6 +27,8 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
   setDocumentStore(store);
 
   const run = randomBytes(5).toString("hex");
+  const stagedFirstName = "Μαρία-" + run;
+  const stagedLastName = "Παπαδοπούλου-" + run;
   const password = "Estate-Import-Integration-Password-123";
   const passwordHash = hashPassword(password, 10);
   const makeUser = (role: "AGENT" | "MANAGER") =>
@@ -71,10 +73,10 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
     assert.equal((await call(agentCookie, "GET", "/legacy-imports")).status, 403, "agents cannot inspect import batches");
 
     const csv = [
-      "Κωδικός;Ονοματεπώνυμο;Σημειώσεις",
-      "EP-001;Μαρία Παπαδοπούλου;Ενδιαφέρεται για αγορά",
-      "EP-001;Μαρία Παπαδοπούλου;Ενδιαφέρεται για αγορά",
-      "EP-002;Γιώργος Κωνσταντίνου;Τηλέφωνο 6900000000;extra",
+      "Κωδικός;Όνομα;Επώνυμο;Σημειώσεις",
+      "EP-001;" + stagedFirstName + ";" + stagedLastName + ";Ενδιαφέρεται για αγορά",
+      "EP-001;" + stagedFirstName + ";" + stagedLastName + ";Ενδιαφέρεται για αγορά",
+      "EP-002;Γιώργος;Κωνσταντίνου;Τηλέφωνο 6900000000;extra",
     ].join("\r\n");
     const bytes = Buffer.from(csv, "utf8");
 
@@ -94,7 +96,7 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
     assert.equal(parsed.body.nextStep, "FIELD_MAPPING_REQUIRED");
     assert.equal(parsed.body.batch.status, "NEEDS_REVIEW");
     assert.equal(parsed.body.batch.detectedDelimiter, ";");
-    assert.deepEqual(parsed.body.batch.headers, ["Κωδικός", "Ονοματεπώνυμο", "Σημειώσεις"]);
+    assert.deepEqual(parsed.body.batch.headers, ["Κωδικός", "Όνομα", "Επώνυμο", "Σημειώσεις"]);
     assert.deepEqual([
       parsed.body.batch.sourceRowCount,
       parsed.body.batch.stagedRowCount,
@@ -128,13 +130,61 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
     assert.equal(preview.status, 200);
     assert.equal(preview.body.data.length, 3);
     assert.deepEqual(preview.body.data.map((row: any) => row.status), ["STAGED", "DUPLICATE_REVIEW", "INVALID"]);
-    assert.equal(preview.body.data[0].record.values[1], "Μαρία Παπαδοπούλου");
+    assert.equal(preview.body.data[0].record.values[1], stagedFirstName);
 
+    const options = await call(managerCookie, "GET", "/legacy-imports/" + batchId + "/mapping-options?targetType=CONTACT");
+    assert.equal(options.status, 200);
+    assert.ok(options.body.fields.some((field: any) => field.key === "firstName"));
+    assert.ok(options.body.fields.some((field: any) => field.key === "email"));
+
+    const mapping = await call(managerCookie, "PUT", "/legacy-imports/" + batchId + "/mapping", {
+      targetType: "CONTACT",
+      fields: [
+        { sourceHeader: "Όνομα", targetField: "firstName", transform: "TEXT" },
+        { sourceHeader: "Επώνυμο", targetField: "lastName", transform: "TEXT" },
+      ],
+    });
+    assert.equal(mapping.status, 200, JSON.stringify(mapping.body));
+    assert.equal(mapping.body.canImport, false);
+    const batchWithMapping = await db().legacyImportBatch.findUniqueOrThrow({ where: { id: batchId } });
+    assert.equal(batchWithMapping.mappingVersion, "h88-estate-plus-map-v1");
+    assert.ok(batchWithMapping.fieldMapping);
+
+    const mappingPreview = await call(managerCookie, "POST", "/legacy-imports/" + batchId + "/mapping/preview");
+    assert.equal(mappingPreview.status, 200, JSON.stringify(mappingPreview.body));
+    assert.deepEqual(mappingPreview.body.summary, {
+      targetType: "CONTACT",
+      mappingVersion: "h88-estate-plus-map-v1",
+      totalRows: 3,
+      readyRows: 1,
+      duplicateRows: 1,
+      sourceInvalidRows: 1,
+      mappingInvalidRows: 0,
+    });
+    assert.deepEqual(mappingPreview.body.data.map((row: any) => row.status), ["READY", "DUPLICATE_REVIEW", "SOURCE_INVALID"]);
+    assert.deepEqual([
+      mappingPreview.body.data[0].record.firstName,
+      mappingPreview.body.data[0].record.lastName,
+    ], [stagedFirstName, stagedLastName]);
+    assert.equal(mappingPreview.body.canApprove, false);
+    assert.equal(mappingPreview.body.canImport, false);
+    const unexpectedlyImported = await db().contact.findFirst({
+      where: { firstName: stagedFirstName, lastName: stagedLastName },
+      select: { id: true },
+    });
+    assert.equal(unexpectedlyImported, null, "mapping preview never creates the staged CRM contact");
+
+    assert.equal((await call(agentCookie, "PUT", "/legacy-imports/" + batchId + "/mapping", {
+      targetType: "CONTACT",
+      fields: [{ sourceHeader: "Όνομα", targetField: "status", transform: "TEXT" }],
+    })).status, 403, "agents cannot edit mappings");
     assert.equal((await raw(agentCookie, "GET", "/legacy-imports/" + batchId + "/rows")).status, 403);
     assert.equal((await call(managerCookie, "POST", "/legacy-imports/" + batchId + "/parse")).status, 409, "a staged batch cannot be parsed again");
 
     const audit = await db().auditLog.findMany({ where: { entity: "LEGACY_IMPORT_BATCH", entityId: batchId } });
     assert.ok(audit.some((entry) => entry.action === "stage"));
+    assert.ok(audit.some((entry) => entry.action === "mapping_configured"));
+    assert.ok(audit.some((entry) => entry.action === "mapping_preview"));
     assert.equal(JSON.stringify(audit).includes("Μαρία Παπαδοπούλου"), false, "audit rows contain no source values");
     assert.equal(JSON.stringify(audit).includes("6900000000"), false, "audit rows contain no source phone numbers");
 

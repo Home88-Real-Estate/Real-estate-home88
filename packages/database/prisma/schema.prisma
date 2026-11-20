@@ -3858,8 +3858,10 @@ model LegacyImportBatch {
   requestedDelimiter String                  @default("AUTO")
   detectedDelimiter  String?
   parserVersion      String                  @default("home88-csv-v1")
-  /// Remains unmapped until an Estate+ export sample has been reviewed.
+  /// Version of the explicitly reviewed source-to-HOME88 mapping.
   mappingVersion     String                  @default("unmapped")
+  /// Non-PII mapping configuration: entity type, source headers and transforms.
+  fieldMapping       Json?
   columnHeaders      Json?
   sourceRowCount     Int                     @default(0)
   stagedRowCount     Int                     @default(0)
