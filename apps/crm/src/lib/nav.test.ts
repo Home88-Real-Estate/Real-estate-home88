@@ -43,6 +43,7 @@ test("deep links resolve to the right child and open its group", () => {
   const nav = navFor(admin);
   const cases: Array<[string, string, string | null]> = [
     ["/documents", "/documents", "files"],
+    ["/imports", "/imports", null],
     ["/sellers/abc", "/sellers", "clients"],
     ["/leads", "/leads", "clients"],
     ["/reminders", "/reminders", "calendar"],
