@@ -787,11 +787,13 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
                 </div>
                 <span className="badge badge--muted">Σελίδα {previewPage} / {preview.pagination.pages}</span>
               </div>
-              <div className="import-preview-stats">
+              <div className="import-preview-stats import-review-stats">
                 <div><strong>{preview.summary.totalRows}</strong><span>Σύνολο</span></div>
                 <div><strong>{preview.summary.readyRows}</strong><span>Έτοιμες</span></div>
                 <div><strong>{preview.summary.duplicateRows}</strong><span>Διπλότυπα</span></div>
                 <div><strong>{preview.summary.sourceInvalidRows + preview.summary.mappingInvalidRows}</strong><span>Με σφάλματα</span></div>
+                <div><strong>{preview.reviewSummary.reviewedRowCount}</strong><span>Ελέγχθηκαν</span></div>
+                <div><strong>{preview.reviewSummary.pendingRowCount}</strong><span>Εκκρεμούν</span></div>
               </div>
               {preview.data.length === 0 ? (
                 <p className="muted">Δεν υπάρχουν γραμμές σε αυτή τη σελίδα.</p>
@@ -799,7 +801,7 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
                 <div className="table-wrap">
                   <table className="data import-preview-table">
                     <thead>
-                      <tr><th>Γραμμή</th><th>Κατάσταση</th><th>Μετασχηματισμένα δεδομένα</th><th>Έλεγχοι</th></tr>
+                      <tr><th>Γραμμή</th><th>Κατάσταση</th><th>Μετασχηματισμένα δεδομένα</th><th>Έλεγχοι</th><th>Απόφαση manager</th></tr>
                     </thead>
                     <tbody>
                       {preview.data.map((row) => (
@@ -822,6 +824,43 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
                               ? <span className="muted">—</span>
                               : <ul className="import-issue-list">{row.issues.map((issue, index) => <li key={issue.code + index}>{issue.message}</li>)}{row.sourceIssues.map((issue, index) => <li key={"source-" + index}>{typeof issue === "object" && issue && "code" in issue ? String((issue as { code: unknown }).code) : "Αρχικό σφάλμα"}</li>)}</ul>}
                           </td>
+                          <td>
+                            <div className="import-review-decision">
+                              <span className={row.reviewDecision === "ACCEPT_AS_NEW" ? "badge badge--ok" : row.reviewDecision === "SKIP" ? "badge badge--muted" : "badge badge--warn"}>
+                                {reviewDecisionLabel(row.reviewDecision)}
+                              </span>
+                              {row.reviewedAt && <small>{formatDate(row.reviewedAt)}</small>}
+                              {!["READY_FOR_APPROVAL", "REVIEWED"].includes(preview.batchStatus) && (
+                                <div className="import-review-controls">
+                                  <select
+                                    className="select"
+                                    aria-label={"Αιτιολογία απόφασης γραμμής " + row.rowNumber}
+                                    value={reviewSelections[row.rowNumber] ?? row.reviewReason ?? reviewChoices(row.status)[0].value}
+                                    onChange={(event) => setReviewSelections((current) => ({
+                                      ...current,
+                                      [row.rowNumber]: event.target.value as ReviewReason,
+                                    }))}
+                                    disabled={mappingBusy}
+                                  >
+                                    {reviewChoices(row.status).map((choice) => (
+                                      <option key={choice.value} value={choice.value}>{choice.label}</option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    className="btn btn--outline btn--sm"
+                                    onClick={() => void submitRowReview(
+                                      row.rowNumber,
+                                      reviewSelections[row.rowNumber] ?? row.reviewReason ?? reviewChoices(row.status)[0].value,
+                                    )}
+                                    disabled={mappingBusy}
+                                  >
+                                    {row.reviewDecision ? "Ενημέρωση" : "Καταχώριση"}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -833,9 +872,19 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
                 <span className="muted">Εμφάνιση {preview.data.length} από {preview.pagination.total} γραμμές</span>
                 <button type="button" className="btn btn--ghost btn--sm" onClick={() => void changePreviewPage(previewPage + 1)} disabled={mappingBusy || previewPage >= preview.pagination.pages}>Επόμενη</button>
               </div>
-              <div className="notice import-no-write">
-                Η προεπισκόπηση δεν είναι έγκριση. Δεν δημιουργήθηκε επαφή ή ακίνητο και δεν υπάρχει ακόμη δυνατότητα εκτέλεσης εισαγωγής.
-              </div>
+              {preview.batchStatus === "READY_FOR_APPROVAL" ? (
+                <div className="notice notice--ok import-no-write">
+                  Ο ανθρώπινος έλεγχος ολοκληρώθηκε: {preview.reviewSummary.acceptedRowCount} γραμμές αποδέχθηκαν ως νέες και {preview.reviewSummary.skippedRowCount} παραλείφθηκαν. Απαιτείται ξεχωριστή έγκριση σε επόμενο στάδιο.
+                </div>
+              ) : preview.batchStatus === "REVIEWED" ? (
+                <div className="notice import-no-write">
+                  Όλες οι γραμμές ελέγχθηκαν, αλλά δεν εγκρίθηκε καμία για εισαγωγή. Δεν δημιουργήθηκε επαφή ή ακίνητο.
+                </div>
+              ) : (
+                <div className="notice import-no-write">
+                  Καταχωρίστε απόφαση για κάθε γραμμή. Οι μη έγκυρες γραμμές μπορούν μόνο να παραλειφθούν. Η αποδοχή διπλοτύπου απαιτεί ρητή επιβεβαίωση ότι πρόκειται για διαφορετική εγγραφή. Δεν δημιουργούνται επαφές ή ακίνητα.
+                </div>
+              )}
             </div>
           )}
         </section>
