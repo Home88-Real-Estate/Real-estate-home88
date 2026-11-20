@@ -273,8 +273,8 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
       });
       if (!upload.ok) throw new Error("Η αποθήκευση του αρχείου απέτυχε (" + upload.status + ").");
 
-      await apiRequest<{
-        batch: { id: string; status: string };
+      const parsed = await apiRequest<{
+        batch: { id: string; status: string; sourceCleanupPending: boolean };
         nextStep: string;
       }>("/legacy-imports/" + encodeURIComponent(ticket.batch.id) + "/parse", "POST", {});
 
