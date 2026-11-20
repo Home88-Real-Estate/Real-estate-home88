@@ -2,7 +2,7 @@
 
 **Status:** secure staging, CRM mapping preview, retention purge and manager row-review decisions are implemented. Real customer exports remain blocked until an operator-approved retention value, a representative Estate+ export schema, and canonical duplicate/approval policies are supplied.
 
-**Branch / review:** feat/estate-plus-import-foundation / PR #89.
+**Phase history:** D.1 foundation / PR #89; D.2–D.3 mapping workspace / PR #91; D.4 retention lifecycle / PR #92; D.5 manager row review / PR #93 (draft).
 
 ## Purpose
 
