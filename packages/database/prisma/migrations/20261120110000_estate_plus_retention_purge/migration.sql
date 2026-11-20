@@ -131,7 +131,7 @@ END $$;
 -- A canonical legacy mapping cannot be attached to a batch during/after purge
 -- or after that batch's expiry timestamp.
 CREATE OR REPLACE FUNCTION public.h88_guard_legacy_mapping_retention() RETURNS trigger
-LANGUAGE plpgsql SET search_path = pg_catalog AS $
+LANGUAGE plpgsql SET search_path = pg_catalog AS $$
 DECLARE
   batch_locked boolean;
   batch_expired boolean;
@@ -152,7 +152,7 @@ BEGIN
     END IF;
   END IF;
   RETURN NEW;
-END $;
+END $$;
 
 DROP TRIGGER IF EXISTS h88_legacy_import_row_guard ON "legacy_import_rows";
 CREATE TRIGGER h88_legacy_import_row_guard
