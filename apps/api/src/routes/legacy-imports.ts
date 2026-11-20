@@ -706,9 +706,16 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
 
     // Persist only the non-PII classification and issue codes. The mapped
     // record itself remains in memory and is never written to the database.
-    if (!["READY_FOR_APPROVAL", "REVIEWED"].includes(batch.status)) {
+    const skip = (query.page - 1) * query.limit;
+    const pageRows = previewRows.slice(skip, skip + query.limit);
+
+    // Persist only the non-PII classifications for the rows visible on this
+    // page. A 10,000-row batch therefore does not create 10,000 database writes
+    // from one preview request; each subsequent page becomes reviewable when
+    // its manager opens it.
+    if (!["READY_FOR_APPROVAL", "REVIEWED"].includes(batch.status) && pageRows.length > 0) {
       await db().$transaction(async (tx) => {
-        for (const row of previewRows) {
+        for (const row of pageRows) {
           await tx.legacyImportRow.update({
             where: { id: row.id },
             data: {
@@ -726,8 +733,7 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
     const acceptedRowCount = previewRows.filter((row) => row.reviewDecision === "ACCEPT_AS_NEW").length;
     const skippedRowCount = previewRows.filter((row) => row.reviewDecision === "SKIP").length;
     const pendingRowCount = previewRows.length - reviewedRowCount;
-    const skip = (query.page - 1) * query.limit;
-    const data = previewRows.slice(skip, skip + query.limit).map(({ id: _id, reviewMappingVersion: _version, ...row }) => row);
+    const data = pageRows.map(({ id: _id, reviewMappingVersion: _version, ...row }) => row);
 
     await writeAudit({
       entity: "LEGACY_IMPORT_BATCH",
