@@ -40,13 +40,8 @@ BEGIN
 
   IF OLD."purgeLockedAt" IS NOT NULL
      AND NEW."purgeLockedAt" IS NOT NULL
-     AND (
-       NEW."status" IS DISTINCT FROM OLD."status"
-       OR NEW."approvedByUserId" IS DISTINCT FROM OLD."approvedByUserId"
-       OR NEW."approvedAt" IS DISTINCT FROM OLD."approvedAt"
-       OR NEW."importStartedAt" IS DISTINCT FROM OLD."importStartedAt"
-       OR NEW."importedRowCount" > OLD."importedRowCount"
-     ) THEN
+     AND (to_jsonb(NEW) - ARRAY['purgeLockedAt', 'updatedAt'])
+         IS DISTINCT FROM (to_jsonb(OLD) - ARRAY['purgeLockedAt', 'updatedAt']) THEN
     RAISE EXCEPTION 'legacy import batch is locked for retention purge';
   END IF;
 
@@ -71,18 +66,21 @@ DECLARE
     'status', 'sourceEntityType', 'legacyIdHash', 'validationIssues',
     'targetEntityType', 'targetEntityId', 'importedAt', 'updatedAt'
   ];
+  batch_locked boolean;
+  batch_expired boolean;
 BEGIN
   IF TG_OP = 'INSERT' THEN
-    IF EXISTS (
-      SELECT 1
-      FROM public.legacy_import_batches b
-      WHERE b.id = NEW."batchId"
-        AND (
-          b."purgeLockedAt" IS NOT NULL
-          OR b."status"::text = 'EXPIRED'
-          OR (b."retentionExpiresAt" IS NOT NULL AND b."retentionExpiresAt" <= clock_timestamp())
-        )
-    ) THEN
+    -- Lock the parent while checking. The purger's batch UPDATE must wait for
+    -- this transaction, and then will see the inserted row before deleting.
+    SELECT
+      b."purgeLockedAt" IS NOT NULL,
+      b."status"::text = 'EXPIRED'
+        OR (b."retentionExpiresAt" IS NOT NULL AND b."retentionExpiresAt" <= clock_timestamp())
+    INTO batch_locked, batch_expired
+    FROM public.legacy_import_batches b
+    WHERE b.id = NEW."batchId"
+    FOR UPDATE;
+    IF COALESCE(batch_locked, false) OR COALESCE(batch_expired, false) THEN
       RAISE EXCEPTION 'legacy import batch is not accepting staged rows';
     END IF;
     RETURN NEW;
@@ -111,11 +109,17 @@ BEGIN
     RAISE EXCEPTION 'legacy import rows may be deleted only by an eligible retention purge';
   END IF;
 
-  IF EXISTS (
-    SELECT 1 FROM public.legacy_import_batches b
-    WHERE b.id = OLD."batchId" AND b."purgeLockedAt" IS NOT NULL
-  ) THEN
-    RAISE EXCEPTION 'legacy import batch is locked for retention purge';
+  -- Serialize row updates with the purge lease too.
+  SELECT
+    b."purgeLockedAt" IS NOT NULL,
+    b."status"::text = 'EXPIRED'
+      OR (b."retentionExpiresAt" IS NOT NULL AND b."retentionExpiresAt" <= clock_timestamp())
+  INTO batch_locked, batch_expired
+  FROM public.legacy_import_batches b
+  WHERE b.id = OLD."batchId"
+  FOR UPDATE;
+  IF COALESCE(batch_locked, false) OR COALESCE(batch_expired, false) THEN
+    RAISE EXCEPTION 'legacy import batch is locked or expired';
   END IF;
 
   IF (to_jsonb(NEW) - mutable) IS DISTINCT FROM (to_jsonb(OLD) - mutable) THEN
@@ -127,22 +131,28 @@ END $$;
 -- A canonical legacy mapping cannot be attached to a batch during/after purge
 -- or after that batch's expiry timestamp.
 CREATE OR REPLACE FUNCTION public.h88_guard_legacy_mapping_retention() RETURNS trigger
-LANGUAGE plpgsql SET search_path = pg_catalog AS $$
+LANGUAGE plpgsql SET search_path = pg_catalog AS $
+DECLARE
+  batch_locked boolean;
+  batch_expired boolean;
 BEGIN
-  IF NEW."importBatchId" IS NOT NULL AND EXISTS (
-    SELECT 1
+  IF NEW."importBatchId" IS NOT NULL THEN
+    -- The row lock makes the relationship check atomic with the purge lease.
+    SELECT
+      b."purgeLockedAt" IS NOT NULL,
+      b."status"::text = 'EXPIRED'
+        OR (b."retentionExpiresAt" IS NOT NULL AND b."retentionExpiresAt" <= clock_timestamp())
+    INTO batch_locked, batch_expired
     FROM public.legacy_import_batches b
     WHERE b.id = NEW."importBatchId"
-      AND (
-        b."purgeLockedAt" IS NOT NULL
-        OR b."status"::text = 'EXPIRED'
-        OR (b."retentionExpiresAt" IS NOT NULL AND b."retentionExpiresAt" <= clock_timestamp())
-      )
-  ) THEN
-    RAISE EXCEPTION 'legacy import batch is not accepting entity mappings';
+    FOR UPDATE;
+
+    IF COALESCE(batch_locked, false) OR COALESCE(batch_expired, false) THEN
+      RAISE EXCEPTION 'legacy import batch is not accepting entity mappings';
+    END IF;
   END IF;
   RETURN NEW;
-END $$;
+END $;
 
 DROP TRIGGER IF EXISTS h88_legacy_import_row_guard ON "legacy_import_rows";
 CREATE TRIGGER h88_legacy_import_row_guard
