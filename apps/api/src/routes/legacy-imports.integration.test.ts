@@ -197,6 +197,13 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
       pendingRowCount: 3,
       complete: false,
     });
+    await assert.rejects(
+      () => db().legacyImportBatch.update({
+        where: { id: batchId },
+        data: { status: "READY_FOR_APPROVAL", reviewCompletedAt: new Date() },
+      }),
+      "database trigger rejects direct approval-boundary transition before all rows are reviewed",
+    );
 
     assert.equal((await call(managerCookie, "POST", "/legacy-imports/" + batchId + "/review", {
       rowNumber: 3,
@@ -215,6 +222,16 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
     assert.equal(acceptReady.body.acceptedRowCount, 1);
     assert.equal(acceptReady.body.pendingRowCount, 2);
     assert.equal(acceptReady.body.batchStatus, "NEEDS_REVIEW");
+    const firstReviewedRow = await db().legacyImportRow.findUniqueOrThrow({
+      where: { batchId_rowNumber: { batchId, rowNumber: 1 } },
+    });
+    await assert.rejects(
+      () => db().legacyImportRow.update({
+        where: { id: firstReviewedRow.id },
+        data: { reviewReason: "NOT_RELEVANT" },
+      }),
+      "database trigger rejects a reason inconsistent with an ACCEPT_AS_NEW decision",
+    );
 
     const skipDuplicate = await call(managerCookie, "POST", "/legacy-imports/" + batchId + "/review", {
       rowNumber: 2,
@@ -244,6 +261,13 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
     assert.equal(reviewedBatch.acceptedRowCount, 1);
     assert.equal(reviewedBatch.skippedRowCount, 2);
     assert.ok(reviewedBatch.reviewCompletedAt);
+    await assert.rejects(
+      () => db().legacyImportBatch.update({
+        where: { id: batchId },
+        data: { acceptedRowCount: 2, skippedRowCount: 1 },
+      }),
+      "database trigger makes final review summary immutable",
+    );
 
     const reviewedRows = await db().legacyImportRow.findMany({ where: { batchId }, orderBy: { rowNumber: "asc" } });
     assert.deepEqual(reviewedRows.map((row) => row.reviewDecision), ["ACCEPT_AS_NEW", "SKIP", "SKIP"]);
