@@ -278,12 +278,15 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
       });
       if (!upload.ok) throw new Error("Η αποθήκευση του αρχείου απέτυχε (" + upload.status + ").");
 
-      const parsed = await apiRequest<{
-        batch: ImportBatch;
+      await apiRequest<{
+        batch: { id: string; status: string };
         nextStep: string;
       }>("/legacy-imports/" + encodeURIComponent(ticket.batch.id) + "/parse", "POST", {});
 
-      setBatches((current) => [parsed.batch, ...current.filter((batch) => batch.id !== parsed.batch.id)]);
+      const detail = await apiRequest<{ batch: ImportBatch }>(
+        "/legacy-imports/" + encodeURIComponent(ticket.batch.id),
+      );
+      setBatches((current) => [detail.batch, ...current.filter((batch) => batch.id !== detail.batch.id)]);
       form.reset();
       setTestFileConfirmed(false);
       setNotice({
@@ -303,6 +306,8 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
 
   async function openMapping(batch: ImportBatch) {
     setSelectedBatchId(batch.id);
+    setFieldOptions([]);
+    setHeaders([]);
     setMappingBusy(true);
     setMappingNotice(null);
     setPreview(null);
