@@ -8,6 +8,14 @@ import { CRM_BASE_PATH } from "@/lib/paths";
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 type TargetType = "CONTACT" | "PROPERTY";
 type Transform = "TEXT" | "EMAIL" | "INTEGER" | "NUMBER_DOT" | "NUMBER_COMMA" | "BOOLEAN_MAP" | "ENUM_MAP";
+type ReviewDecision = "ACCEPT_AS_NEW" | "SKIP";
+type ReviewReason =
+  | "SOURCE_RECORD_VERIFIED"
+  | "NOT_RELEVANT"
+  | "DUPLICATE_CONFIRMED_DISTINCT"
+  | "EXACT_DUPLICATE_SKIPPED"
+  | "INVALID_SOURCE_SKIPPED"
+  | "MAPPING_ISSUE_SKIPPED";
 
 export type ImportBatch = {
   id: string;
@@ -28,6 +36,10 @@ export type ImportBatch = {
   retentionExpiresAt: string | null;
   purgedAt: string | null;
   purgedRowCount: number;
+  reviewedRowCount: number;
+  acceptedRowCount: number;
+  skippedRowCount: number;
+  reviewCompletedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -74,6 +86,9 @@ type PreviewRow = {
   record: Record<string, unknown>;
   issues: Array<{ code: string; field?: string; message: string }>;
   sourceIssues: unknown[];
+  reviewDecision: ReviewDecision | null;
+  reviewReason: ReviewReason | null;
+  reviewedAt: string | null;
 };
 
 type PreviewResponse = {
@@ -87,6 +102,15 @@ type PreviewResponse = {
     mappingInvalidRows: number;
   };
   data: PreviewRow[];
+  reviewSummary: {
+    totalRows: number;
+    reviewedRowCount: number;
+    acceptedRowCount: number;
+    skippedRowCount: number;
+    pendingRowCount: number;
+    complete: boolean;
+  };
+  batchStatus: string;
   pagination: { page: number; limit: number; total: number; pages: number };
   canApprove: false;
   canImport: false;
@@ -197,12 +221,15 @@ const STATUS_LABEL: Record<string, string> = {
   IMPORTING: "Σε εισαγωγή",
   COMPLETED: "Ολοκληρώθηκε",
   CANCELLED: "Ακυρώθηκε",
+  REVIEWED: "Ολοκληρώθηκε · χωρίς νέες εγγραφές",
+  READY_FOR_APPROVAL: "Έτοιμο για ξεχωριστή έγκριση",
   EXPIRED: "Έληξε — εκκαθαρίστηκε",
 };
 
 function statusClass(status: string): string {
-  if (status === "STAGED" || status === "COMPLETED") return "badge badge--ok";
+  if (status === "STAGED" || status === "COMPLETED" || status === "READY_FOR_APPROVAL") return "badge badge--ok";
   if (status === "NEEDS_REVIEW" || status === "PARSING") return "badge badge--warn";
+  if (status === "REVIEWED") return "badge badge--muted";
   if (status === "FAILED") return "badge badge--danger";
   return "badge badge--muted";
 }
@@ -214,6 +241,31 @@ function previewStatusLabel(status: PreviewRow["status"]): string {
     SOURCE_INVALID: "Μη έγκυρη γραμμή",
     MAPPING_INVALID: "Έλεγχος αντιστοίχισης",
   })[status];
+}
+
+type ReviewChoice = { value: ReviewReason; decision: ReviewDecision; label: string };
+
+function reviewChoices(status: PreviewRow["status"]): ReviewChoice[] {
+  switch (status) {
+    case "READY":
+      return [
+        { value: "SOURCE_RECORD_VERIFIED", decision: "ACCEPT_AS_NEW", label: "Ελέγχθηκε — αποδοχή ως νέα εγγραφή" },
+        { value: "NOT_RELEVANT", decision: "SKIP", label: "Δεν αφορά — παράλειψη" },
+      ];
+    case "DUPLICATE_REVIEW":
+      return [
+        { value: "DUPLICATE_CONFIRMED_DISTINCT", decision: "ACCEPT_AS_NEW", label: "Επιβεβαιώθηκε ότι είναι διαφορετική εγγραφή" },
+        { value: "EXACT_DUPLICATE_SKIPPED", decision: "SKIP", label: "Ακριβές διπλότυπο — παράλειψη" },
+      ];
+    case "SOURCE_INVALID":
+      return [{ value: "INVALID_SOURCE_SKIPPED", decision: "SKIP", label: "Μη έγκυρη αρχική γραμμή — παράλειψη" }];
+    case "MAPPING_INVALID":
+      return [{ value: "MAPPING_ISSUE_SKIPPED", decision: "SKIP", label: "Σφάλμα αντιστοίχισης — παράλειψη" }];
+  }
+}
+
+function reviewDecisionLabel(decision: ReviewDecision | null): string {
+  return decision === "ACCEPT_AS_NEW" ? "Αποδοχή ως νέα" : decision === "SKIP" ? "Παράλειψη" : "Εκκρεμεί";
 }
 
 function previewValue(value: unknown): string {
@@ -232,6 +284,8 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
   const [testFileConfirmed, setTestFileConfirmed] = useState(false);
 
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
+  const [selectedBatchStatus, setSelectedBatchStatus] = useState<string>("");
+  const [reviewSelections, setReviewSelections] = useState<Record<number, ReviewReason>>({});
   const [targetType, setTargetType] = useState<TargetType>("CONTACT");
   const [headers, setHeaders] = useState<string[]>([]);
   const [fieldOptions, setFieldOptions] = useState<FieldOption[]>([]);
@@ -306,6 +360,8 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
 
   async function openMapping(batch: ImportBatch) {
     setSelectedBatchId(batch.id);
+    setSelectedBatchStatus(batch.status);
+    setReviewSelections({});
     setFieldOptions([]);
     setHeaders([]);
     setMappingBusy(true);
@@ -313,9 +369,10 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
     setPreview(null);
     setPreviewPage(1);
     try {
-      const detail = await apiRequest<{ batch: { fieldMapping?: unknown } }>(
+      const detail = await apiRequest<{ batch: { status: string; fieldMapping?: unknown } }>(
         "/legacy-imports/" + encodeURIComponent(batch.id),
       );
+      setSelectedBatchStatus(detail.batch.status);
       const saved = asMappingDraft(detail.batch.fieldMapping);
       const nextTarget = saved?.targetType ?? "CONTACT";
       const options = await apiRequest<MappingOptionsResponse>(
@@ -443,6 +500,8 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
         {},
       );
       setPreview(result);
+      setSelectedBatchStatus(result.batchStatus);
+      setReviewSelections({});
       setPreviewPage(1);
       setMappingNotice({
         ok: true,
@@ -453,6 +512,53 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
       setMappingNotice({
         ok: false,
         text: error instanceof Error ? error.message : "Δεν ολοκληρώθηκε ο έλεγχος της αντιστοίχισης.",
+      });
+    } finally {
+      setMappingBusy(false);
+    }
+  }
+
+  async function submitRowReview(rowNumber: number, reason: ReviewReason) {
+    if (!selectedBatchId) return;
+    setMappingBusy(true);
+    setMappingNotice(null);
+    try {
+      const saved = await apiRequest<{
+        batchStatus: string;
+        reviewedRowCount: number;
+        acceptedRowCount: number;
+        skippedRowCount: number;
+        pendingRowCount: number;
+        nextStep: string;
+      }>(
+        "/legacy-imports/" + encodeURIComponent(selectedBatchId) + "/review",
+        "POST",
+        { rowNumber, reason },
+      );
+      const [result, detail] = await Promise.all([
+        apiRequest<PreviewResponse>(
+          "/legacy-imports/" + encodeURIComponent(selectedBatchId) + "/mapping/preview?page=" + previewPage + "&limit=10",
+          "POST",
+          {},
+        ),
+        apiRequest<{ batch: ImportBatch }>("/legacy-imports/" + encodeURIComponent(selectedBatchId)),
+      ]);
+      setPreview(result);
+      setSelectedBatchStatus(saved.batchStatus);
+      setBatches((current) => current.map((batch) => batch.id === detail.batch.id ? detail.batch : batch));
+      setMappingNotice({
+        ok: true,
+        text: saved.pendingRowCount > 0
+          ? "Η απόφαση αποθηκεύτηκε. Απομένουν " + saved.pendingRowCount + " γραμμές για ανθρώπινο έλεγχο."
+          : saved.acceptedRowCount > 0
+            ? "Ο έλεγχος ολοκληρώθηκε. Η παρτίδα περιμένει ξεχωριστή έγκριση· δεν δημιουργήθηκαν εγγραφές."
+            : "Ο έλεγχος ολοκληρώθηκε χωρίς εγγραφές προς εισαγωγή.",
+      });
+      router.refresh();
+    } catch (error) {
+      setMappingNotice({
+        ok: false,
+        text: error instanceof Error ? error.message : "Δεν αποθηκεύτηκε η απόφαση αξιολόγησης.",
       });
     } finally {
       setMappingBusy(false);
@@ -470,6 +576,7 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
         {},
       );
       setPreview(result);
+      setSelectedBatchStatus(result.batchStatus);
       setPreviewPage(page);
     } catch (error) {
       setMappingNotice({ ok: false, text: error instanceof Error ? error.message : "Δεν φορτώθηκε η επόμενη σελίδα." });
