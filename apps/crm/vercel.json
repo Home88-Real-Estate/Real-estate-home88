@@ -1,6 +1,25 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "regions": ["lhr1"],
-  "redirects": [{ "source": "/", "destination": "/crm", "permanent": false }],
-  "rewrites": [{ "source": "/api/:path*", "destination": "/crm/api/:path*" }]
+  "regions": [
+    "lhr1"
+  ],
+  "redirects": [
+    {
+      "source": "/",
+      "destination": "/crm",
+      "permanent": false
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "/crm/api/:path*"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/legacy-import-purge",
+      "schedule": "17 3 * * *"
+    }
+  ]
 }
