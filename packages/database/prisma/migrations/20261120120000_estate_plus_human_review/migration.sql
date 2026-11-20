@@ -116,6 +116,39 @@ BEGIN
     RAISE EXCEPTION 'legacy import review summary is immutable after review completion';
   END IF;
 
+  IF OLD."status"::text IN ('READY_FOR_APPROVAL', 'REVIEWED')
+     AND NEW."status"::text NOT IN ('READY_FOR_APPROVAL', 'REVIEWED', 'APPROVED', 'EXPIRED') THEN
+    RAISE EXCEPTION 'completed human review cannot return to editable staging';
+  END IF;
+
+  IF OLD."status"::text IN ('READY_FOR_APPROVAL', 'REVIEWED', 'APPROVED', 'IMPORTING', 'COMPLETED')
+     AND NEW."status"::text <> 'EXPIRED'
+     AND (
+       NEW."mappingVersion" IS DISTINCT FROM OLD."mappingVersion"
+       OR NEW."fieldMapping" IS DISTINCT FROM OLD."fieldMapping"
+       OR NEW."columnHeaders" IS DISTINCT FROM OLD."columnHeaders"
+     ) THEN
+    RAISE EXCEPTION 'legacy import mapping is immutable after review completion';
+  END IF;
+
+  IF NEW."status"::text = 'APPROVED'
+     AND (
+       OLD."status"::text <> 'READY_FOR_APPROVAL'
+       OR NEW."approvedAt" IS NULL
+       OR NEW."approvedByUserId" IS NULL
+       OR NEW."acceptedRowCount" <= 0
+     ) THEN
+    RAISE EXCEPTION 'batch approval requires a separate approver and a completed review with accepted rows';
+  END IF;
+
+  IF NEW."status"::text = 'IMPORTING' AND OLD."status"::text <> 'APPROVED' THEN
+    RAISE EXCEPTION 'only a separately approved batch may begin import execution';
+  END IF;
+
+  IF NEW."status"::text = 'COMPLETED' AND OLD."status"::text <> 'IMPORTING' THEN
+    RAISE EXCEPTION 'only an importing batch may be marked completed';
+  END IF;
+
   IF NEW."status"::text IN ('READY_FOR_APPROVAL', 'REVIEWED') THEN
     SELECT
       COUNT(*),
