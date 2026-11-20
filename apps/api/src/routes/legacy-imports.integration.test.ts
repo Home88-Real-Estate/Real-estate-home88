@@ -206,16 +206,16 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
     );
 
     assert.equal((await call(managerCookie, "POST", "/legacy-imports/" + batchId + "/review", {
-      rowNumber: 3,
+      rowNumber: rows[2]!.rowNumber,
       reason: "SOURCE_RECORD_VERIFIED",
     })).status, 400, "a source-invalid row cannot be accepted as a new contact");
     assert.equal((await call(agentCookie, "POST", "/legacy-imports/" + batchId + "/review", {
-      rowNumber: 1,
+      rowNumber: rows[0]!.rowNumber,
       reason: "SOURCE_RECORD_VERIFIED",
     })).status, 403, "agents cannot make import review decisions");
 
     const acceptReady = await call(managerCookie, "POST", "/legacy-imports/" + batchId + "/review", {
-      rowNumber: 1,
+      rowNumber: rows[0]!.rowNumber,
       reason: "SOURCE_RECORD_VERIFIED",
     });
     assert.equal(acceptReady.status, 200, JSON.stringify(acceptReady.body));
@@ -223,7 +223,7 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
     assert.equal(acceptReady.body.pendingRowCount, 2);
     assert.equal(acceptReady.body.batchStatus, "NEEDS_REVIEW");
     const firstReviewedRow = await db().legacyImportRow.findUniqueOrThrow({
-      where: { batchId_rowNumber: { batchId, rowNumber: 1 } },
+      where: { batchId_rowNumber: { batchId, rowNumber: rows[0]!.rowNumber } },
     });
     await assert.rejects(
       () => db().legacyImportRow.update({
@@ -234,7 +234,7 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
     );
 
     const skipDuplicate = await call(managerCookie, "POST", "/legacy-imports/" + batchId + "/review", {
-      rowNumber: 2,
+      rowNumber: rows[1]!.rowNumber,
       reason: "EXACT_DUPLICATE_SKIPPED",
     });
     assert.equal(skipDuplicate.status, 200, JSON.stringify(skipDuplicate.body));
@@ -242,7 +242,7 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
     assert.equal(skipDuplicate.body.pendingRowCount, 1);
 
     const skipInvalid = await call(managerCookie, "POST", "/legacy-imports/" + batchId + "/review", {
-      rowNumber: 3,
+      rowNumber: rows[2]!.rowNumber,
       reason: "INVALID_SOURCE_SKIPPED",
     });
     assert.equal(skipInvalid.status, 200, JSON.stringify(skipInvalid.body));
@@ -279,7 +279,7 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
     assert.ok(reviewedRows.every((row) => row.reviewMappingVersion === LEGACY_IMPORT_MAPPING_VERSION));
 
     assert.equal((await call(managerCookie, "POST", "/legacy-imports/" + batchId + "/review", {
-      rowNumber: 1,
+      rowNumber: rows[0]!.rowNumber,
       reason: "NOT_RELEVANT",
     })).status, 409, "decisions cannot be changed after review completion");
     assert.equal((await call(managerCookie, "PUT", "/legacy-imports/" + batchId + "/mapping", {
