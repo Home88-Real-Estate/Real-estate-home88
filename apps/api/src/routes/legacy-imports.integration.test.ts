@@ -15,8 +15,8 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
   process.env.JWT_SECRET ??= randomBytes(32).toString("base64");
   process.env.PII_ENCRYPTION_KEY ??= randomBytes(32).toString("base64");
   // Synthetic integration data only; this is not a production retention recommendation.
-  process.env.LEGACY_IMPORT_RETENTION_DAYS ??= "30";
-  process.env.CRON_SECRET ??= randomBytes(32).toString("hex");
+  process.env.LEGACY_IMPORT_RETENTION_DAYS = "30";
+  process.env.CRON_SECRET = randomBytes(32).toString("hex");
 
   const { resetConfig } = await import("../config");
   resetConfig();
@@ -74,6 +74,13 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
 
   try {
     assert.equal((await raw(null, "GET", "/cron/legacy-import-purge")).status, 401, "cron purge requires the bearer secret");
+    const validCronSecret = process.env.CRON_SECRET;
+    delete process.env.CRON_SECRET;
+    assert.equal((await call(managerCookie, "POST", "/legacy-imports", {
+      fileName: "blocked.csv",
+      byteSize: 5,
+    })).status, 409, "intake remains disabled when the purge secret is missing");
+    process.env.CRON_SECRET = validCronSecret;
     const cronCheck = await handleApiRequest(new Request("http://crm.test/api/cron/legacy-import-purge", {
       headers: { authorization: "Bearer " + process.env.CRON_SECRET },
     }));
@@ -206,7 +213,6 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
 
     await assert.rejects(
       () => db().legacyImportRow.deleteMany({ where: { batchId } }),
-      "database guard rejects direct staged-row deletion before expiry",
     );
     const purge = await purgeExpiredLegacyImports({
       now: new Date(persistedBatch.retentionExpiresAt!.getTime() + 1_000),
