@@ -13,7 +13,7 @@ import { writeAudit } from "../audit";
 import { db } from "../prisma";
 import { documentStore, isLegacyImportKey } from "../document-store";
 
-const ELIGIBLE_STATUSES = ["CREATED", "FAILED", "STAGED", "NEEDS_REVIEW", "CANCELLED"] as const;
+const ELIGIBLE_STATUSES = ["CREATED", "FAILED", "STAGED", "NEEDS_REVIEW", "READY_FOR_APPROVAL", "REVIEWED", "CANCELLED"] as const;
 const CLAIM_STALE_AFTER_MS = 60 * 60 * 1000;
 const DEFAULT_BATCH_LIMIT = 25;
 const MAX_BATCH_LIMIT = 100;
