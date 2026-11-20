@@ -830,7 +830,7 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
                                 {reviewDecisionLabel(row.reviewDecision)}
                               </span>
                               {row.reviewedAt && <small>{formatDate(row.reviewedAt)}</small>}
-                              {!["READY_FOR_APPROVAL", "REVIEWED"].includes(preview.batchStatus) && (
+                              {!["READY_FOR_APPROVAL", "REVIEWED"].includes(selectedBatchStatus) && (
                                 <div className="import-review-controls">
                                   <select
                                     className="select"
