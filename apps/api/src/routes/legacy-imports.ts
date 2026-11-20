@@ -509,7 +509,14 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
       },
     });
     if (!batch) throw notFound("Η παρτίδα εισαγωγής δεν βρέθηκε.");
-    return { batch, nextStep: batch.mappingVersion === "unmapped" ? "FIELD_MAPPING_REQUIRED" : "REVIEW_REQUIRED" };
+    const nextStep = batch.mappingVersion === "unmapped"
+      ? "FIELD_MAPPING_REQUIRED"
+      : batch.status === "READY_FOR_APPROVAL"
+        ? "SEPARATE_APPROVAL_REQUIRED"
+        : batch.status === "REVIEWED"
+          ? "NO_IMPORTABLE_ROWS"
+          : "REVIEW_REQUIRED";
+    return { batch, nextStep };
   });
 
   app.get("/legacy-imports/:id/mapping-options", manager, async (request) => {
@@ -929,7 +936,18 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
         orderBy: { rowNumber: "asc" },
         skip: (query.page - 1) * query.limit,
         take: query.limit,
-        select: { id: true, rowNumber: true, status: true, payloadCiphertext: true, validationIssues: true },
+        select: {
+          id: true,
+          rowNumber: true,
+          status: true,
+          payloadCiphertext: true,
+          validationIssues: true,
+          previewStatus: true,
+          reviewDecision: true,
+          reviewReason: true,
+          reviewedByUserId: true,
+          reviewedAt: true,
+        },
       }),
       db().legacyImportRow.count({ where: { batchId: id } }),
     ]);
@@ -942,6 +960,11 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
           id: row.id,
           rowNumber: row.rowNumber,
           status: row.status,
+          previewStatus: row.previewStatus,
+          reviewDecision: row.reviewDecision,
+          reviewReason: row.reviewReason,
+          reviewedByUserId: row.reviewedByUserId,
+          reviewedAt: row.reviewedAt,
           record: JSON.parse(plaintext) as { headers: string[]; values: string[] },
           validationIssues: row.validationIssues,
         };
