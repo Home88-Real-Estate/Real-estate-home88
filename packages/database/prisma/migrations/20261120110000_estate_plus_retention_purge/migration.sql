@@ -20,8 +20,9 @@ ALTER TABLE "legacy_import_batches"
 CREATE INDEX "legacy_import_batches_status_retentionExpiresAt_idx"
   ON "legacy_import_batches"("status", "retentionExpiresAt");
 
--- Retention metadata is immutable after batch creation. Only worker state and
--- the resulting purge markers may be updated.
+-- Retention metadata is immutable after batch creation. A live purge lease
+-- blocks concurrent approval/import state changes. The purge worker itself
+-- releases the lease in the same update that marks a batch EXPIRED.
 CREATE OR REPLACE FUNCTION public.h88_guard_legacy_import_batch() RETURNS trigger
 LANGUAGE plpgsql SET search_path = pg_catalog AS $$
 DECLARE
@@ -36,15 +37,33 @@ BEGIN
   IF TG_OP = 'DELETE' THEN
     RAISE EXCEPTION 'legacy import batches are retained for audit and cannot be deleted';
   END IF;
+
+  IF OLD."purgeLockedAt" IS NOT NULL
+     AND NEW."purgeLockedAt" IS NOT NULL
+     AND (
+       NEW."status" IS DISTINCT FROM OLD."status"
+       OR NEW."approvedByUserId" IS DISTINCT FROM OLD."approvedByUserId"
+       OR NEW."approvedAt" IS DISTINCT FROM OLD."approvedAt"
+       OR NEW."importStartedAt" IS DISTINCT FROM OLD."importStartedAt"
+       OR NEW."importedRowCount" > OLD."importedRowCount"
+     ) THEN
+    RAISE EXCEPTION 'legacy import batch is locked for retention purge';
+  END IF;
+
+  IF NEW."status"::text IN ('PARSING', 'READY_FOR_APPROVAL', 'APPROVED', 'IMPORTING', 'COMPLETED')
+     AND NEW."retentionExpiresAt" IS NOT NULL
+     AND NEW."retentionExpiresAt" <= clock_timestamp() THEN
+    RAISE EXCEPTION 'legacy import batch retention has expired';
+  END IF;
+
   IF (to_jsonb(NEW) - mutable) IS DISTINCT FROM (to_jsonb(OLD) - mutable) THEN
     RAISE EXCEPTION 'legacy import batch source identity is immutable';
   END IF;
   RETURN NEW;
 END $$;
 
--- Staged rows may be deleted only after the batch is marked EXPIRED by the
--- retention worker, and only when it has never been approved/imported or linked
--- to canonical records. Direct deletes remain blocked for every other state.
+-- The batch lease is also enforced at the row boundary: no new or modified
+-- staged row can race a purge, and expired batches cannot receive new rows.
 CREATE OR REPLACE FUNCTION public.h88_guard_legacy_import_row() RETURNS trigger
 LANGUAGE plpgsql SET search_path = pg_catalog AS $$
 DECLARE
@@ -53,6 +72,22 @@ DECLARE
     'targetEntityType', 'targetEntityId', 'importedAt', 'updatedAt'
   ];
 BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF EXISTS (
+      SELECT 1
+      FROM public.legacy_import_batches b
+      WHERE b.id = NEW."batchId"
+        AND (
+          b."purgeLockedAt" IS NOT NULL
+          OR b."status"::text = 'EXPIRED'
+          OR (b."retentionExpiresAt" IS NOT NULL AND b."retentionExpiresAt" <= clock_timestamp())
+        )
+    ) THEN
+      RAISE EXCEPTION 'legacy import batch is not accepting staged rows';
+    END IF;
+    RETURN NEW;
+  END IF;
+
   IF TG_OP = 'DELETE' THEN
     IF EXISTS (
       SELECT 1
@@ -75,9 +110,57 @@ BEGIN
     END IF;
     RAISE EXCEPTION 'legacy import rows may be deleted only by an eligible retention purge';
   END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM public.legacy_import_batches b
+    WHERE b.id = OLD."batchId" AND b."purgeLockedAt" IS NOT NULL
+  ) THEN
+    RAISE EXCEPTION 'legacy import batch is locked for retention purge';
+  END IF;
+
   IF (to_jsonb(NEW) - mutable) IS DISTINCT FROM (to_jsonb(OLD) - mutable) THEN
     RAISE EXCEPTION 'legacy import row source payload is immutable';
   END IF;
   RETURN NEW;
 END $$;
 
+-- A canonical legacy mapping cannot be attached to a batch during/after purge
+-- or after that batch's expiry timestamp.
+CREATE OR REPLACE FUNCTION public.h88_guard_legacy_mapping_retention() RETURNS trigger
+LANGUAGE plpgsql SET search_path = pg_catalog AS $$
+BEGIN
+  IF NEW."importBatchId" IS NOT NULL AND EXISTS (
+    SELECT 1
+    FROM public.legacy_import_batches b
+    WHERE b.id = NEW."importBatchId"
+      AND (
+        b."purgeLockedAt" IS NOT NULL
+        OR b."status"::text = 'EXPIRED'
+        OR (b."retentionExpiresAt" IS NOT NULL AND b."retentionExpiresAt" <= clock_timestamp())
+      )
+  ) THEN
+    RAISE EXCEPTION 'legacy import batch is not accepting entity mappings';
+  END IF;
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS h88_legacy_import_row_guard ON "legacy_import_rows";
+CREATE TRIGGER h88_legacy_import_row_guard
+  BEFORE INSERT OR UPDATE OR DELETE ON "legacy_import_rows"
+  FOR EACH ROW EXECUTE FUNCTION public.h88_guard_legacy_import_row();
+
+DROP TRIGGER IF EXISTS h88_legacy_mapping_retention_guard ON "legacy_entity_mappings";
+CREATE TRIGGER h88_legacy_mapping_retention_guard
+  BEFORE INSERT OR UPDATE OF "importBatchId" ON "legacy_entity_mappings"
+  FOR EACH ROW EXECUTE FUNCTION public.h88_guard_legacy_mapping_retention();
+
+REVOKE ALL ON FUNCTION public.h88_guard_legacy_mapping_retention() FROM PUBLIC;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION public.h88_guard_legacy_mapping_retention() FROM anon';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION public.h88_guard_legacy_mapping_retention() FROM authenticated';
+  END IF;
+END $$;
