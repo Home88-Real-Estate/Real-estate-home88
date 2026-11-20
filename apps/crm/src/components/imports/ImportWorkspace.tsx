@@ -8,6 +8,14 @@ import { CRM_BASE_PATH } from "@/lib/paths";
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 type TargetType = "CONTACT" | "PROPERTY";
 type Transform = "TEXT" | "EMAIL" | "INTEGER" | "NUMBER_DOT" | "NUMBER_COMMA" | "BOOLEAN_MAP" | "ENUM_MAP";
+type ReviewDecision = "ACCEPT_AS_NEW" | "SKIP";
+type ReviewReason =
+  | "SOURCE_RECORD_VERIFIED"
+  | "NOT_RELEVANT"
+  | "DUPLICATE_CONFIRMED_DISTINCT"
+  | "EXACT_DUPLICATE_SKIPPED"
+  | "INVALID_SOURCE_SKIPPED"
+  | "MAPPING_ISSUE_SKIPPED";
 
 export type ImportBatch = {
   id: string;
@@ -28,6 +36,10 @@ export type ImportBatch = {
   retentionExpiresAt: string | null;
   purgedAt: string | null;
   purgedRowCount: number;
+  reviewedRowCount: number;
+  acceptedRowCount: number;
+  skippedRowCount: number;
+  reviewCompletedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -74,6 +86,9 @@ type PreviewRow = {
   record: Record<string, unknown>;
   issues: Array<{ code: string; field?: string; message: string }>;
   sourceIssues: unknown[];
+  reviewDecision: ReviewDecision | null;
+  reviewReason: ReviewReason | null;
+  reviewedAt: string | null;
 };
 
 type PreviewResponse = {
@@ -87,6 +102,15 @@ type PreviewResponse = {
     mappingInvalidRows: number;
   };
   data: PreviewRow[];
+  reviewSummary: {
+    totalRows: number;
+    reviewedRowCount: number;
+    acceptedRowCount: number;
+    skippedRowCount: number;
+    pendingRowCount: number;
+    complete: boolean;
+  };
+  batchStatus: string;
   pagination: { page: number; limit: number; total: number; pages: number };
   canApprove: false;
   canImport: false;
@@ -197,12 +221,15 @@ const STATUS_LABEL: Record<string, string> = {
   IMPORTING: "Σε εισαγωγή",
   COMPLETED: "Ολοκληρώθηκε",
   CANCELLED: "Ακυρώθηκε",
+  REVIEWED: "Ολοκληρώθηκε · χωρίς νέες εγγραφές",
+  READY_FOR_APPROVAL: "Έτοιμο για ξεχωριστή έγκριση",
   EXPIRED: "Έληξε — εκκαθαρίστηκε",
 };
 
 function statusClass(status: string): string {
-  if (status === "STAGED" || status === "COMPLETED") return "badge badge--ok";
+  if (status === "STAGED" || status === "COMPLETED" || status === "READY_FOR_APPROVAL") return "badge badge--ok";
   if (status === "NEEDS_REVIEW" || status === "PARSING") return "badge badge--warn";
+  if (status === "REVIEWED") return "badge badge--muted";
   if (status === "FAILED") return "badge badge--danger";
   return "badge badge--muted";
 }
@@ -214,6 +241,40 @@ function previewStatusLabel(status: PreviewRow["status"]): string {
     SOURCE_INVALID: "Μη έγκυρη γραμμή",
     MAPPING_INVALID: "Έλεγχος αντιστοίχισης",
   })[status];
+}
+
+type ReviewChoice = { value: ReviewReason; decision: ReviewDecision; label: string };
+
+function reviewChoices(status: PreviewRow["status"]): ReviewChoice[] {
+  switch (status) {
+    case "READY":
+      return [
+        { value: "SOURCE_RECORD_VERIFIED", decision: "ACCEPT_AS_NEW", label: "Ελέγχθηκε — αποδοχή ως νέα εγγραφή" },
+        { value: "NOT_RELEVANT", decision: "SKIP", label: "Δεν αφορά — παράλειψη" },
+      ];
+    case "DUPLICATE_REVIEW":
+      return [
+        { value: "DUPLICATE_CONFIRMED_DISTINCT", decision: "ACCEPT_AS_NEW", label: "Επιβεβαιώθηκε ότι είναι διαφορετική εγγραφή" },
+        { value: "EXACT_DUPLICATE_SKIPPED", decision: "SKIP", label: "Ακριβές διπλότυπο — παράλειψη" },
+      ];
+    case "SOURCE_INVALID":
+      return [{ value: "INVALID_SOURCE_SKIPPED", decision: "SKIP", label: "Μη έγκυρη αρχική γραμμή — παράλειψη" }];
+    case "MAPPING_INVALID":
+      return [{ value: "MAPPING_ISSUE_SKIPPED", decision: "SKIP", label: "Σφάλμα αντιστοίχισης — παράλειψη" }];
+  }
+}
+
+function defaultReviewReason(status: PreviewRow["status"]): ReviewReason {
+  switch (status) {
+    case "READY": return "SOURCE_RECORD_VERIFIED";
+    case "DUPLICATE_REVIEW": return "DUPLICATE_CONFIRMED_DISTINCT";
+    case "SOURCE_INVALID": return "INVALID_SOURCE_SKIPPED";
+    case "MAPPING_INVALID": return "MAPPING_ISSUE_SKIPPED";
+  }
+}
+
+function reviewDecisionLabel(decision: ReviewDecision | null): string {
+  return decision === "ACCEPT_AS_NEW" ? "Αποδοχή ως νέα" : decision === "SKIP" ? "Παράλειψη" : "Εκκρεμεί";
 }
 
 function previewValue(value: unknown): string {
@@ -232,6 +293,8 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
   const [testFileConfirmed, setTestFileConfirmed] = useState(false);
 
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
+  const [selectedBatchStatus, setSelectedBatchStatus] = useState<string>("");
+  const [reviewSelections, setReviewSelections] = useState<Record<number, ReviewReason>>({});
   const [targetType, setTargetType] = useState<TargetType>("CONTACT");
   const [headers, setHeaders] = useState<string[]>([]);
   const [fieldOptions, setFieldOptions] = useState<FieldOption[]>([]);
@@ -240,6 +303,7 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
   const [mappingNotice, setMappingNotice] = useState<Notice | null>(null);
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [previewPage, setPreviewPage] = useState(1);
+  const reviewLocked = selectedBatchStatus === "READY_FOR_APPROVAL" || selectedBatchStatus === "REVIEWED";
 
   async function uploadAndStage(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -306,6 +370,8 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
 
   async function openMapping(batch: ImportBatch) {
     setSelectedBatchId(batch.id);
+    setSelectedBatchStatus(batch.status);
+    setReviewSelections({});
     setFieldOptions([]);
     setHeaders([]);
     setMappingBusy(true);
@@ -313,9 +379,10 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
     setPreview(null);
     setPreviewPage(1);
     try {
-      const detail = await apiRequest<{ batch: { fieldMapping?: unknown } }>(
+      const detail = await apiRequest<{ batch: { status: string; fieldMapping?: unknown } }>(
         "/legacy-imports/" + encodeURIComponent(batch.id),
       );
+      setSelectedBatchStatus(detail.batch.status);
       const saved = asMappingDraft(detail.batch.fieldMapping);
       const nextTarget = saved?.targetType ?? "CONTACT";
       const options = await apiRequest<MappingOptionsResponse>(
@@ -443,6 +510,8 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
         {},
       );
       setPreview(result);
+      setSelectedBatchStatus(result.batchStatus);
+      setReviewSelections({});
       setPreviewPage(1);
       setMappingNotice({
         ok: true,
@@ -453,6 +522,53 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
       setMappingNotice({
         ok: false,
         text: error instanceof Error ? error.message : "Δεν ολοκληρώθηκε ο έλεγχος της αντιστοίχισης.",
+      });
+    } finally {
+      setMappingBusy(false);
+    }
+  }
+
+  async function submitRowReview(rowNumber: number, reason: ReviewReason) {
+    if (!selectedBatchId) return;
+    setMappingBusy(true);
+    setMappingNotice(null);
+    try {
+      const saved = await apiRequest<{
+        batchStatus: string;
+        reviewedRowCount: number;
+        acceptedRowCount: number;
+        skippedRowCount: number;
+        pendingRowCount: number;
+        nextStep: string;
+      }>(
+        "/legacy-imports/" + encodeURIComponent(selectedBatchId) + "/review",
+        "POST",
+        { rowNumber, reason },
+      );
+      const [result, detail] = await Promise.all([
+        apiRequest<PreviewResponse>(
+          "/legacy-imports/" + encodeURIComponent(selectedBatchId) + "/mapping/preview?page=" + previewPage + "&limit=10",
+          "POST",
+          {},
+        ),
+        apiRequest<{ batch: ImportBatch }>("/legacy-imports/" + encodeURIComponent(selectedBatchId)),
+      ]);
+      setPreview(result);
+      setSelectedBatchStatus(saved.batchStatus);
+      setBatches((current) => current.map((batch) => batch.id === detail.batch.id ? detail.batch : batch));
+      setMappingNotice({
+        ok: true,
+        text: saved.pendingRowCount > 0
+          ? "Η απόφαση αποθηκεύτηκε. Απομένουν " + saved.pendingRowCount + " γραμμές για ανθρώπινο έλεγχο."
+          : saved.acceptedRowCount > 0
+            ? "Ο έλεγχος ολοκληρώθηκε. Η παρτίδα περιμένει ξεχωριστή έγκριση· δεν δημιουργήθηκαν εγγραφές."
+            : "Ο έλεγχος ολοκληρώθηκε χωρίς εγγραφές προς εισαγωγή.",
+      });
+      router.refresh();
+    } catch (error) {
+      setMappingNotice({
+        ok: false,
+        text: error instanceof Error ? error.message : "Δεν αποθηκεύτηκε η απόφαση αξιολόγησης.",
       });
     } finally {
       setMappingBusy(false);
@@ -470,6 +586,7 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
         {},
       );
       setPreview(result);
+      setSelectedBatchStatus(result.batchStatus);
       setPreviewPage(page);
     } catch (error) {
       setMappingNotice({ ok: false, text: error instanceof Error ? error.message : "Δεν φορτώθηκε η επόμενη σελίδα." });
@@ -520,7 +637,7 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
           {notice && <p className={notice.ok ? "quickform__msg ok" : "quickform__msg error"} role="status">{notice.text}</p>}
           <div className="import-footnote">
             <span aria-hidden="true">i</span>
-            Μετά το staging επιχειρείται διαγραφή του αρχικού CSV. Αν αποτύχει, απαιτείται έλεγχος διαχειριστή. Η πολιτική διατήρησης των staged εγγραφών εκκρεμεί.
+            Μετά το staging επιχειρείται διαγραφή του αρχικού CSV. Αν αποτύχει, απαιτείται έλεγχος διαχειριστή. Οι κρυπτογραφημένες staged εγγραφές διατηρούνται μέχρι τη ρυθμισμένη ημερομηνία λήξης.
           </div>
         </section>
 
@@ -553,6 +670,7 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
                         : batch.retentionExpiresAt
                           ? ` · Διατήρηση έως ${formatDate(batch.retentionExpiresAt)}`
                           : " · Χωρίς καταγεγραμμένη λήξη"}
+                      {batch.reviewedRowCount > 0 ? ` · Έλεγχος ${batch.reviewedRowCount}/${batch.sourceRowCount}` : ""}
                     </small>
                   </div>
                   <div className="import-batch-stats">
@@ -592,7 +710,7 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
               <div className="import-mapping-toolbar">
                 <div className="field">
                   <label htmlFor="import-target-type">Τύπος εγγραφής HOME88</label>
-                  <select id="import-target-type" className="select" value={targetType} onChange={(event) => void changeTarget(event.target.value as TargetType)} disabled={mappingBusy}>
+                  <select id="import-target-type" className="select" value={targetType} onChange={(event) => void changeTarget(event.target.value as TargetType)} disabled={mappingBusy || reviewLocked}>
                     <option value="CONTACT">Επαφή</option>
                     <option value="PROPERTY">Ακίνητο (πρόχειρο)</option>
                   </select>
@@ -611,14 +729,14 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
                     <div className="import-mapping-row" key={index}>
                       <div className="field">
                         <label htmlFor={"import-source-" + index}>Αρχική στήλη</label>
-                        <select id={"import-source-" + index} className="select" value={row.sourceHeader} onChange={(event) => updateMappingRow(index, { sourceHeader: event.target.value })}>
+                        <select id={"import-source-" + index} className="select" value={row.sourceHeader} onChange={(event) => updateMappingRow(index, { sourceHeader: event.target.value })} disabled={reviewLocked}>
                           <option value="">Επιλέξτε στήλη CSV</option>
                           {headers.map((header) => <option key={header} value={header}>{header}</option>)}
                         </select>
                       </div>
                       <div className="field">
                         <label htmlFor={"import-target-" + index}>Πεδίο HOME88</label>
-                        <select id={"import-target-" + index} className="select" value={row.targetField} onChange={(event) => updateMappingRow(index, { targetField: event.target.value })}>
+                        <select id={"import-target-" + index} className="select" value={row.targetField} onChange={(event) => updateMappingRow(index, { targetField: event.target.value })} disabled={reviewLocked}>
                           {fieldOptions.map((field) => (
                             <option key={field.key} value={field.key} disabled={mappingRows.some((other, otherIndex) => otherIndex !== index && other.targetField === field.key)}>
                               {field.label}{field.required ? " · απαιτείται" : ""}
@@ -628,11 +746,11 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
                       </div>
                       <div className="field">
                         <label htmlFor={"import-transform-" + index}>Μορφή τιμής</label>
-                        <select id={"import-transform-" + index} className="select" value={row.transform} onChange={(event) => updateMappingRow(index, { transform: event.target.value as Transform })}>
+                        <select id={"import-transform-" + index} className="select" value={row.transform} onChange={(event) => updateMappingRow(index, { transform: event.target.value as Transform })} disabled={reviewLocked}>
                           {compatible.map((transform) => <option key={transform} value={transform}>{transform}</option>)}
                         </select>
                       </div>
-                      <button type="button" className="btn btn--ghost btn--sm import-remove-row" onClick={() => removeMappingRow(index)} aria-label="Αφαίρεση αντιστοίχισης">Αφαίρεση</button>
+                      <button type="button" className="btn btn--ghost btn--sm import-remove-row" onClick={() => removeMappingRow(index)} aria-label="Αφαίρεση αντιστοίχισης" disabled={reviewLocked}>Αφαίρεση</button>
 
                       {row.transform === "ENUM_MAP" && (
                         <div className="field import-transform-detail">
@@ -659,10 +777,10 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
               </div>
 
               <div className="row import-mapping-actions">
-                <button type="button" className="btn btn--outline" onClick={addMappingRow} disabled={mappingBusy || mappingRows.length >= Math.min(80, fieldOptions.length)}>
+                <button type="button" className="btn btn--outline" onClick={addMappingRow} disabled={mappingBusy || reviewLocked || mappingRows.length >= Math.min(80, fieldOptions.length)}>
                   + Προσθήκη πεδίου
                 </button>
-                <button type="button" className="btn btn--primary" onClick={() => void saveAndPreview()} disabled={mappingBusy || mappingRows.length === 0}>
+                <button type="button" className="btn btn--primary" onClick={() => void saveAndPreview()} disabled={mappingBusy || reviewLocked || mappingRows.length === 0}>
                   {mappingBusy ? "Έλεγχος…" : "Αποθήκευση & προεπισκόπηση"}
                 </button>
               </div>
@@ -680,11 +798,13 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
                 </div>
                 <span className="badge badge--muted">Σελίδα {previewPage} / {preview.pagination.pages}</span>
               </div>
-              <div className="import-preview-stats">
+              <div className="import-preview-stats import-review-stats">
                 <div><strong>{preview.summary.totalRows}</strong><span>Σύνολο</span></div>
                 <div><strong>{preview.summary.readyRows}</strong><span>Έτοιμες</span></div>
                 <div><strong>{preview.summary.duplicateRows}</strong><span>Διπλότυπα</span></div>
                 <div><strong>{preview.summary.sourceInvalidRows + preview.summary.mappingInvalidRows}</strong><span>Με σφάλματα</span></div>
+                <div><strong>{preview.reviewSummary.reviewedRowCount}</strong><span>Ελέγχθηκαν</span></div>
+                <div><strong>{preview.reviewSummary.pendingRowCount}</strong><span>Εκκρεμούν</span></div>
               </div>
               {preview.data.length === 0 ? (
                 <p className="muted">Δεν υπάρχουν γραμμές σε αυτή τη σελίδα.</p>
@@ -692,7 +812,7 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
                 <div className="table-wrap">
                   <table className="data import-preview-table">
                     <thead>
-                      <tr><th>Γραμμή</th><th>Κατάσταση</th><th>Μετασχηματισμένα δεδομένα</th><th>Έλεγχοι</th></tr>
+                      <tr><th>Γραμμή</th><th>Κατάσταση</th><th>Μετασχηματισμένα δεδομένα</th><th>Έλεγχοι</th><th>Απόφαση manager</th></tr>
                     </thead>
                     <tbody>
                       {preview.data.map((row) => (
@@ -715,6 +835,43 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
                               ? <span className="muted">—</span>
                               : <ul className="import-issue-list">{row.issues.map((issue, index) => <li key={issue.code + index}>{issue.message}</li>)}{row.sourceIssues.map((issue, index) => <li key={"source-" + index}>{typeof issue === "object" && issue && "code" in issue ? String((issue as { code: unknown }).code) : "Αρχικό σφάλμα"}</li>)}</ul>}
                           </td>
+                          <td>
+                            <div className="import-review-decision">
+                              <span className={row.reviewDecision === "ACCEPT_AS_NEW" ? "badge badge--ok" : row.reviewDecision === "SKIP" ? "badge badge--muted" : "badge badge--warn"}>
+                                {reviewDecisionLabel(row.reviewDecision)}
+                              </span>
+                              {row.reviewedAt && <small>{formatDate(row.reviewedAt)}</small>}
+                              {!["READY_FOR_APPROVAL", "REVIEWED"].includes(selectedBatchStatus) && (
+                                <div className="import-review-controls">
+                                  <select
+                                    className="select"
+                                    aria-label={"Αιτιολογία απόφασης γραμμής " + row.rowNumber}
+                                    value={reviewSelections[row.rowNumber] ?? row.reviewReason ?? defaultReviewReason(row.status)}
+                                    onChange={(event) => setReviewSelections((current) => ({
+                                      ...current,
+                                      [row.rowNumber]: event.target.value as ReviewReason,
+                                    }))}
+                                    disabled={mappingBusy}
+                                  >
+                                    {reviewChoices(row.status).map((choice) => (
+                                      <option key={choice.value} value={choice.value}>{choice.label}</option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    className="btn btn--outline btn--sm"
+                                    onClick={() => void submitRowReview(
+                                      row.rowNumber,
+                                      reviewSelections[row.rowNumber] ?? row.reviewReason ?? defaultReviewReason(row.status),
+                                    )}
+                                    disabled={mappingBusy}
+                                  >
+                                    {row.reviewDecision ? "Ενημέρωση" : "Καταχώριση"}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -726,9 +883,19 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
                 <span className="muted">Εμφάνιση {preview.data.length} από {preview.pagination.total} γραμμές</span>
                 <button type="button" className="btn btn--ghost btn--sm" onClick={() => void changePreviewPage(previewPage + 1)} disabled={mappingBusy || previewPage >= preview.pagination.pages}>Επόμενη</button>
               </div>
-              <div className="notice import-no-write">
-                Η προεπισκόπηση δεν είναι έγκριση. Δεν δημιουργήθηκε επαφή ή ακίνητο και δεν υπάρχει ακόμη δυνατότητα εκτέλεσης εισαγωγής.
-              </div>
+              {preview.batchStatus === "READY_FOR_APPROVAL" ? (
+                <div className="notice notice--ok import-no-write">
+                  Ο ανθρώπινος έλεγχος ολοκληρώθηκε: {preview.reviewSummary.acceptedRowCount} γραμμές αποδέχθηκαν ως νέες και {preview.reviewSummary.skippedRowCount} παραλείφθηκαν. Απαιτείται ξεχωριστή έγκριση σε επόμενο στάδιο.
+                </div>
+              ) : preview.batchStatus === "REVIEWED" ? (
+                <div className="notice import-no-write">
+                  Όλες οι γραμμές ελέγχθηκαν, αλλά δεν εγκρίθηκε καμία για εισαγωγή. Δεν δημιουργήθηκε επαφή ή ακίνητο.
+                </div>
+              ) : (
+                <div className="notice import-no-write">
+                  Καταχωρίστε απόφαση για κάθε γραμμή. Οι μη έγκυρες γραμμές μπορούν μόνο να παραλειφθούν. Η αποδοχή διπλοτύπου απαιτεί ρητή επιβεβαίωση ότι πρόκειται για διαφορετική εγγραφή. Δεν δημιουργούνται επαφές ή ακίνητα.
+                </div>
+              )}
             </div>
           )}
         </section>

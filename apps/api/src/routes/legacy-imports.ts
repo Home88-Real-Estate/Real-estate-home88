@@ -70,6 +70,17 @@ const mappingPreviewSchema = z.object({
   page: z.coerce.number().int().min(1).max(10_000).default(1),
   limit: z.coerce.number().int().min(1).max(50).default(20),
 });
+const rowReviewSchema = z.object({
+  rowNumber: z.coerce.number().int().min(1).max(MAX_IMPORT_ROWS),
+  reason: z.enum([
+    "SOURCE_RECORD_VERIFIED",
+    "NOT_RELEVANT",
+    "DUPLICATE_CONFIRMED_DISTINCT",
+    "EXACT_DUPLICATE_SKIPPED",
+    "INVALID_SOURCE_SKIPPED",
+    "MAPPING_ISSUE_SKIPPED",
+  ]),
+});
 
 function auditMeta(request: Parameters<typeof clientIp>[0]) {
   return { ipAddress: clientIp(request), userAgent: userAgent(request) };
@@ -95,6 +106,27 @@ function configuredCronSecret(): string | null {
 function requireBatchWithinRetention(batch: { status?: string; retentionExpiresAt?: Date | null }): void {
   if (batch.status === "EXPIRED" || (batch.retentionExpiresAt && batch.retentionExpiresAt <= new Date())) {
     throw conflict("Η περίοδος διατήρησης της παρτίδας έχει λήξει. Τα δεδομένα δεν είναι πλέον διαθέσιμα για προβολή ή επεξεργασία.");
+  }
+}
+
+function reviewDecisionForReason(reason: z.infer<typeof rowReviewSchema>["reason"]): "ACCEPT_AS_NEW" | "SKIP" {
+  return reason === "SOURCE_RECORD_VERIFIED" || reason === "DUPLICATE_CONFIRMED_DISTINCT"
+    ? "ACCEPT_AS_NEW"
+    : "SKIP";
+}
+
+function validateReviewReason(
+  previewStatus: "READY" | "DUPLICATE_REVIEW" | "SOURCE_INVALID" | "MAPPING_INVALID",
+  reason: z.infer<typeof rowReviewSchema>["reason"],
+): void {
+  const allowed: Record<typeof previewStatus, readonly string[]> = {
+    READY: ["SOURCE_RECORD_VERIFIED", "NOT_RELEVANT"],
+    DUPLICATE_REVIEW: ["DUPLICATE_CONFIRMED_DISTINCT", "EXACT_DUPLICATE_SKIPPED"],
+    SOURCE_INVALID: ["INVALID_SOURCE_SKIPPED"],
+    MAPPING_INVALID: ["MAPPING_ISSUE_SKIPPED"],
+  };
+  if (!allowed[previewStatus].includes(reason)) {
+    throw badRequest("Η αιτιολογία δεν αντιστοιχεί στην κατάσταση της συγκεκριμένης γραμμής.");
   }
 }
 
@@ -424,6 +456,10 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
           retentionExpiresAt: true,
           purgedAt: true,
           purgedRowCount: true,
+          reviewedRowCount: true,
+          acceptedRowCount: true,
+          skippedRowCount: true,
+          reviewCompletedAt: true,
           createdByUserId: true,
           approvedByUserId: true,
           approvedAt: true,
@@ -461,6 +497,10 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
           retentionExpiresAt: true,
           purgedAt: true,
           purgedRowCount: true,
+        reviewedRowCount: true,
+        acceptedRowCount: true,
+        skippedRowCount: true,
+        reviewCompletedAt: true,
         createdByUserId: true,
         approvedByUserId: true,
         approvedAt: true,
@@ -469,7 +509,14 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
       },
     });
     if (!batch) throw notFound("Η παρτίδα εισαγωγής δεν βρέθηκε.");
-    return { batch, nextStep: batch.mappingVersion === "unmapped" ? "FIELD_MAPPING_REQUIRED" : "REVIEW_REQUIRED" };
+    const nextStep = batch.mappingVersion === "unmapped"
+      ? "FIELD_MAPPING_REQUIRED"
+      : batch.status === "READY_FOR_APPROVAL"
+        ? "SEPARATE_APPROVAL_REQUIRED"
+        : batch.status === "REVIEWED"
+          ? "NO_IMPORTABLE_ROWS"
+          : "REVIEW_REQUIRED";
+    return { batch, nextStep };
   });
 
   app.get("/legacy-imports/:id/mapping-options", manager, async (request) => {
@@ -512,12 +559,35 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const fieldMapping = JSON.parse(JSON.stringify(mapping)) as Prisma.InputJsonValue;
-    await db().legacyImportBatch.update({
-      where: { id },
-      data: {
-        fieldMapping,
-        mappingVersion: LEGACY_IMPORT_MAPPING_VERSION,
-      },
+    const mappingChanged = JSON.stringify(batch.fieldMapping) !== JSON.stringify(fieldMapping);
+    await db().$transaction(async (tx) => {
+      await tx.legacyImportBatch.update({
+        where: { id },
+        data: {
+          fieldMapping,
+          mappingVersion: LEGACY_IMPORT_MAPPING_VERSION,
+          ...(mappingChanged ? {
+            reviewedRowCount: 0,
+            acceptedRowCount: 0,
+            skippedRowCount: 0,
+            reviewCompletedAt: null,
+          } : {}),
+        },
+      });
+      if (mappingChanged) {
+        await tx.legacyImportRow.updateMany({
+          where: { batchId: id },
+          data: {
+            previewStatus: null,
+            previewIssues: Prisma.DbNull,
+            reviewDecision: null,
+            reviewReason: null,
+            reviewedByUserId: null,
+            reviewedAt: null,
+            reviewMappingVersion: null,
+          },
+        });
+      }
     });
     await writeAudit({
       entity: "LEGACY_IMPORT_BATCH",
@@ -574,10 +644,16 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
       where: { batchId: id },
       orderBy: { rowNumber: "asc" },
       select: {
+        id: true,
         rowNumber: true,
         status: true,
         payloadCiphertext: true,
         validationIssues: true,
+        reviewDecision: true,
+        reviewReason: true,
+        reviewedAt: true,
+        reviewedByUserId: true,
+        reviewMappingVersion: true,
       },
     });
 
@@ -599,20 +675,27 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
 
       const mapped = mapLegacyImportRow(mapping, headers, source.values);
       const sourceIssues = Array.isArray(row.validationIssues) ? row.validationIssues : [];
-      const status = row.status === "DUPLICATE_REVIEW"
-        ? "DUPLICATE_REVIEW"
-        : row.status === "INVALID"
-          ? "SOURCE_INVALID"
-          : mapped.issues.length > 0
-            ? "MAPPING_INVALID"
-            : "READY";
+      const status: "READY" | "DUPLICATE_REVIEW" | "SOURCE_INVALID" | "MAPPING_INVALID" =
+        row.status === "DUPLICATE_REVIEW"
+          ? "DUPLICATE_REVIEW"
+          : row.status === "INVALID"
+            ? "SOURCE_INVALID"
+            : mapped.issues.length > 0
+              ? "MAPPING_INVALID"
+              : "READY";
 
       return {
+        id: row.id,
         rowNumber: row.rowNumber,
         status,
         record: mapped.record,
         issues: mapped.issues,
         sourceIssues,
+        reviewDecision: row.reviewDecision,
+        reviewReason: row.reviewReason,
+        reviewedAt: row.reviewedAt,
+        reviewedByUserId: row.reviewedByUserId,
+        reviewMappingVersion: row.reviewMappingVersion,
       };
     });
 
@@ -620,8 +703,37 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
     const duplicateRows = previewRows.filter((row) => row.status === "DUPLICATE_REVIEW").length;
     const sourceInvalidRows = previewRows.filter((row) => row.status === "SOURCE_INVALID").length;
     const mappingInvalidRows = previewRows.filter((row) => row.status === "MAPPING_INVALID").length;
+
+    // Persist only the non-PII classification and issue codes. The mapped
+    // record itself remains in memory and is never written to the database.
     const skip = (query.page - 1) * query.limit;
-    const data = previewRows.slice(skip, skip + query.limit);
+    const pageRows = previewRows.slice(skip, skip + query.limit);
+
+    // Persist only the non-PII classifications for the rows visible on this
+    // page. A 10,000-row batch therefore does not create 10,000 database writes
+    // from one preview request; each subsequent page becomes reviewable when
+    // its manager opens it.
+    if (!["READY_FOR_APPROVAL", "REVIEWED"].includes(batch.status) && pageRows.length > 0) {
+      await db().$transaction(async (tx) => {
+        for (const row of pageRows) {
+          await tx.legacyImportRow.update({
+            where: { id: row.id },
+            data: {
+              previewStatus: row.status,
+              previewIssues: row.issues.length > 0
+                ? row.issues as unknown as Prisma.InputJsonValue
+                : Prisma.DbNull,
+            },
+          });
+        }
+      });
+    }
+
+    const reviewedRowCount = previewRows.filter((row) => row.reviewDecision !== null).length;
+    const acceptedRowCount = previewRows.filter((row) => row.reviewDecision === "ACCEPT_AS_NEW").length;
+    const skippedRowCount = previewRows.filter((row) => row.reviewDecision === "SKIP").length;
+    const pendingRowCount = previewRows.length - reviewedRowCount;
+    const data = pageRows.map(({ id: _id, reviewMappingVersion: _version, ...row }) => row);
 
     await writeAudit({
       entity: "LEGACY_IMPORT_BATCH",
@@ -635,6 +747,8 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
         duplicateRows,
         sourceInvalidRows,
         mappingInvalidRows,
+        reviewedRowCount,
+        pendingRowCount,
         page: query.page,
         limit: query.limit,
         rowsReturned: data.length,
@@ -655,13 +769,155 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
         mappingInvalidRows,
       },
       data,
+      reviewSummary: {
+        totalRows: previewRows.length,
+        reviewedRowCount,
+        acceptedRowCount,
+        skippedRowCount,
+        pendingRowCount,
+        complete: pendingRowCount === 0,
+      },
+      batchStatus: batch.status,
       pagination: {
         page: query.page,
         limit: query.limit,
         total: previewRows.length,
         pages: Math.max(1, Math.ceil(previewRows.length / query.limit)),
       },
-      nextStep: "HUMAN_REVIEW_REQUIRED",
+      nextStep: pendingRowCount > 0
+        ? "ROW_REVIEW_REQUIRED"
+        : acceptedRowCount > 0
+          ? "SEPARATE_APPROVAL_REQUIRED"
+          : "NO_IMPORTABLE_ROWS",
+      canApprove: false,
+      canImport: false,
+    };
+  });
+
+  app.post("/legacy-imports/:id/review", manager, async (request) => {
+    const actor = request.auth!.user;
+    const { id } = parseInput(paramsSchema, request.params);
+    const input = parseInput(rowReviewSchema, request.body);
+    const decision = reviewDecisionForReason(input.reason);
+    const now = new Date();
+
+    const result = await db().$transaction(async (tx) => {
+      const batch = await tx.legacyImportBatch.findUnique({ where: { id } });
+      if (!batch) throw notFound("Η παρτίδα εισαγωγής δεν βρέθηκε.");
+      requireBatchWithinRetention(batch);
+      if (!["STAGED", "NEEDS_REVIEW"].includes(batch.status) || batch.purgeLockedAt !== null) {
+        throw conflict("Η ανθρώπινη αξιολόγηση έχει ολοκληρωθεί ή η παρτίδα δεν είναι διαθέσιμη.");
+      }
+      if (!batch.fieldMapping || batch.mappingVersion !== LEGACY_IMPORT_MAPPING_VERSION) {
+        throw conflict("Αποθηκεύστε πρώτα την αντιστοίχιση και εκτελέστε την προεπισκόπηση.");
+      }
+
+      const row = await tx.legacyImportRow.findUnique({
+        where: { batchId_rowNumber: { batchId: id, rowNumber: input.rowNumber } },
+      });
+      if (!row) throw notFound("Η γραμμή εισαγωγής δεν βρέθηκε.");
+      if (!row.previewStatus) {
+        throw conflict("Εκτελέστε πρώτα την προεπισκόπηση της αντιστοίχισης για αυτή την παρτίδα.");
+      }
+      validateReviewReason(row.previewStatus, input.reason);
+
+      const saved = await tx.legacyImportRow.updateMany({
+        where: {
+          id: row.id,
+          batchId: id,
+          previewStatus: row.previewStatus,
+          reviewDecision: row.reviewDecision,
+          reviewedAt: row.reviewedAt,
+          reviewMappingVersion: row.reviewMappingVersion,
+        },
+        data: {
+          reviewDecision: decision,
+          reviewReason: input.reason,
+          reviewedByUserId: actor.id,
+          reviewedAt: now,
+          reviewMappingVersion: batch.mappingVersion,
+        },
+      });
+      if (saved.count !== 1) {
+        throw conflict("Η γραμμή ενημερώθηκε ταυτόχρονα από άλλο χρήστη. Φορτώστε ξανά την προεπισκόπηση.");
+      }
+
+      const [totalRows, acceptedRowCount, skippedRowCount] = await Promise.all([
+        tx.legacyImportRow.count({ where: { batchId: id } }),
+        tx.legacyImportRow.count({ where: { batchId: id, reviewDecision: "ACCEPT_AS_NEW" } }),
+        tx.legacyImportRow.count({ where: { batchId: id, reviewDecision: "SKIP" } }),
+      ]);
+      const reviewedRowCount = acceptedRowCount + skippedRowCount;
+      const pendingRowCount = totalRows - reviewedRowCount;
+      const complete = pendingRowCount === 0;
+      const batchStatus = complete
+        ? acceptedRowCount > 0 ? "READY_FOR_APPROVAL" as const : "REVIEWED" as const
+        : batch.status;
+
+      await tx.legacyImportBatch.update({
+        where: { id },
+        data: {
+          reviewedRowCount,
+          acceptedRowCount,
+          skippedRowCount,
+          ...(complete ? { status: batchStatus, reviewCompletedAt: now } : {}),
+        },
+      });
+
+      await writeAudit({
+        entity: "LEGACY_IMPORT_BATCH",
+        entityId: id,
+        action: "row_review_decision",
+        changes: {
+          rowNumber: input.rowNumber,
+          previewStatus: row.previewStatus,
+          decision,
+          reason: input.reason,
+          mappingVersion: batch.mappingVersion,
+          reviewedRowCount,
+          pendingRowCount,
+        },
+        actorId: actor.id,
+        ...auditMeta(request),
+      }, tx);
+
+      if (complete) {
+        await writeAudit({
+          entity: "LEGACY_IMPORT_BATCH",
+          entityId: id,
+          action: "review_completed",
+          changes: {
+            status: batchStatus,
+            totalRows,
+            reviewedRowCount,
+            acceptedRowCount,
+            skippedRowCount,
+            importExecutionAvailable: false,
+          },
+          actorId: actor.id,
+          ...auditMeta(request),
+        }, tx);
+      }
+
+      return {
+        batchStatus,
+        totalRows,
+        reviewedRowCount,
+        acceptedRowCount,
+        skippedRowCount,
+        pendingRowCount,
+        complete,
+      };
+    });
+
+    return {
+      batchId: id,
+      ...result,
+      nextStep: result.pendingRowCount > 0
+        ? "ROW_REVIEW_REQUIRED"
+        : result.acceptedRowCount > 0
+          ? "SEPARATE_APPROVAL_REQUIRED"
+          : "NO_IMPORTABLE_ROWS",
       canApprove: false,
       canImport: false,
     };
@@ -687,7 +943,18 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
         orderBy: { rowNumber: "asc" },
         skip: (query.page - 1) * query.limit,
         take: query.limit,
-        select: { id: true, rowNumber: true, status: true, payloadCiphertext: true, validationIssues: true },
+        select: {
+          id: true,
+          rowNumber: true,
+          status: true,
+          payloadCiphertext: true,
+          validationIssues: true,
+          previewStatus: true,
+          reviewDecision: true,
+          reviewReason: true,
+          reviewedByUserId: true,
+          reviewedAt: true,
+        },
       }),
       db().legacyImportRow.count({ where: { batchId: id } }),
     ]);
@@ -700,6 +967,11 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
           id: row.id,
           rowNumber: row.rowNumber,
           status: row.status,
+          previewStatus: row.previewStatus,
+          reviewDecision: row.reviewDecision,
+          reviewReason: row.reviewReason,
+          reviewedByUserId: row.reviewedByUserId,
+          reviewedAt: row.reviewedAt,
           record: JSON.parse(plaintext) as { headers: string[]; values: string[] },
           validationIssues: row.validationIssues,
         };

@@ -3495,6 +3495,7 @@ enum LegacyImportBatchStatus {
   COMPLETED
   FAILED
   CANCELLED
+  REVIEWED
   EXPIRED
 }
 
@@ -3505,6 +3506,27 @@ enum LegacyImportRowStatus {
   SKIPPED
   IMPORTED
   FAILED
+}
+
+enum LegacyImportPreviewStatus {
+  READY
+  DUPLICATE_REVIEW
+  SOURCE_INVALID
+  MAPPING_INVALID
+}
+
+enum LegacyImportReviewDecision {
+  ACCEPT_AS_NEW
+  SKIP
+}
+
+enum LegacyImportReviewReason {
+  SOURCE_RECORD_VERIFIED
+  NOT_RELEVANT
+  DUPLICATE_CONFIRMED_DISTINCT
+  EXACT_DUPLICATE_SKIPPED
+  INVALID_SOURCE_SKIPPED
+  MAPPING_ISSUE_SKIPPED
 }
 
 /// The legal record of an introduction of one or more properties to a client
@@ -3876,6 +3898,11 @@ model LegacyImportBatch {
   purgeLockedAt      DateTime?
   purgedAt           DateTime?
   purgedRowCount     Int                     @default(0)
+  /// Counts are updated in the same transaction as each human row decision.
+  reviewedRowCount   Int                     @default(0)
+  acceptedRowCount   Int                     @default(0)
+  skippedRowCount    Int                     @default(0)
+  reviewCompletedAt  DateTime?
   createdByUserId    String
   approvedByUserId   String?
   approvedAt         DateTime?
@@ -3906,6 +3933,14 @@ model LegacyImportRow {
   sourceEntityType  String?
   legacyIdHash      String?
   validationIssues  Json?
+  /// Non-PII mapping classification and validation codes from the latest dry run.
+  previewStatus     LegacyImportPreviewStatus?
+  previewIssues     Json?
+  reviewDecision    LegacyImportReviewDecision?
+  reviewReason      LegacyImportReviewReason?
+  reviewedByUserId  String?
+  reviewedAt        DateTime?
+  reviewMappingVersion String?
   targetEntityType  String?
   targetEntityId    String?
   importedAt        DateTime?
@@ -3914,6 +3949,7 @@ model LegacyImportRow {
 
   @@unique([batchId, rowNumber])
   @@index([batchId, status, rowNumber])
+  @@index([batchId, reviewDecision, rowNumber])
   @@index([batchId, payloadSha256])
   @@index([legacyIdHash])
   @@map("legacy_import_rows")
