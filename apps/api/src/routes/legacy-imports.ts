@@ -87,6 +87,12 @@ function requireStore() {
   return store;
 }
 
+function requireBatchWithinRetention(batch: { status?: string; retentionExpiresAt?: Date | null }): void {
+  if (batch.status === "EXPIRED" || (batch.retentionExpiresAt && batch.retentionExpiresAt <= new Date())) {
+    throw conflict("Η περίοδος διατήρησης της παρτίδας έχει λήξει. Τα δεδομένα δεν είναι πλέον διαθέσιμα για προβολή ή επεξεργασία.");
+  }
+}
+
 function delimiterChoice(value: string): LegacyCsvDelimiterChoice {
   return value as LegacyCsvDelimiterChoice;
 }
@@ -205,13 +211,20 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
 
     const batch = await db().legacyImportBatch.findUnique({ where: { id } });
     if (!batch) throw notFound("Η παρτίδα εισαγωγής δεν βρέθηκε.");
-    if (batch.status !== "CREATED" || !batch.temporaryStorageKey || !isLegacyImportKey(batch.temporaryStorageKey)) {
+    if (batch.status !== "CREATED" || batch.purgeLockedAt !== null || !batch.temporaryStorageKey || !isLegacyImportKey(batch.temporaryStorageKey)) {
       throw conflict("Η παρτίδα δεν είναι διαθέσιμη για ανάλυση.");
     }
+    requireBatchWithinRetention(batch);
 
-    // A compare-and-set claim prevents two requests staging the same batch.
+    // A compare-and-set claim excludes a concurrent purge lease and expired batches.
+    const parseClaimAt = new Date();
     const claim = await db().legacyImportBatch.updateMany({
-      where: { id, status: "CREATED" },
+      where: {
+        id,
+        status: "CREATED",
+        purgeLockedAt: null,
+        OR: [{ retentionExpiresAt: null }, { retentionExpiresAt: { gt: parseClaimAt } }],
+      },
       data: { status: "PARSING" },
     });
     if (claim.count !== 1) throw conflict("Η παρτίδα αναλύεται ήδη ή έχει ήδη ολοκληρωθεί.");
@@ -456,9 +469,10 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
     const query = parseInput(mappingOptionsSchema, request.query);
     const batch = await db().legacyImportBatch.findUnique({
       where: { id },
-      select: { id: true, columnHeaders: true },
+      select: { id: true, status: true, retentionExpiresAt: true, columnHeaders: true },
     });
     if (!batch) throw notFound("Η παρτίδα εισαγωγής δεν βρέθηκε.");
+    requireBatchWithinRetention(batch);
     const headers = Array.isArray(batch.columnHeaders)
       ? batch.columnHeaders.filter((header): header is string => typeof header === "string")
       : [];
@@ -473,7 +487,8 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
     const { id } = parseInput(paramsSchema, request.params);
     const batch = await db().legacyImportBatch.findUnique({ where: { id } });
     if (!batch) throw notFound("Η παρτίδα εισαγωγής δεν βρέθηκε.");
-    if (!["STAGED", "NEEDS_REVIEW"].includes(batch.status) || batch.importedRowCount > 0) {
+    requireBatchWithinRetention(batch);
+    if (!["STAGED", "NEEDS_REVIEW"].includes(batch.status) || batch.importedRowCount > 0 || batch.purgeLockedAt !== null) {
       throw conflict("Η αντιστοίχιση μπορεί να αλλάξει μόνο πριν από οποιαδήποτε εκτέλεση εισαγωγής.");
     }
 
@@ -528,6 +543,8 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
 
     const batch = await db().legacyImportBatch.findUnique({ where: { id } });
     if (!batch) throw notFound("Η παρτίδα εισαγωγής δεν βρέθηκε.");
+    requireBatchWithinRetention(batch);
+    if (batch.purgeLockedAt !== null) throw conflict("Η παρτίδα εκκαθαρίζεται και δεν είναι διαθέσιμη για προεπισκόπηση.");
     if (!batch.fieldMapping || batch.mappingVersion !== LEGACY_IMPORT_MAPPING_VERSION) {
       throw conflict("Αποθηκεύστε πρώτα την αντιστοίχιση πεδίων.");
     }
@@ -648,8 +665,13 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
     const query = parseInput(rowsSchema, request.query);
     requireEncryption();
 
-    const batch = await db().legacyImportBatch.findUnique({ where: { id }, select: { id: true } });
+    const batch = await db().legacyImportBatch.findUnique({
+      where: { id },
+      select: { id: true, status: true, retentionExpiresAt: true, purgeLockedAt: true },
+    });
     if (!batch) throw notFound("Η παρτίδα εισαγωγής δεν βρέθηκε.");
+    requireBatchWithinRetention(batch);
+    if (batch.purgeLockedAt !== null) throw conflict("Η παρτίδα εκκαθαρίζεται και δεν είναι διαθέσιμη για προεπισκόπηση.");
 
     const [rows, total] = await Promise.all([
       db().legacyImportRow.findMany({
