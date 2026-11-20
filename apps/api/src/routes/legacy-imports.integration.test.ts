@@ -14,6 +14,9 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
   process.env.DATABASE_URL = url!;
   process.env.JWT_SECRET ??= randomBytes(32).toString("base64");
   process.env.PII_ENCRYPTION_KEY ??= randomBytes(32).toString("base64");
+  // Synthetic integration data only; this is not a production retention recommendation.
+  process.env.LEGACY_IMPORT_RETENTION_DAYS = "30";
+  process.env.CRON_SECRET = randomBytes(32).toString("hex");
 
   const { resetConfig } = await import("../config");
   resetConfig();
@@ -21,6 +24,7 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
   const { db } = await import("../lib/prisma");
   const { hashPassword } = await import("../lib/passwords");
   const { decryptField } = await import("../lib/pii");
+  const { purgeExpiredLegacyImports } = await import("../lib/legacy-import/purge");
   const { memoryDocumentStore, setDocumentStore } = await import("../lib/document-store");
 
   const store = memoryDocumentStore();
@@ -69,6 +73,19 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
   };
 
   try {
+    assert.equal((await raw(null, "GET", "/cron/legacy-import-purge")).status, 401, "cron purge requires the bearer secret");
+    const validCronSecret = process.env.CRON_SECRET;
+    delete process.env.CRON_SECRET;
+    assert.equal((await call(managerCookie, "POST", "/legacy-imports", {
+      fileName: "blocked.csv",
+      byteSize: 5,
+    })).status, 409, "intake remains disabled when the purge secret is missing");
+    process.env.CRON_SECRET = validCronSecret;
+    const cronCheck = await handleApiRequest(new Request("http://crm.test/api/cron/legacy-import-purge", {
+      headers: { authorization: "Bearer " + process.env.CRON_SECRET },
+    }));
+    assert.equal(cronCheck.status, 200, "the configured cron secret is accepted");
+    assert.equal((await cronCheck.json() as any).purgedBatches, 0, "unexpired batches are never purged");
     assert.equal((await raw(null, "GET", "/legacy-imports")).status, 401, "anonymous users cannot inspect import batches");
     assert.equal((await call(agentCookie, "GET", "/legacy-imports")).status, 403, "agents cannot inspect import batches");
 
@@ -108,6 +125,9 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
     const persistedBatch = await db().legacyImportBatch.findUniqueOrThrow({ where: { id: batchId } });
     assert.equal(persistedBatch.status, "NEEDS_REVIEW");
     assert.equal(persistedBatch.temporaryStorageKey, null, "temporary source object pointer is cleared after cleanup");
+    assert.equal(persistedBatch.retentionDays, 30);
+    assert.ok(persistedBatch.retentionExpiresAt, "every new batch has an explicit retention expiry");
+    assert.ok(persistedBatch.retentionExpiresAt! > persistedBatch.createdAt);
     assert.ok(persistedBatch.sourceFileSha256);
     assert.equal(store.objects.size, 0, "the temporary upload is removed after encrypted staging");
 
@@ -190,6 +210,27 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
 
     const mappings = await db().legacyEntityMapping.count({ where: { sourceSystem: "ESTATE_PLUS", importBatchId: batchId } });
     assert.equal(mappings, 0, "staging does not create legacy mappings or canonical CRM records");
+
+    await assert.rejects(
+      () => db().legacyImportRow.deleteMany({ where: { batchId } }),
+    );
+    const purge = await purgeExpiredLegacyImports({
+      now: new Date(persistedBatch.retentionExpiresAt!.getTime() + 1_000),
+    });
+    assert.deepEqual(
+      [purge.examined, purge.purgedBatches, purge.deletedRows, purge.failed],
+      [1, 1, 3, 0],
+      "an expired, unapproved batch is purged through the controlled worker",
+    );
+    const tombstone = await db().legacyImportBatch.findUniqueOrThrow({ where: { id: batchId } });
+    assert.equal(tombstone.status, "EXPIRED");
+    assert.ok(tombstone.purgedAt);
+    assert.equal(tombstone.purgedRowCount, 3);
+    assert.equal(tombstone.columnHeaders, null);
+    assert.equal(tombstone.fieldMapping, null);
+    assert.equal(await db().legacyImportRow.count({ where: { batchId } }), 0);
+    const purgeAudit = await db().auditLog.findMany({ where: { entity: "LEGACY_IMPORT_BATCH", entityId: batchId } });
+    assert.ok(purgeAudit.some((entry) => entry.action === "retention_purge"), "purge action is retained in the audit trail");
   } finally {
     setDocumentStore(null);
     await db().$disconnect();
