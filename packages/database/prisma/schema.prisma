@@ -3495,6 +3495,7 @@ enum LegacyImportBatchStatus {
   COMPLETED
   FAILED
   CANCELLED
+  EXPIRED
 }
 
 enum LegacyImportRowStatus {
@@ -3868,6 +3869,13 @@ model LegacyImportBatch {
   invalidRowCount    Int                     @default(0)
   duplicateRowCount  Int                     @default(0)
   importedRowCount   Int                     @default(0)
+  /// Retention policy snapshot captured when the batch was created.
+  retentionDays      Int?
+  retentionExpiresAt DateTime?
+  /// Worker lease prevents overlapping cron invocations from purging one batch twice.
+  purgeLockedAt      DateTime?
+  purgedAt           DateTime?
+  purgedRowCount     Int                     @default(0)
   createdByUserId    String
   approvedByUserId   String?
   approvedAt         DateTime?
@@ -3880,6 +3888,7 @@ model LegacyImportBatch {
   rows LegacyImportRow[]
 
   @@index([organizationId, status, createdAt])
+  @@index([status, retentionExpiresAt])
   @@index([sourceSystem, createdAt])
   @@map("legacy_import_batches")
 }
