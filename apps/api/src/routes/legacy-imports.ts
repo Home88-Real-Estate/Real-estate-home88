@@ -9,12 +9,14 @@
  * - No source cells or contact details are written to logs or audit metadata.
  */
 
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { Prisma } from "@home88/database";
 import { z } from "zod";
 
 import { writeAudit } from "../lib/audit";
+import { purgeExpiredLegacyImports } from "../lib/legacy-import/purge";
+import { configuredLegacyImportRetentionDays, legacyImportExpiry } from "../lib/legacy-import/retention";
 import { conflict, notFound, badRequest } from "../lib/errors";
 import { clientIp, parseInput, userAgent } from "../lib/http";
 import { decryptField, encryptField, hasEncryptionKey } from "../lib/pii";
@@ -102,10 +104,44 @@ async function removeSourceObject(key: string, batchId: string, request: Paramet
 }
 
 export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
+  // Vercel Cron calls this route with Authorization: Bearer <CRON_SECRET>.
+  // No cookie/session is accepted as a substitute for the server-side secret.
+  app.get("/cron/legacy-import-purge", async (request, reply) => {
+    const secret = process.env.CRON_SECRET;
+    if (!secret || secret.length < 32) {
+      reply.code(503);
+      return { error: { code: "cron_not_configured", message: "Η εργασία εκκαθάρισης δεν έχει ρυθμισμένο CRON_SECRET." } };
+    }
+
+    const match = /^Bearer\\s+(.+)$/i.exec(request.headers.authorization ?? "");
+    const supplied = Buffer.from(match?.[1] ?? "");
+    const expected = Buffer.from(secret);
+    if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
+      reply.code(401);
+      return { error: { code: "unauthorized", message: "Δεν επιτρέπεται η εκτέλεση της εργασίας." } };
+    }
+
+    const retentionDays = configuredLegacyImportRetentionDays();
+    if (retentionDays === null) {
+      reply.code(503);
+      return { error: { code: "retention_policy_not_configured", message: "Η εργασία απαιτεί έγκυρο LEGACY_IMPORT_RETENTION_DAYS." } };
+    }
+
+    const result = await purgeExpiredLegacyImports({ limit: 25 });
+    if (result.failed > 0) reply.code(503);
+    return { retentionDays, ...result };
+  });
+
   app.post("/legacy-imports", manager, async (request, reply) => {
     const actor = request.auth!.user;
     const input = parseInput(createSchema, request.body);
     requireEncryption();
+    const retentionDays = configuredLegacyImportRetentionDays();
+    if (retentionDays === null) {
+      throw conflict("Η εισαγωγή είναι απενεργοποιημένη μέχρι να οριστεί έγκυρο LEGACY_IMPORT_RETENTION_DAYS.");
+    }
+    const createdAt = new Date();
+    const retentionExpiresAt = legacyImportExpiry(createdAt, retentionDays);
     const store = requireStore();
 
     // The original client filename is validated but never persisted.
@@ -123,6 +159,9 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
         requestedDelimiter: input.delimiter,
         parserVersion: LEGACY_CSV_PARSER_VERSION,
         mappingVersion: "unmapped",
+        retentionDays,
+        retentionExpiresAt,
+        createdAt,
         createdByUserId: actor.id,
       },
     });
@@ -137,6 +176,8 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
         requestedDelimiter: input.delimiter,
         parserVersion: LEGACY_CSV_PARSER_VERSION,
         mappingVersion: "unmapped",
+        retentionDays,
+        retentionExpiresAt: retentionExpiresAt.toISOString(),
       },
       actorId: actor.id,
       ...auditMeta(request),
@@ -144,7 +185,14 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
 
     reply.code(201);
     return {
-      batch: { id, status: "CREATED", sourceFileBytes: input.byteSize, expiresInSeconds: 600 },
+      batch: {
+        id,
+        status: "CREATED",
+        sourceFileBytes: input.byteSize,
+        retentionDays,
+        retentionExpiresAt,
+        expiresInSeconds: 600,
+      },
       upload,
     };
   });
@@ -351,6 +399,10 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
           invalidRowCount: true,
           duplicateRowCount: true,
           importedRowCount: true,
+        retentionDays: true,
+        retentionExpiresAt: true,
+        purgedAt: true,
+        purgedRowCount: true,
           createdByUserId: true,
           approvedByUserId: true,
           approvedAt: true,
@@ -384,6 +436,10 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
         invalidRowCount: true,
         duplicateRowCount: true,
         importedRowCount: true,
+        retentionDays: true,
+        retentionExpiresAt: true,
+        purgedAt: true,
+        purgedRowCount: true,
         createdByUserId: true,
         approvedByUserId: true,
         approvedAt: true,
