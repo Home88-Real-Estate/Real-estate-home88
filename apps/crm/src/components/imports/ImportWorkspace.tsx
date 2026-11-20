@@ -294,6 +294,7 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
   const [mappingNotice, setMappingNotice] = useState<Notice | null>(null);
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [previewPage, setPreviewPage] = useState(1);
+  const reviewLocked = selectedBatchStatus === "READY_FOR_APPROVAL" || selectedBatchStatus === "REVIEWED";
 
   async function uploadAndStage(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -627,7 +628,7 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
           {notice && <p className={notice.ok ? "quickform__msg ok" : "quickform__msg error"} role="status">{notice.text}</p>}
           <div className="import-footnote">
             <span aria-hidden="true">i</span>
-            Μετά το staging επιχειρείται διαγραφή του αρχικού CSV. Αν αποτύχει, απαιτείται έλεγχος διαχειριστή. Η πολιτική διατήρησης των staged εγγραφών εκκρεμεί.
+            Μετά το staging επιχειρείται διαγραφή του αρχικού CSV. Αν αποτύχει, απαιτείται έλεγχος διαχειριστή. Οι κρυπτογραφημένες staged εγγραφές διατηρούνται μέχρι τη ρυθμισμένη ημερομηνία λήξης.
           </div>
         </section>
 
@@ -660,6 +661,7 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
                         : batch.retentionExpiresAt
                           ? ` · Διατήρηση έως ${formatDate(batch.retentionExpiresAt)}`
                           : " · Χωρίς καταγεγραμμένη λήξη"}
+                      {batch.reviewedRowCount > 0 ? ` · Έλεγχος ${batch.reviewedRowCount}/${batch.sourceRowCount}` : ""}
                     </small>
                   </div>
                   <div className="import-batch-stats">
@@ -699,7 +701,7 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
               <div className="import-mapping-toolbar">
                 <div className="field">
                   <label htmlFor="import-target-type">Τύπος εγγραφής HOME88</label>
-                  <select id="import-target-type" className="select" value={targetType} onChange={(event) => void changeTarget(event.target.value as TargetType)} disabled={mappingBusy}>
+                  <select id="import-target-type" className="select" value={targetType} onChange={(event) => void changeTarget(event.target.value as TargetType)} disabled={mappingBusy || reviewLocked}>
                     <option value="CONTACT">Επαφή</option>
                     <option value="PROPERTY">Ακίνητο (πρόχειρο)</option>
                   </select>
@@ -718,14 +720,14 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
                     <div className="import-mapping-row" key={index}>
                       <div className="field">
                         <label htmlFor={"import-source-" + index}>Αρχική στήλη</label>
-                        <select id={"import-source-" + index} className="select" value={row.sourceHeader} onChange={(event) => updateMappingRow(index, { sourceHeader: event.target.value })}>
+                        <select id={"import-source-" + index} className="select" value={row.sourceHeader} onChange={(event) => updateMappingRow(index, { sourceHeader: event.target.value })} disabled={reviewLocked}>
                           <option value="">Επιλέξτε στήλη CSV</option>
                           {headers.map((header) => <option key={header} value={header}>{header}</option>)}
                         </select>
                       </div>
                       <div className="field">
                         <label htmlFor={"import-target-" + index}>Πεδίο HOME88</label>
-                        <select id={"import-target-" + index} className="select" value={row.targetField} onChange={(event) => updateMappingRow(index, { targetField: event.target.value })}>
+                        <select id={"import-target-" + index} className="select" value={row.targetField} onChange={(event) => updateMappingRow(index, { targetField: event.target.value })} disabled={reviewLocked}>
                           {fieldOptions.map((field) => (
                             <option key={field.key} value={field.key} disabled={mappingRows.some((other, otherIndex) => otherIndex !== index && other.targetField === field.key)}>
                               {field.label}{field.required ? " · απαιτείται" : ""}
@@ -735,11 +737,11 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
                       </div>
                       <div className="field">
                         <label htmlFor={"import-transform-" + index}>Μορφή τιμής</label>
-                        <select id={"import-transform-" + index} className="select" value={row.transform} onChange={(event) => updateMappingRow(index, { transform: event.target.value as Transform })}>
+                        <select id={"import-transform-" + index} className="select" value={row.transform} onChange={(event) => updateMappingRow(index, { transform: event.target.value as Transform })} disabled={reviewLocked}>
                           {compatible.map((transform) => <option key={transform} value={transform}>{transform}</option>)}
                         </select>
                       </div>
-                      <button type="button" className="btn btn--ghost btn--sm import-remove-row" onClick={() => removeMappingRow(index)} aria-label="Αφαίρεση αντιστοίχισης">Αφαίρεση</button>
+                      <button type="button" className="btn btn--ghost btn--sm import-remove-row" onClick={() => removeMappingRow(index)} aria-label="Αφαίρεση αντιστοίχισης" disabled={reviewLocked}>Αφαίρεση</button>
 
                       {row.transform === "ENUM_MAP" && (
                         <div className="field import-transform-detail">
@@ -766,10 +768,10 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
               </div>
 
               <div className="row import-mapping-actions">
-                <button type="button" className="btn btn--outline" onClick={addMappingRow} disabled={mappingBusy || mappingRows.length >= Math.min(80, fieldOptions.length)}>
+                <button type="button" className="btn btn--outline" onClick={addMappingRow} disabled={mappingBusy || reviewLocked || mappingRows.length >= Math.min(80, fieldOptions.length)}>
                   + Προσθήκη πεδίου
                 </button>
-                <button type="button" className="btn btn--primary" onClick={() => void saveAndPreview()} disabled={mappingBusy || mappingRows.length === 0}>
+                <button type="button" className="btn btn--primary" onClick={() => void saveAndPreview()} disabled={mappingBusy || reviewLocked || mappingRows.length === 0}>
                   {mappingBusy ? "Έλεγχος…" : "Αποθήκευση & προεπισκόπηση"}
                 </button>
               </div>
