@@ -87,6 +87,11 @@ function requireStore() {
   return store;
 }
 
+function configuredCronSecret(): string | null {
+  const secret = process.env.CRON_SECRET;
+  return typeof secret === "string" && secret.length >= 32 ? secret : null;
+}
+
 function requireBatchWithinRetention(batch: { status?: string; retentionExpiresAt?: Date | null }): void {
   if (batch.status === "EXPIRED" || (batch.retentionExpiresAt && batch.retentionExpiresAt <= new Date())) {
     throw conflict("Η περίοδος διατήρησης της παρτίδας έχει λήξει. Τα δεδομένα δεν είναι πλέον διαθέσιμα για προβολή ή επεξεργασία.");
@@ -113,8 +118,8 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
   // Vercel Cron calls this route with Authorization: Bearer <CRON_SECRET>.
   // No cookie/session is accepted as a substitute for the server-side secret.
   app.get("/cron/legacy-import-purge", async (request, reply) => {
-    const secret = process.env.CRON_SECRET;
-    if (!secret || secret.length < 32) {
+    const secret = configuredCronSecret();
+    if (!secret) {
       reply.code(503);
       return { error: { code: "cron_not_configured", message: "Η εργασία εκκαθάρισης δεν έχει ρυθμισμένο CRON_SECRET." } };
     }
@@ -145,6 +150,9 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
     const retentionDays = configuredLegacyImportRetentionDays();
     if (retentionDays === null) {
       throw conflict("Η εισαγωγή είναι απενεργοποιημένη μέχρι να οριστεί έγκυρο LEGACY_IMPORT_RETENTION_DAYS.");
+    }
+    if (!configuredCronSecret()) {
+      throw conflict("Η εισαγωγή είναι απενεργοποιημένη μέχρι να ρυθμιστεί το CRON_SECRET για την αυτόματη εκκαθάριση.");
     }
     const createdAt = new Date();
     const retentionExpiresAt = legacyImportExpiry(createdAt, retentionDays);
