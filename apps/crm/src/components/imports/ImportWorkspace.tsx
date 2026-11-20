@@ -24,6 +24,10 @@ export type ImportBatch = {
   invalidRowCount: number;
   duplicateRowCount: number;
   importedRowCount: number;
+  retentionDays: number | null;
+  retentionExpiresAt: string | null;
+  purgedAt: string | null;
+  purgedRowCount: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -193,6 +197,7 @@ const STATUS_LABEL: Record<string, string> = {
   IMPORTING: "Σε εισαγωγή",
   COMPLETED: "Ολοκληρώθηκε",
   CANCELLED: "Ακυρώθηκε",
+  EXPIRED: "Έληξε — εκκαθαρίστηκε",
 };
 
 function statusClass(status: string): string {
@@ -541,7 +546,14 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
                   <div className="import-batch-main">
                     <strong className="mono">{batch.id.slice(0, 8).toUpperCase()}</strong>
                     <span className={statusClass(batch.status)}>{STATUS_LABEL[batch.status] ?? batch.status}</span>
-                    <small>{formatDate(batch.createdAt)} · {formatBytes(batch.sourceFileBytes)}</small>
+                    <small>
+                      {formatDate(batch.createdAt)} · {formatBytes(batch.sourceFileBytes)}
+                      {batch.purgedAt
+                        ? ` · Εκκαθαρίστηκε ${formatDate(batch.purgedAt)}`
+                        : batch.retentionExpiresAt
+                          ? ` · Διατήρηση έως ${formatDate(batch.retentionExpiresAt)}`
+                          : " · Χωρίς καταγεγραμμένη λήξη"}
+                    </small>
                   </div>
                   <div className="import-batch-stats">
                     <span><strong>{batch.sourceRowCount}</strong> γραμμές</span>
