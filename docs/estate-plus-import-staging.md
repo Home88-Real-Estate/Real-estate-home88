@@ -1,6 +1,6 @@
 # Estate+ import staging
 
-**Status:** staging foundation only; do not use for a real migration yet.
+**Status:** secure staging, manager mapping preview and the retention purge lifecycle are implemented. Real customer exports remain blocked until an operator-approved retention value and a representative Estate+ export schema are supplied.
 
 **Branch / review:** feat/estate-plus-import-foundation / PR #89.
 
@@ -57,6 +57,25 @@ The upload request takes a .csv filename, byte size, and optional delimiter (AUT
 - This phase does not yet offer a CRM mapping screen; the mapping and preview endpoints are API-only.
 - A successful preview is not approval. `canApprove` and `canImport` remain false.
 
+## Retention and purge lifecycle (Phase D.4)
+
+Every newly created batch snapshots the operator's configured retention duration and its absolute expiry timestamp:
+
+- `LEGACY_IMPORT_RETENTION_DAYS` is mandatory for new batch creation. It must be an integer from 1 to 3,650. There is intentionally no code default: this range is a technical validation bound, not a recommended or legally approved retention period.
+- If the variable is absent or invalid, intake is disabled with a clear conflict response. Existing batches with a NULL expiry are not eligible for automatic deletion.
+- The CRM deployment schedules `GET /api/cron/legacy-import-purge` once daily at 03:17 UTC. The endpoint requires `Authorization: Bearer <CRON_SECRET>`; `CRON_SECRET` must be at least 32 characters and must be configured as a Vercel environment variable.
+- The worker processes batches in bounded chunks. It only considers expired CREATED, FAILED, STAGED, NEEDS_REVIEW or CANCELLED batches. It excludes PARSING, READY_FOR_APPROVAL, APPROVED, IMPORTING and COMPLETED batches.
+- It rechecks approval, imported-row counts and canonical LegacyEntityMapping links before deletion. A per-batch compare-and-set lease prevents overlapping runs from purging the same batch.
+- Any remaining private temporary CSV object is deleted first. The worker then marks the batch EXPIRED and deletes its encrypted staged rows in one database transaction.
+- The batch row remains as an audit tombstone with the retention duration/expiry, source file hash and counts, purge timestamp and purged-row count. Mapping configuration and source column headers are cleared. The purge is recorded as a `retention_purge` audit action.
+- Database triggers reject direct row deletion unless the batch has been marked EXPIRED by the controlled worker, and reject deletion for approved/imported batches or batches linked to canonical records.
+
+Required production configuration:
+- `LEGACY_IMPORT_RETENTION_DAYS`: the duration selected and approved by HOME88's data-retention owner.
+- `CRON_SECRET`: a randomly generated secret of at least 32 characters, set on the CRM Vercel project for the relevant deployment environments.
+
+The integration test uses a synthetic 30-day value only to test date handling. It is not a production recommendation.
+
 ## Explicitly out of scope
 
 - An approved, reusable Estate+ vendor mapping template (until a real export sample is reviewed).
@@ -73,7 +92,7 @@ The upload request takes a .csv filename, byte size, and optional delimiter (AUT
 2. Review and approve the source column mappings, numeric formats, enum translations, boolean tokens, and null/empty conventions against representative Estate+ records. The API can store a mapping now, but it is not evidence that the vendor export has been mapped correctly.
 3. Define canonical-record duplicate rules and how conflicts are resolved by a human.
 4. Define who may approve an import and what evidence the approver must review.
-5. Agree a retention period and cleanup process for both abandoned temporary uploads and encrypted staged rows. There is currently no scheduled expiry/purge job for abandoned uploads or staged source rows. Do not upload real customer data until that retention policy and cleanup mechanism are agreed and implemented.
+5. Have HOME88's data-retention owner select and approve the actual retention duration, then configure LEGACY_IMPORT_RETENTION_DAYS and CRON_SECRET in the CRM Vercel project. The purge mechanism is implemented, but its production retention duration is intentionally not selected by code.
 6. Define a verified rollback/recovery plan for the later phase that writes canonical CRM records.
 
 ## Verification
