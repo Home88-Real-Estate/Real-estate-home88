@@ -21,6 +21,7 @@ All routes require a signed-in user at or above MANAGER:
 | GET | /api/legacy-imports | List batches |
 | GET | /api/legacy-imports/:id | Read batch metadata |
 | GET | /api/legacy-imports/:id/rows | Decrypt and preview source rows for a manager |
+| POST | /api/legacy-imports/:id/review | Record a manager's explicit decision and reason for one row |
 
 The upload request takes a .csv filename, byte size, and optional delimiter (AUTO, COMMA, SEMICOLON, or TAB). The original filename is not persisted. Upload URLs expire after 10 minutes.
 
@@ -64,7 +65,7 @@ Every newly created batch snapshots the operator's configured retention duration
 - `LEGACY_IMPORT_RETENTION_DAYS` is mandatory for new batch creation. It must be an integer from 1 to 3,650. There is intentionally no code default: this range is a technical validation bound, not a recommended or legally approved retention period.
 - If the variable is absent or invalid, intake is disabled with a clear conflict response. Existing batches with a NULL expiry are not eligible for automatic deletion.
 - The CRM deployment schedules `GET /api/cron/legacy-import-purge` once daily at 03:17 UTC. The endpoint requires `Authorization: Bearer <CRON_SECRET>`; `CRON_SECRET` must be at least 32 characters and must be configured as a Vercel environment variable.
-- The worker processes batches in bounded chunks. It only considers expired CREATED, FAILED, STAGED, NEEDS_REVIEW or CANCELLED batches. It excludes PARSING, READY_FOR_APPROVAL, APPROVED, IMPORTING and COMPLETED batches.
+- The worker processes batches in bounded chunks. It considers expired CREATED, FAILED, STAGED, NEEDS_REVIEW, READY_FOR_APPROVAL, REVIEWED or CANCELLED batches, provided they have never been approved/imported and have no canonical record links. It excludes PARSING, APPROVED, IMPORTING and COMPLETED batches. Reviewed-but-unapproved staging decisions do not extend the retention period.
 - It rechecks approval, imported-row counts and canonical LegacyEntityMapping links before deletion. A per-batch compare-and-set lease prevents overlapping runs from purging the same batch.
 - Any remaining private temporary CSV object is deleted first. The worker then marks the batch EXPIRED and deletes its encrypted staged rows in one database transaction.
 - The batch row remains as an audit tombstone with the retention duration/expiry, source file hash and counts, purge timestamp and purged-row count. Mapping configuration and source column headers are cleared. The purge is recorded as a `retention_purge` audit action.
@@ -98,7 +99,7 @@ The manager workspace now requires an explicit decision for each row after a map
 - XLSX/XLS parsing.
 - Existing-contact/property/mandate matching.
 - Cross-batch or canonical-record duplicate detection.
-- Human approval, contact/property creation, or import execution. (The current mapping preview is a non-writing dry run only.)
+- Separate human batch approval, contact/property creation, or import execution. Phase D.5 records row-level review decisions only; it does not authorize canonical writes.
 - Automatic merging of contacts.
 - Rollback of imported canonical records (no import writes exist yet).
 
