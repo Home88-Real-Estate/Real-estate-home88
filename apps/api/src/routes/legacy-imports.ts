@@ -552,12 +552,35 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const fieldMapping = JSON.parse(JSON.stringify(mapping)) as Prisma.InputJsonValue;
-    await db().legacyImportBatch.update({
-      where: { id },
-      data: {
-        fieldMapping,
-        mappingVersion: LEGACY_IMPORT_MAPPING_VERSION,
-      },
+    const mappingChanged = JSON.stringify(batch.fieldMapping) !== JSON.stringify(fieldMapping);
+    await db().$transaction(async (tx) => {
+      await tx.legacyImportBatch.update({
+        where: { id },
+        data: {
+          fieldMapping,
+          mappingVersion: LEGACY_IMPORT_MAPPING_VERSION,
+          ...(mappingChanged ? {
+            reviewedRowCount: 0,
+            acceptedRowCount: 0,
+            skippedRowCount: 0,
+            reviewCompletedAt: null,
+          } : {}),
+        },
+      });
+      if (mappingChanged) {
+        await tx.legacyImportRow.updateMany({
+          where: { batchId: id },
+          data: {
+            previewStatus: null,
+            previewIssues: Prisma.DbNull,
+            reviewDecision: null,
+            reviewReason: null,
+            reviewedByUserId: null,
+            reviewedAt: null,
+            reviewMappingVersion: null,
+          },
+        });
+      }
     });
     await writeAudit({
       entity: "LEGACY_IMPORT_BATCH",
