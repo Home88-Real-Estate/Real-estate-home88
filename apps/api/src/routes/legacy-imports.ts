@@ -113,7 +113,7 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
       return { error: { code: "cron_not_configured", message: "Η εργασία εκκαθάρισης δεν έχει ρυθμισμένο CRON_SECRET." } };
     }
 
-    const match = /^Bearer\\s+(.+)$/i.exec(request.headers.authorization ?? "");
+    const match = /^Bearer\s+(.+)$/i.exec(request.headers.authorization ?? "");
     const supplied = Buffer.from(match?.[1] ?? "");
     const expected = Buffer.from(secret);
     if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
