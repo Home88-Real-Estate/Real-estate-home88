@@ -780,6 +780,135 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  app.post("/legacy-imports/:id/review", manager, async (request) => {
+    const actor = request.auth!.user;
+    const { id } = parseInput(paramsSchema, request.params);
+    const input = parseInput(rowReviewSchema, request.body);
+    const decision = reviewDecisionForReason(input.reason);
+    const now = new Date();
+
+    const result = await db().$transaction(async (tx) => {
+      const batch = await tx.legacyImportBatch.findUnique({ where: { id } });
+      if (!batch) throw notFound("Η παρτίδα εισαγωγής δεν βρέθηκε.");
+      requireBatchWithinRetention(batch);
+      if (!["STAGED", "NEEDS_REVIEW"].includes(batch.status) || batch.purgeLockedAt !== null) {
+        throw conflict("Η ανθρώπινη αξιολόγηση έχει ολοκληρωθεί ή η παρτίδα δεν είναι διαθέσιμη.");
+      }
+      if (!batch.fieldMapping || batch.mappingVersion !== LEGACY_IMPORT_MAPPING_VERSION) {
+        throw conflict("Αποθηκεύστε πρώτα την αντιστοίχιση και εκτελέστε την προεπισκόπηση.");
+      }
+
+      const row = await tx.legacyImportRow.findUnique({
+        where: { batchId_rowNumber: { batchId: id, rowNumber: input.rowNumber } },
+      });
+      if (!row) throw notFound("Η γραμμή εισαγωγής δεν βρέθηκε.");
+      if (!row.previewStatus) {
+        throw conflict("Εκτελέστε πρώτα την προεπισκόπηση της αντιστοίχισης για αυτή την παρτίδα.");
+      }
+      validateReviewReason(row.previewStatus, input.reason);
+
+      const saved = await tx.legacyImportRow.updateMany({
+        where: {
+          id: row.id,
+          batchId: id,
+          previewStatus: row.previewStatus,
+          reviewDecision: row.reviewDecision,
+          reviewedAt: row.reviewedAt,
+          reviewMappingVersion: row.reviewMappingVersion,
+        },
+        data: {
+          reviewDecision: decision,
+          reviewReason: input.reason,
+          reviewedByUserId: actor.id,
+          reviewedAt: now,
+          reviewMappingVersion: batch.mappingVersion,
+        },
+      });
+      if (saved.count !== 1) {
+        throw conflict("Η γραμμή ενημερώθηκε ταυτόχρονα από άλλο χρήστη. Φορτώστε ξανά την προεπισκόπηση.");
+      }
+
+      const [totalRows, acceptedRowCount, skippedRowCount] = await Promise.all([
+        tx.legacyImportRow.count({ where: { batchId: id } }),
+        tx.legacyImportRow.count({ where: { batchId: id, reviewDecision: "ACCEPT_AS_NEW" } }),
+        tx.legacyImportRow.count({ where: { batchId: id, reviewDecision: "SKIP" } }),
+      ]);
+      const reviewedRowCount = acceptedRowCount + skippedRowCount;
+      const pendingRowCount = totalRows - reviewedRowCount;
+      const complete = pendingRowCount === 0;
+      const batchStatus = complete
+        ? acceptedRowCount > 0 ? "READY_FOR_APPROVAL" as const : "REVIEWED" as const
+        : batch.status;
+
+      await tx.legacyImportBatch.update({
+        where: { id },
+        data: {
+          reviewedRowCount,
+          acceptedRowCount,
+          skippedRowCount,
+          ...(complete ? { status: batchStatus, reviewCompletedAt: now } : {}),
+        },
+      });
+
+      await writeAudit({
+        entity: "LEGACY_IMPORT_BATCH",
+        entityId: id,
+        action: "row_review_decision",
+        changes: {
+          rowNumber: input.rowNumber,
+          previewStatus: row.previewStatus,
+          decision,
+          reason: input.reason,
+          mappingVersion: batch.mappingVersion,
+          reviewedRowCount,
+          pendingRowCount,
+        },
+        actorId: actor.id,
+        ...auditMeta(request),
+      }, tx);
+
+      if (complete) {
+        await writeAudit({
+          entity: "LEGACY_IMPORT_BATCH",
+          entityId: id,
+          action: "review_completed",
+          changes: {
+            status: batchStatus,
+            totalRows,
+            reviewedRowCount,
+            acceptedRowCount,
+            skippedRowCount,
+            importExecutionAvailable: false,
+          },
+          actorId: actor.id,
+          ...auditMeta(request),
+        }, tx);
+      }
+
+      return {
+        batchStatus,
+        totalRows,
+        reviewedRowCount,
+        acceptedRowCount,
+        skippedRowCount,
+        pendingRowCount,
+        complete,
+      };
+    });
+
+    return {
+      batchId: id,
+      ...result,
+      nextStep: result.pendingRowCount > 0
+        ? "ROW_REVIEW_REQUIRED"
+        : result.acceptedRowCount > 0
+          ? "SEPARATE_APPROVAL_REQUIRED"
+          : "NO_IMPORTABLE_ROWS",
+      canApprove: false,
+      canImport: false,
+    };
+  });
+
   app.get("/legacy-imports/:id/rows", manager, async (request) => {
     const actor = request.auth!.user;
     const { id } = parseInput(paramsSchema, request.params);
