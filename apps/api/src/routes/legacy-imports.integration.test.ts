@@ -24,6 +24,7 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
   const { db } = await import("../lib/prisma");
   const { hashPassword } = await import("../lib/passwords");
   const { decryptField } = await import("../lib/pii");
+  const { LEGACY_IMPORT_MAPPING_VERSION } = await import("../lib/legacy-import/mapping");
   const { purgeExpiredLegacyImports } = await import("../lib/legacy-import/purge");
   const { memoryDocumentStore, setDocumentStore } = await import("../lib/document-store");
 
