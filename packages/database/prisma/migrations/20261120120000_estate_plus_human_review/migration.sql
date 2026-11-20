@@ -80,6 +80,9 @@ DECLARE
     'purgeLockedAt', 'purgedAt', 'purgedRowCount', 'reviewedRowCount',
     'acceptedRowCount', 'skippedRowCount', 'reviewCompletedAt'
   ];
+  actual_total bigint;
+  actual_accepted bigint;
+  actual_skipped bigint;
 BEGIN
   IF TG_OP = 'DELETE' THEN
     RAISE EXCEPTION 'legacy import batches are retained for audit and cannot be deleted';
@@ -101,6 +104,42 @@ BEGIN
     AND NEW."retentionExpiresAt" <= clock_timestamp()
     AND NEW."purgeLockedAt" IS NULL THEN
     RAISE EXCEPTION 'legacy import batch retention has expired';
+  END IF;
+
+  IF OLD."status"::text IN ('READY_FOR_APPROVAL', 'REVIEWED', 'APPROVED', 'IMPORTING', 'COMPLETED')
+     AND (
+       NEW."reviewedRowCount" IS DISTINCT FROM OLD."reviewedRowCount"
+       OR NEW."acceptedRowCount" IS DISTINCT FROM OLD."acceptedRowCount"
+       OR NEW."skippedRowCount" IS DISTINCT FROM OLD."skippedRowCount"
+       OR NEW."reviewCompletedAt" IS DISTINCT FROM OLD."reviewCompletedAt"
+     ) THEN
+    RAISE EXCEPTION 'legacy import review summary is immutable after review completion';
+  END IF;
+
+  IF NEW."status"::text IN ('READY_FOR_APPROVAL', 'REVIEWED') THEN
+    SELECT
+      COUNT(*),
+      COUNT(*) FILTER (WHERE r."reviewDecision"::text = 'ACCEPT_AS_NEW'),
+      COUNT(*) FILTER (WHERE r."reviewDecision"::text = 'SKIP')
+    INTO actual_total, actual_accepted, actual_skipped
+    FROM public.legacy_import_rows r
+    WHERE r."batchId" = NEW.id;
+
+    IF NEW."reviewCompletedAt" IS NULL
+       OR NEW."reviewedRowCount" <> actual_total
+       OR NEW."reviewedRowCount" <> NEW."sourceRowCount"
+       OR NEW."acceptedRowCount" <> actual_accepted
+       OR NEW."skippedRowCount" <> actual_skipped
+       OR (
+         NEW."status"::text = 'READY_FOR_APPROVAL'
+         AND NEW."acceptedRowCount" = 0
+       )
+       OR (
+         NEW."status"::text = 'REVIEWED'
+         AND NEW."acceptedRowCount" <> 0
+       ) THEN
+      RAISE EXCEPTION 'legacy import review is incomplete or its summary does not match the staged rows';
+    END IF;
   END IF;
 
   IF (to_jsonb(NEW) - mutable) IS DISTINCT FROM (to_jsonb(OLD) - mutable) THEN
