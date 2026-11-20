@@ -637,10 +637,16 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
       where: { batchId: id },
       orderBy: { rowNumber: "asc" },
       select: {
+        id: true,
         rowNumber: true,
         status: true,
         payloadCiphertext: true,
         validationIssues: true,
+        reviewDecision: true,
+        reviewReason: true,
+        reviewedAt: true,
+        reviewedByUserId: true,
+        reviewMappingVersion: true,
       },
     });
 
@@ -671,11 +677,17 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
             : "READY";
 
       return {
+        id: row.id,
         rowNumber: row.rowNumber,
         status,
         record: mapped.record,
         issues: mapped.issues,
         sourceIssues,
+        reviewDecision: row.reviewDecision,
+        reviewReason: row.reviewReason,
+        reviewedAt: row.reviewedAt,
+        reviewedByUserId: row.reviewedByUserId,
+        reviewMappingVersion: row.reviewMappingVersion,
       };
     });
 
@@ -683,8 +695,31 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
     const duplicateRows = previewRows.filter((row) => row.status === "DUPLICATE_REVIEW").length;
     const sourceInvalidRows = previewRows.filter((row) => row.status === "SOURCE_INVALID").length;
     const mappingInvalidRows = previewRows.filter((row) => row.status === "MAPPING_INVALID").length;
+
+    // Persist only the non-PII classification and issue codes. The mapped
+    // record itself remains in memory and is never written to the database.
+    if (!["READY_FOR_APPROVAL", "REVIEWED"].includes(batch.status)) {
+      await db().$transaction(async (tx) => {
+        for (const row of previewRows) {
+          await tx.legacyImportRow.update({
+            where: { id: row.id },
+            data: {
+              previewStatus: row.status,
+              previewIssues: row.issues.length > 0
+                ? row.issues as unknown as Prisma.InputJsonValue
+                : Prisma.DbNull,
+            },
+          });
+        }
+      });
+    }
+
+    const reviewedRowCount = previewRows.filter((row) => row.reviewDecision !== null).length;
+    const acceptedRowCount = previewRows.filter((row) => row.reviewDecision === "ACCEPT_AS_NEW").length;
+    const skippedRowCount = previewRows.filter((row) => row.reviewDecision === "SKIP").length;
+    const pendingRowCount = previewRows.length - reviewedRowCount;
     const skip = (query.page - 1) * query.limit;
-    const data = previewRows.slice(skip, skip + query.limit);
+    const data = previewRows.slice(skip, skip + query.limit).map(({ id: _id, reviewMappingVersion: _version, ...row }) => row);
 
     await writeAudit({
       entity: "LEGACY_IMPORT_BATCH",
@@ -698,6 +733,8 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
         duplicateRows,
         sourceInvalidRows,
         mappingInvalidRows,
+        reviewedRowCount,
+        pendingRowCount,
         page: query.page,
         limit: query.limit,
         rowsReturned: data.length,
@@ -718,13 +755,26 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
         mappingInvalidRows,
       },
       data,
+      reviewSummary: {
+        totalRows: previewRows.length,
+        reviewedRowCount,
+        acceptedRowCount,
+        skippedRowCount,
+        pendingRowCount,
+        complete: pendingRowCount === 0,
+      },
+      batchStatus: batch.status,
       pagination: {
         page: query.page,
         limit: query.limit,
         total: previewRows.length,
         pages: Math.max(1, Math.ceil(previewRows.length / query.limit)),
       },
-      nextStep: "HUMAN_REVIEW_REQUIRED",
+      nextStep: pendingRowCount > 0
+        ? "ROW_REVIEW_REQUIRED"
+        : acceptedRowCount > 0
+          ? "SEPARATE_APPROVAL_REQUIRED"
+          : "NO_IMPORTABLE_ROWS",
       canApprove: false,
       canImport: false,
     };
