@@ -130,6 +130,7 @@ export const NAV_SECTIONS: NavSection[] = [
     key: "admin",
     label: "Διαχείριση",
     entries: [
+      { href: "/imports", label: "Εισαγωγή δεδομένων", icon: "table", min: "MANAGER" },
       {
         key: "settings",
         label: "Ρυθμίσεις",
