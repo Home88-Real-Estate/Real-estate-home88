@@ -1,6 +1,6 @@
 # Estate+ import staging
 
-**Status:** secure staging, manager mapping preview and the retention purge lifecycle are implemented. Real customer exports remain blocked until an operator-approved retention value and a representative Estate+ export schema are supplied.
+**Status:** secure staging, CRM mapping preview, retention purge and manager row-review decisions are implemented. Real customer exports remain blocked until an operator-approved retention value, a representative Estate+ export schema, and canonical duplicate/approval policies are supplied.
 
 **Branch / review:** feat/estate-plus-import-foundation / PR #89.
 
@@ -54,7 +54,7 @@ The upload request takes a .csv filename, byte size, and optional delimiter (AUT
 - Property preview always validates a DRAFT property. Status, publication, ownership links, agent assignments, generated reference and slug are not mappable.
 - The mapping configuration stores only target field names, source header names, and conversion rules. Mapped row values are computed in memory from the encrypted source payloads; no plaintext mapped rows are persisted.
 - Preview returns summary counts and a paginated sample of mapped records to managers. Audit metadata stores only counts and mapping information, not row values.
-- This phase does not yet offer a CRM mapping screen; the mapping and preview endpoints are API-only.
+- Phase D.3 provides the manager-only CRM mapping workspace. The screen displays mapped values only in the manager session; it does not persist plaintext mapped records.
 - A successful preview is not approval. `canApprove` and `canImport` remain false.
 
 ## Retention and purge lifecycle (Phase D.4)
@@ -76,6 +76,22 @@ Required production configuration:
 
 The integration test uses a synthetic 30-day value only to test date handling. It is not a production recommendation.
 
+## Human row review and duplicate resolution (Phase D.5)
+
+The manager workspace now requires an explicit decision for each row after a mapping preview:
+
+- The preview persists only the non-PII row classification and validation issue codes. Mapped customer values remain in memory and are not written to the database.
+- Each row must receive one of two decisions: `ACCEPT_AS_NEW` or `SKIP`. Decisions record the manager, timestamp, mapping version and a reason code. Audit events contain the row number, classification, decision and reason code, never source values.
+- A `READY` row may be accepted only with `SOURCE_RECORD_VERIFIED`, or skipped with `NOT_RELEVANT`.
+- A within-file exact duplicate may be accepted only with `DUPLICATE_CONFIRMED_DISTINCT`, or skipped with `EXACT_DUPLICATE_SKIPPED`. Accepting it does not bypass future canonical duplicate checks.
+- A source-invalid row can only be skipped with `INVALID_SOURCE_SKIPPED`. A mapping-invalid row can only be skipped with `MAPPING_ISSUE_SKIPPED`.
+- The API validates these reason/classification combinations and the PostgreSQL row trigger independently. A decision is tied to the mapping version; changing the mapping before review completion clears the earlier preview classifications and decisions.
+- Review counts and decisions are updated transactionally. Concurrent edits to the same row are rejected; the final row decision moves the batch to `READY_FOR_APPROVAL` if at least one row was accepted, or `REVIEWED` if every row was skipped.
+- After review completion, row decisions and the mapping are locked. The batch is waiting for a separate approval phase; `canApprove` and `canImport` remain false in this phase.
+- No contacts, properties, entity mappings or other canonical CRM records are created by review.
+
+**Important limitation:** the parser detects exact repeated payload rows inside one CSV batch. This phase does not perform fuzzy matching, cross-batch duplicate detection, or matching against existing HOME88 contacts/properties. Those rules still require a verified source sample and an approved duplicate policy.
+
 ## Explicitly out of scope
 
 - An approved, reusable Estate+ vendor mapping template (until a real export sample is reviewed).
@@ -90,8 +106,8 @@ The integration test uses a synthetic 30-day value only to test date handling. I
 
 1. Obtain a representative Estate+ CSV export and confirm which entity types it contains (contacts, properties, mandates, viewings, documents, etc.).
 2. Review and approve the source column mappings, numeric formats, enum translations, boolean tokens, and null/empty conventions against representative Estate+ records. The API can store a mapping now, but it is not evidence that the vendor export has been mapped correctly.
-3. Define canonical-record duplicate rules and how conflicts are resolved by a human.
-4. Define who may approve an import and what evidence the approver must review.
+3. Define canonical-record and cross-batch duplicate matching rules. Phase D.5 records decisions for same-file exact duplicates only; it does not search or link existing HOME88 contacts/properties.
+4. Define the separate approval authority, separation-of-duties rule and evidence the approver must review. Phase D.5 does not approve or execute imports.
 5. Have HOME88's data-retention owner select and approve the actual retention duration, then configure LEGACY_IMPORT_RETENTION_DAYS and CRON_SECRET in the CRM Vercel project. The purge mechanism is implemented, but its production retention duration is intentionally not selected by code.
 6. Define a verified rollback/recovery plan for the later phase that writes canonical CRM records.
 
