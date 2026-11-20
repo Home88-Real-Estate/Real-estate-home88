@@ -70,6 +70,17 @@ const mappingPreviewSchema = z.object({
   page: z.coerce.number().int().min(1).max(10_000).default(1),
   limit: z.coerce.number().int().min(1).max(50).default(20),
 });
+const rowReviewSchema = z.object({
+  rowNumber: z.coerce.number().int().min(1).max(MAX_IMPORT_ROWS),
+  reason: z.enum([
+    "SOURCE_RECORD_VERIFIED",
+    "NOT_RELEVANT",
+    "DUPLICATE_CONFIRMED_DISTINCT",
+    "EXACT_DUPLICATE_SKIPPED",
+    "INVALID_SOURCE_SKIPPED",
+    "MAPPING_ISSUE_SKIPPED",
+  ]),
+});
 
 function auditMeta(request: Parameters<typeof clientIp>[0]) {
   return { ipAddress: clientIp(request), userAgent: userAgent(request) };
@@ -95,6 +106,27 @@ function configuredCronSecret(): string | null {
 function requireBatchWithinRetention(batch: { status?: string; retentionExpiresAt?: Date | null }): void {
   if (batch.status === "EXPIRED" || (batch.retentionExpiresAt && batch.retentionExpiresAt <= new Date())) {
     throw conflict("Η περίοδος διατήρησης της παρτίδας έχει λήξει. Τα δεδομένα δεν είναι πλέον διαθέσιμα για προβολή ή επεξεργασία.");
+  }
+}
+
+function reviewDecisionForReason(reason: z.infer<typeof rowReviewSchema>["reason"]): "ACCEPT_AS_NEW" | "SKIP" {
+  return reason === "SOURCE_RECORD_VERIFIED" || reason === "DUPLICATE_CONFIRMED_DISTINCT"
+    ? "ACCEPT_AS_NEW"
+    : "SKIP";
+}
+
+function validateReviewReason(
+  previewStatus: "READY" | "DUPLICATE_REVIEW" | "SOURCE_INVALID" | "MAPPING_INVALID",
+  reason: z.infer<typeof rowReviewSchema>["reason"],
+): void {
+  const allowed: Record<typeof previewStatus, readonly string[]> = {
+    READY: ["SOURCE_RECORD_VERIFIED", "NOT_RELEVANT"],
+    DUPLICATE_REVIEW: ["DUPLICATE_CONFIRMED_DISTINCT", "EXACT_DUPLICATE_SKIPPED"],
+    SOURCE_INVALID: ["INVALID_SOURCE_SKIPPED"],
+    MAPPING_INVALID: ["MAPPING_ISSUE_SKIPPED"],
+  };
+  if (!allowed[previewStatus].includes(reason)) {
+    throw badRequest("Η αιτιολογία δεν αντιστοιχεί στην κατάσταση της συγκεκριμένης γραμμής.");
   }
 }
 
@@ -424,6 +456,10 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
           retentionExpiresAt: true,
           purgedAt: true,
           purgedRowCount: true,
+          reviewedRowCount: true,
+          acceptedRowCount: true,
+          skippedRowCount: true,
+          reviewCompletedAt: true,
           createdByUserId: true,
           approvedByUserId: true,
           approvedAt: true,
@@ -461,6 +497,10 @@ export async function legacyImportRoutes(app: FastifyInstance): Promise<void> {
           retentionExpiresAt: true,
           purgedAt: true,
           purgedRowCount: true,
+        reviewedRowCount: true,
+        acceptedRowCount: true,
+        skippedRowCount: true,
+        reviewCompletedAt: true,
         createdByUserId: true,
         approvedByUserId: true,
         approvedAt: true,
