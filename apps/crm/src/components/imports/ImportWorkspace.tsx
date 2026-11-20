@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { CRM_BASE_PATH } from "@/lib/paths";
@@ -236,11 +236,6 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [previewPage, setPreviewPage] = useState(1);
 
-  const selectedBatch = useMemo(
-    () => batches.find((batch) => batch.id === selectedBatchId) ?? null,
-    [batches, selectedBatchId],
-  );
-
   async function uploadAndStage(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -289,16 +284,16 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
       setBatches((current) => [detail.batch, ...current.filter((batch) => batch.id !== detail.batch.id)]);
       form.reset();
       setTestFileConfirmed(false);
-      setNotice({
-        ok: true,
-        text: "Το CSV αναλύθηκε και αποθηκεύτηκε σε ασφαλή χώρο ελέγχου. Ελέγξτε τις γραμμές πριν ορίσετε την αντιστοίχιση.",
-      });
+      setNotice(parsed.batch.sourceCleanupPending
+        ? { ok: false, text: "Οι γραμμές αποθηκεύτηκαν κρυπτογραφημένες, αλλά η διαγραφή του προσωρινού CSV εκκρεμεί. Απαιτείται έλεγχος διαχειριστή." }
+        : { ok: true, text: "Το CSV αναλύθηκε και αποθηκεύτηκε σε ασφαλή χώρο ελέγχου. Ελέγξτε τις γραμμές πριν ορίσετε την αντιστοίχιση." });
       router.refresh();
     } catch (error) {
       setNotice({
         ok: false,
         text: error instanceof Error ? error.message : "Η μεταφόρτωση ή ανάλυση απέτυχε.",
       });
+      router.refresh();
     } finally {
       setBusy(false);
     }
@@ -520,7 +515,7 @@ export function ImportWorkspace({ initialBatches }: { initialBatches: ImportBatc
           {notice && <p className={notice.ok ? "quickform__msg ok" : "quickform__msg error"} role="status">{notice.text}</p>}
           <div className="import-footnote">
             <span aria-hidden="true">i</span>
-            Το αρχικό CSV διαγράφεται μετά την ασφαλή αποθήκευση των κρυπτογραφημένων γραμμών. Η πολιτική διατήρησης των staged εγγραφών εκκρεμεί.
+            Μετά το staging επιχειρείται διαγραφή του αρχικού CSV. Αν αποτύχει, απαιτείται έλεγχος διαχειριστή. Η πολιτική διατήρησης των staged εγγραφών εκκρεμεί.
           </div>
         </section>
 
