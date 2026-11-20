@@ -188,6 +188,86 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
     ], [stagedFirstName, stagedLastName]);
     assert.equal(mappingPreview.body.canApprove, false);
     assert.equal(mappingPreview.body.canImport, false);
+    assert.deepEqual(mappingPreview.body.reviewSummary, {
+      totalRows: 3,
+      reviewedRowCount: 0,
+      acceptedRowCount: 0,
+      skippedRowCount: 0,
+      pendingRowCount: 3,
+      complete: false,
+    });
+
+    assert.equal((await call(managerCookie, "POST", "/legacy-imports/" + batchId + "/review", {
+      rowNumber: 3,
+      reason: "SOURCE_RECORD_VERIFIED",
+    })).status, 400, "a source-invalid row cannot be accepted as a new contact");
+    assert.equal((await call(agentCookie, "POST", "/legacy-imports/" + batchId + "/review", {
+      rowNumber: 1,
+      reason: "SOURCE_RECORD_VERIFIED",
+    })).status, 403, "agents cannot make import review decisions");
+
+    const acceptReady = await call(managerCookie, "POST", "/legacy-imports/" + batchId + "/review", {
+      rowNumber: 1,
+      reason: "SOURCE_RECORD_VERIFIED",
+    });
+    assert.equal(acceptReady.status, 200, JSON.stringify(acceptReady.body));
+    assert.equal(acceptReady.body.acceptedRowCount, 1);
+    assert.equal(acceptReady.body.pendingRowCount, 2);
+    assert.equal(acceptReady.body.batchStatus, "NEEDS_REVIEW");
+
+    const skipDuplicate = await call(managerCookie, "POST", "/legacy-imports/" + batchId + "/review", {
+      rowNumber: 2,
+      reason: "EXACT_DUPLICATE_SKIPPED",
+    });
+    assert.equal(skipDuplicate.status, 200, JSON.stringify(skipDuplicate.body));
+    assert.equal(skipDuplicate.body.skippedRowCount, 1);
+    assert.equal(skipDuplicate.body.pendingRowCount, 1);
+
+    const skipInvalid = await call(managerCookie, "POST", "/legacy-imports/" + batchId + "/review", {
+      rowNumber: 3,
+      reason: "INVALID_SOURCE_SKIPPED",
+    });
+    assert.equal(skipInvalid.status, 200, JSON.stringify(skipInvalid.body));
+    assert.equal(skipInvalid.body.batchStatus, "READY_FOR_APPROVAL");
+    assert.equal(skipInvalid.body.complete, true);
+    assert.deepEqual([
+      skipInvalid.body.reviewedRowCount,
+      skipInvalid.body.acceptedRowCount,
+      skipInvalid.body.skippedRowCount,
+      skipInvalid.body.pendingRowCount,
+    ], [3, 1, 2, 0]);
+
+    const reviewedBatch = await db().legacyImportBatch.findUniqueOrThrow({ where: { id: batchId } });
+    assert.equal(reviewedBatch.status, "READY_FOR_APPROVAL");
+    assert.equal(reviewedBatch.reviewedRowCount, 3);
+    assert.equal(reviewedBatch.acceptedRowCount, 1);
+    assert.equal(reviewedBatch.skippedRowCount, 2);
+    assert.ok(reviewedBatch.reviewCompletedAt);
+
+    const reviewedRows = await db().legacyImportRow.findMany({ where: { batchId }, orderBy: { rowNumber: "asc" } });
+    assert.deepEqual(reviewedRows.map((row) => row.reviewDecision), ["ACCEPT_AS_NEW", "SKIP", "SKIP"]);
+    assert.deepEqual(reviewedRows.map((row) => row.reviewReason), [
+      "SOURCE_RECORD_VERIFIED",
+      "EXACT_DUPLICATE_SKIPPED",
+      "INVALID_SOURCE_SKIPPED",
+    ]);
+    assert.ok(reviewedRows.every((row) => row.reviewMappingVersion === LEGACY_IMPORT_MAPPING_VERSION));
+
+    assert.equal((await call(managerCookie, "POST", "/legacy-imports/" + batchId + "/review", {
+      rowNumber: 1,
+      reason: "NOT_RELEVANT",
+    })).status, 409, "decisions cannot be changed after review completion");
+    assert.equal((await call(managerCookie, "PUT", "/legacy-imports/" + batchId + "/mapping", {
+      targetType: "CONTACT",
+      fields: [{ sourceHeader: "Όνομα", targetField: "firstName", transform: "TEXT" }],
+    })).status, 409, "the reviewed mapping is locked at the approval boundary");
+
+    const finalPreview = await call(managerCookie, "POST", "/legacy-imports/" + batchId + "/mapping/preview");
+    assert.equal(finalPreview.status, 200);
+    assert.equal(finalPreview.body.batchStatus, "READY_FOR_APPROVAL");
+    assert.equal(finalPreview.body.reviewSummary.complete, true);
+    assert.deepEqual(finalPreview.body.data.map((row: any) => row.reviewDecision), ["ACCEPT_AS_NEW", "SKIP", "SKIP"]);
+
     const unexpectedlyImported = await db().contact.findFirst({
       where: { firstName: stagedFirstName, lastName: stagedLastName },
       select: { id: true },
@@ -205,6 +285,8 @@ test("Estate+ import: manager-only staging, encryption, duplicate review and sou
     assert.ok(audit.some((entry) => entry.action === "stage"));
     assert.ok(audit.some((entry) => entry.action === "mapping_configured"));
     assert.ok(audit.some((entry) => entry.action === "mapping_preview"));
+    assert.equal(audit.filter((entry) => entry.action === "row_review_decision").length, 3);
+    assert.ok(audit.some((entry) => entry.action === "review_completed"));
     assert.equal(JSON.stringify(audit).includes("Μαρία Παπαδοπούλου"), false, "audit rows contain no source values");
     assert.equal(JSON.stringify(audit).includes("6900000000"), false, "audit rows contain no source phone numbers");
 
